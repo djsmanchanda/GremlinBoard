@@ -25,12 +25,10 @@ export function BoardShell() {
   const {
     board,
     registry,
-    draggedId,
     commandOpen,
     error,
     setBoard,
     setRegistry,
-    setDraggedId,
     setCommandOpen,
     setError,
   } = useBoardStore();
@@ -85,6 +83,12 @@ export function BoardShell() {
   }
 
   async function handleResize(widgetId: string, size: WidgetPreset["size"]) {
+    if (board) {
+      setBoard({
+        ...board,
+        widgets: board.widgets.map((widget) => (widget.id === widgetId ? { ...widget, size } : widget)),
+      });
+    }
     try {
       await resizeWidget(widgetId, size);
     } catch (actionError) {
@@ -128,24 +132,18 @@ export function BoardShell() {
     }
   }
 
-  async function handleDropOn(targetId: string) {
-    if (!board || !draggedId || draggedId === targetId) {
-      setDraggedId(null);
+  async function handleReorder(orderedIds: string[]) {
+    if (!board) {
       return;
     }
-    const ordered = [...board.widgets];
-    const sourceIndex = ordered.findIndex((widget) => widget.id === draggedId);
-    const targetIndex = ordered.findIndex((widget) => widget.id === targetId);
-    if (sourceIndex < 0 || targetIndex < 0) {
-      setDraggedId(null);
-      return;
-    }
-    const [source] = ordered.splice(sourceIndex, 1);
-    ordered.splice(targetIndex, 0, source);
-    setBoard({ ...board, widgets: ordered });
-    setDraggedId(null);
+    const widgetsById = new Map(board.widgets.map((widget) => [widget.id, widget]));
+    const optimisticBoard: BoardState = {
+      ...board,
+      widgets: orderedIds.map((id) => widgetsById.get(id)).filter(Boolean) as BoardState["widgets"],
+    };
+    setBoard(optimisticBoard);
     try {
-      await reorderWidgets(ordered.map((widget) => widget.id));
+      await reorderWidgets(orderedIds);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Failed to reorder widgets");
     }
@@ -204,10 +202,7 @@ export function BoardShell() {
           <BoardGrid
             board={board}
             registry={registry}
-            draggedId={draggedId}
-            onDragStart={(id) => setDraggedId(id)}
-            onDropOn={handleDropOn}
-            onDragEnd={() => setDraggedId(null)}
+            onReorder={handleReorder}
             onResize={handleResize}
             onRefresh={handleRefresh}
             onToggleRun={handleToggleRun}

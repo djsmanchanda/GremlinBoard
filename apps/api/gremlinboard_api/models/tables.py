@@ -41,6 +41,10 @@ class WidgetInstanceRecord(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    service_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    service_uptime_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    restart_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     is_removed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -63,3 +67,44 @@ class StagedWidgetSpecRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class WidgetPluginRecord(Base):
+    __tablename__ = "widget_plugins"
+
+    widget_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    installed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_core: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="manual")
+    source_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    installed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class WidgetPluginVersionRecord(Base):
+    __tablename__ = "widget_plugin_versions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    widget_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(64), nullable=False)
+    package_json: Mapped[str] = mapped_column(Text, nullable=False)
+    is_rollback: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RuntimeLogRecord(Base):
+    __tablename__ = "runtime_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    widget_instance_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    widget_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    event: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

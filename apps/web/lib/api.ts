@@ -1,5 +1,15 @@
 import { API_BASE_URL } from "@/lib/constants";
-import type { BoardState, JsonObject, TileSize, WidgetPreset, WidgetRegistryEntry } from "@/lib/types";
+import type {
+  AIProvider,
+  BoardState,
+  GenerationPipelinePreview,
+  JsonObject,
+  SpecValidationResult,
+  TileSize,
+  WidgetPlugin,
+  WidgetPreset,
+  WidgetRegistryEntry,
+} from "@/lib/types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -89,4 +99,27 @@ export function validateSpec(payload: Record<string, unknown>) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function previewSpecDocument(payload: { format: "json" | "yaml"; content: string }) {
+  return request<SpecValidationResult>("/specs/preview", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchPlugins() {
+  return request<WidgetPlugin[]>("/plugins");
+}
+
+export function fetchAIProviders() {
+  return request<AIProvider[]>("/ai/providers");
+}
+
+export function fetchGenerationPreview(params: { stageId: string; providerId: string }) {
+  const query = new URLSearchParams({
+    stage_id: params.stageId,
+    provider_id: params.providerId,
+  });
+  return request<GenerationPipelinePreview>(`/ai/generation/preview?${query.toString()}`);
 }

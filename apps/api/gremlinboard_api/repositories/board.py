@@ -6,10 +6,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gremlinboard_api.models.tables import BoardRecord, StagedWidgetSpecRecord, WidgetInstanceRecord
+from gremlinboard_api.models.tables import BoardRecord, RuntimeLogRecord, StagedWidgetSpecRecord, WidgetInstanceRecord
 from gremlinboard_api.schemas.contracts import (
     BoardRead,
     LifecycleState,
+    RuntimeLogRead,
     TileSize,
     WidgetInstanceRead,
 )
@@ -83,6 +84,10 @@ class BoardRepository:
         last_error: str | None = None,
         clear_error: bool = False,
         last_heartbeat=None,
+        service_started_at=None,
+        service_uptime_seconds: int | None = None,
+        restart_count: int | None = None,
+        consecutive_failures: int | None = None,
         is_removed: bool | None = None,
     ) -> WidgetInstanceRecord:
         if title is not None:
@@ -109,6 +114,14 @@ class BoardRepository:
             record.last_error = last_error
         if last_heartbeat is not None:
             record.last_heartbeat = last_heartbeat
+        if service_started_at is not None:
+            record.service_started_at = service_started_at
+        if service_uptime_seconds is not None:
+            record.service_uptime_seconds = service_uptime_seconds
+        if restart_count is not None:
+            record.restart_count = restart_count
+        if consecutive_failures is not None:
+            record.consecutive_failures = consecutive_failures
         if is_removed is not None:
             record.is_removed = is_removed
         await self.session.commit()
@@ -145,6 +158,53 @@ class BoardRepository:
         await self.session.refresh(record)
         return record
 
+    async def count_widget_instances_by_widget_id(self, widget_id: str) -> int:
+        result = await self.session.execute(
+            select(WidgetInstanceRecord).where(
+                WidgetInstanceRecord.widget_id == widget_id,
+                WidgetInstanceRecord.is_removed.is_(False),
+            )
+        )
+        return len(list(result.scalars()))
+
+    async def list_widget_instances_by_widget_id(self, widget_id: str) -> list[WidgetInstanceRecord]:
+        result = await self.session.execute(
+            select(WidgetInstanceRecord).where(
+                WidgetInstanceRecord.widget_id == widget_id,
+                WidgetInstanceRecord.is_removed.is_(False),
+            )
+        )
+        return list(result.scalars())
+
+    async def create_runtime_log(
+        self,
+        *,
+        widget_instance_id: str | None,
+        widget_id: str | None,
+        level: str,
+        event: str,
+        message: str,
+        context: dict[str, Any],
+    ) -> RuntimeLogRecord:
+        record = RuntimeLogRecord(
+            widget_instance_id=widget_instance_id,
+            widget_id=widget_id,
+            level=level,
+            event=event,
+            message=message,
+            context_json=json.dumps(context),
+        )
+        self.session.add(record)
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record
+
+    async def list_runtime_logs(self, limit: int = 100) -> list[RuntimeLogRecord]:
+        result = await self.session.execute(
+            select(RuntimeLogRecord).order_by(RuntimeLogRecord.created_at.desc()).limit(limit)
+        )
+        return list(result.scalars())
+
 
 def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
     return WidgetInstanceRead(
@@ -162,8 +222,25 @@ def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
         expires_at=record.expires_at,
         last_error=record.last_error,
         last_heartbeat=record.last_heartbeat,
+        service_started_at=record.service_started_at,
+        service_uptime_seconds=record.service_uptime_seconds,
+        restart_count=record.restart_count,
+        consecutive_failures=record.consecutive_failures,
     )
 
 
 def serialize_board(board: BoardRecord, widgets: list[WidgetInstanceRecord]) -> BoardRead:
     return BoardRead(id=board.id, name=board.name, widgets=[serialize_widget(widget) for widget in widgets])
+
+
+def serialize_runtime_log(record: RuntimeLogRecord) -> RuntimeLogRead:
+    return RuntimeLogRead(
+        id=record.id,
+        widget_instance_id=record.widget_instance_id,
+        widget_id=record.widget_id,
+        level=record.level,
+        event=record.event,
+        message=record.message,
+        context=json.loads(record.context_json or "{}"),
+        created_at=record.created_at,
+    )

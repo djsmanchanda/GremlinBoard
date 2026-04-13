@@ -42,6 +42,8 @@ async def add_widget(
 ) -> WidgetInstanceRead:
     registry = request.app.state.registry
     runtime = request.app.state.runtime_manager
+    if not await request.app.state.plugin_manager.is_enabled(payload.widget_id):
+        raise HTTPException(status_code=400, detail="widget plugin is disabled or not installed")
     try:
         loaded = registry.get(payload.widget_id)
     except KeyError as exc:

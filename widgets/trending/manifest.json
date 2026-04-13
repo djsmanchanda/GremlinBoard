@@ -1,5 +1,6 @@
 {
   "id": "trending",
+  "version": "1.0.0",
   "name": "Trend Stack",
   "category": "social",
   "description": "Tracks trending signals from Reddit, X, Hacker News, and extensible future sources.",
@@ -14,6 +15,14 @@
     "stateful": true,
     "expires": false,
     "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 8,
+    "refresh_timeout_seconds": 8,
+    "heartbeat_timeout_seconds": 600,
+    "max_retries": 3,
+    "retry_backoff_seconds": 2,
+    "stale_after_seconds": 1200
   },
   "permissions": ["network"],
   "renderer": {

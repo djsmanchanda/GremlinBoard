@@ -1,5 +1,6 @@
 {
   "id": "pinboard",
+  "version": "1.0.0",
   "name": "Personal Pinboard",
   "category": "personal",
   "description": "Structured personal notes and pinned reminders that persist until removed.",
@@ -14,6 +15,14 @@
     "stateful": true,
     "expires": false,
     "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 5,
+    "refresh_timeout_seconds": 5,
+    "heartbeat_timeout_seconds": 300,
+    "max_retries": 1,
+    "retry_backoff_seconds": 1,
+    "stale_after_seconds": 600
   },
   "permissions": [],
   "renderer": {

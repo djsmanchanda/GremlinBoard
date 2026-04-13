@@ -1,5 +1,6 @@
 {
   "id": "countdown",
+  "version": "1.0.0",
   "name": "Countdown Timer",
   "category": "utility",
   "description": "Persistent countdown widget for release windows, sessions, and deadlines.",
@@ -14,6 +15,14 @@
     "stateful": true,
     "expires": true,
     "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 5,
+    "refresh_timeout_seconds": 5,
+    "heartbeat_timeout_seconds": 30,
+    "max_retries": 2,
+    "retry_backoff_seconds": 1,
+    "stale_after_seconds": 60
   },
   "permissions": [],
   "renderer": {

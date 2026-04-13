@@ -1,5 +1,6 @@
 {
   "id": "sports",
+  "version": "1.0.0",
   "name": "Sports Pulse",
   "category": "sports",
   "description": "Live sports monitor for IPL, F1, football, and other sports feeds.",
@@ -14,6 +15,14 @@
     "stateful": true,
     "expires": false,
     "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 8,
+    "refresh_timeout_seconds": 8,
+    "heartbeat_timeout_seconds": 120,
+    "max_retries": 4,
+    "retry_backoff_seconds": 2,
+    "stale_after_seconds": 300
   },
   "permissions": ["network"],
   "renderer": {

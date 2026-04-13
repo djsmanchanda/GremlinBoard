@@ -3,12 +3,14 @@ node_modules/
 dist/
 coverage/
 .pytest_cache/
+pytest-cache-files-*/
 .ruff_cache/
 .venv/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.tsbuildinfo
 *.db
 *.sqlite3
 .env

@@ -1,8 +1,65 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from gremlinboard_api.schemas.contracts import ALLOWED_TILE_SIZES, WidgetSpecDraft
+from pydantic import ValidationError
+
+from gremlinboard_api.schemas.contracts import (
+    ALLOWED_TILE_SIZES,
+    SpecDocumentFormat,
+    WidgetManifest,
+    WidgetSpecDraft,
+)
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - depends on local environment
+    yaml = None
+
+
+def parse_spec_document(*, content: str, format: SpecDocumentFormat) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    try:
+        if format == SpecDocumentFormat.JSON:
+            parsed = json.loads(content)
+        else:
+            if yaml is None:
+                return None, [{"message": "PyYAML is not installed; YAML validation is unavailable."}]
+            parsed = yaml.safe_load(content)
+    except json.JSONDecodeError as exc:
+        return None, [{"message": exc.msg, "line": exc.lineno, "column": exc.colno}]
+    except yaml.YAMLError as exc:  # type: ignore[union-attr]
+        mark = getattr(exc, "problem_mark", None)
+        return None, [
+            {
+                "message": str(exc),
+                "line": getattr(mark, "line", 0) + 1 if mark is not None else None,
+                "column": getattr(mark, "column", 0) + 1 if mark is not None else None,
+            }
+        ]
+
+    if not isinstance(parsed, dict):
+        return None, [{"message": "Spec document must evaluate to an object"}]
+    return parsed, []
+
+
+def parse_and_validate_spec(
+    *, content: str, format: SpecDocumentFormat
+) -> tuple[WidgetSpecDraft | None, list[dict[str, Any]]]:
+    parsed, errors = parse_spec_document(content=content, format=format)
+    if errors:
+        return None, errors
+    try:
+        return WidgetSpecDraft.model_validate(parsed), []
+    except ValidationError as exc:
+        return None, [
+            {
+                "message": item["msg"],
+                "path": ".".join(str(part) for part in item["loc"]),
+                "type": item["type"],
+            }
+            for item in exc.errors()
+        ]
 
 
 def validate_widget_spec(spec: WidgetSpecDraft) -> list[str]:
@@ -16,6 +73,30 @@ def validate_widget_spec(spec: WidgetSpecDraft) -> list[str]:
     if "manifest" in spec.description.lower():
         notes.append("description should describe behavior instead of implementation artifacts")
     return notes
+
+
+def build_manifest_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
+    manifest = WidgetManifest(
+        id=spec.id,
+        version="0.1.0",
+        name=spec.name,
+        category=spec.category,
+        description=spec.description,
+        min_size=spec.min_size,
+        preferred_size=spec.preferred_size,
+        allowed_sizes=[spec.min_size, spec.preferred_size],
+        refresh_policy=spec.refresh_policy,
+        lifecycle_policy={
+            "stateful": bool(spec.lifecycle_policy.get("stateful", True)),
+            "expires": bool(spec.lifecycle_policy.get("expires", False)),
+            "default_ttl_seconds": spec.lifecycle_policy.get("default_ttl_seconds"),
+        },
+        permissions=spec.permissions,
+        renderer={"target": spec.renderer_type},
+        service={"module": f"widgets.{spec.id}.backend", "class_name": f"{spec.name.replace(' ', '')}Service"},
+        config_schema="config.schema.json",
+    )
+    return manifest.model_dump(mode="json")
 
 
 def scaffold_preview(spec: WidgetSpecDraft) -> dict[str, Any]:

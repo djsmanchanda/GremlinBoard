@@ -52,6 +52,17 @@ class LifecyclePolicy(BaseModel):
     default_ttl_seconds: int | None = Field(default=None, ge=1)
 
 
+class RuntimePolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start_timeout_seconds: int = Field(default=10, ge=1)
+    refresh_timeout_seconds: int = Field(default=10, ge=1)
+    heartbeat_timeout_seconds: int = Field(default=120, ge=1)
+    max_retries: int = Field(default=3, ge=0)
+    retry_backoff_seconds: int = Field(default=2, ge=1)
+    stale_after_seconds: int = Field(default=300, ge=1)
+
+
 class RendererTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -69,6 +80,7 @@ class WidgetManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
+    version: str = "0.1.0"
     name: str
     category: str
     description: str
@@ -77,6 +89,7 @@ class WidgetManifest(BaseModel):
     allowed_sizes: list[TileSize]
     refresh_policy: RefreshPolicy
     lifecycle_policy: LifecyclePolicy
+    runtime_policy: RuntimePolicy = Field(default_factory=RuntimePolicy)
     permissions: list[str]
     renderer: RendererTarget
     service: ServiceTarget
@@ -142,6 +155,30 @@ class WidgetInstanceRead(BaseModel):
     expires_at: datetime | None = None
     last_error: str | None = None
     last_heartbeat: datetime | None = None
+    service_started_at: datetime | None = None
+    service_uptime_seconds: int = 0
+    restart_count: int = 0
+    consecutive_failures: int = 0
+
+
+class WidgetPluginRead(BaseModel):
+    widget_id: str
+    version: str
+    enabled: bool
+    installed: bool
+    is_core: bool
+    source_type: str
+    source_ref: str | None = None
+    installed_at: datetime | None = None
+    updated_at: datetime | None = None
+    last_error: str | None = None
+
+
+class WidgetPluginVersionRead(BaseModel):
+    widget_id: str
+    version: str
+    created_at: datetime
+    is_rollback: bool
 
 
 class BoardRead(BaseModel):
@@ -153,12 +190,24 @@ class BoardRead(BaseModel):
 class WidgetRegistryEntry(BaseModel):
     manifest: WidgetManifest
     config_schema: dict[str, Any]
+    plugin: WidgetPluginRead | None = None
 
 
 class HealthRead(BaseModel):
     status: str
     registry_size: int
     active_runners: int
+
+
+class RuntimeLogRead(BaseModel):
+    id: str
+    widget_instance_id: str | None = None
+    widget_id: str | None = None
+    level: str
+    event: str
+    message: str
+    context: dict[str, Any]
+    created_at: datetime
 
 
 class WidgetSpecDraft(BaseModel):
@@ -183,4 +232,59 @@ class WidgetSpecValidationRead(BaseModel):
     stage: str
     valid: bool
     notes: list[str]
+    normalized_spec: dict[str, Any] | None = None
+    manifest_preview: dict[str, Any]
     scaffold_preview: dict[str, Any]
+    errors: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SpecDocumentFormat(str, Enum):
+    JSON = "json"
+    YAML = "yaml"
+
+
+class SpecDocumentValidateRequest(BaseModel):
+    format: SpecDocumentFormat
+    content: str
+
+
+class WidgetPackagePayload(BaseModel):
+    manifest: dict[str, Any]
+    config_schema: dict[str, Any]
+    backend_source: str
+    renderer_source: str
+
+
+class WidgetPluginInstallRequest(BaseModel):
+    package: WidgetPackagePayload
+    enabled: bool = True
+    source_type: str = "manual"
+    source_ref: str | None = None
+
+
+class WidgetPluginUpdateRequest(BaseModel):
+    package: WidgetPackagePayload
+    source_ref: str | None = None
+
+
+class WidgetPluginToggleRequest(BaseModel):
+    enabled: bool
+
+
+class WidgetPluginRollbackRequest(BaseModel):
+    version: str
+
+
+class AIProviderRead(BaseModel):
+    provider_id: str
+    label: str
+    status: str
+    supports_codegen: bool
+    supports_review: bool
+
+
+class GenerationPipelinePreviewRead(BaseModel):
+    stage_id: str
+    provider_id: str
+    steps: list[dict[str, Any]]
+    install_blocked: bool

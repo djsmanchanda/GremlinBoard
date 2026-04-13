@@ -11,6 +11,7 @@ export interface RefreshPolicy {
 
 export interface WidgetManifest {
   id: string;
+  version: string;
   name: string;
   category: string;
   description: string;
@@ -23,15 +24,37 @@ export interface WidgetManifest {
     expires: boolean;
     default_ttl_seconds: number | null;
   };
+  runtime_policy: {
+    start_timeout_seconds: number;
+    refresh_timeout_seconds: number;
+    heartbeat_timeout_seconds: number;
+    max_retries: number;
+    retry_backoff_seconds: number;
+    stale_after_seconds: number;
+  };
   permissions: string[];
   renderer: {
     target: string;
   };
 }
 
+export interface WidgetPlugin {
+  widget_id: string;
+  version: string;
+  enabled: boolean;
+  installed: boolean;
+  is_core: boolean;
+  source_type: string;
+  source_ref?: string | null;
+  installed_at?: string | null;
+  updated_at?: string | null;
+  last_error?: string | null;
+}
+
 export interface WidgetRegistryEntry {
   manifest: WidgetManifest;
   config_schema: JsonObject;
+  plugin?: WidgetPlugin | null;
 }
 
 export interface WidgetInstance {
@@ -49,6 +72,10 @@ export interface WidgetInstance {
   expires_at?: string | null;
   last_error?: string | null;
   last_heartbeat?: string | null;
+  service_started_at?: string | null;
+  service_uptime_seconds: number;
+  restart_count: number;
+  consecutive_failures: number;
 }
 
 export interface BoardState {
@@ -70,4 +97,45 @@ export interface WidgetPreset {
   title: string;
   size: TileSize;
   config: JsonObject;
+}
+
+export interface SpecValidationResult {
+  stage_id: string;
+  stage: string;
+  valid: boolean;
+  notes: string[];
+  normalized_spec?: JsonObject | null;
+  manifest_preview: JsonObject;
+  scaffold_preview: {
+    files: string[];
+    review_required: boolean;
+    install_blocked: boolean;
+    widget_root?: string;
+  };
+  errors: Array<{
+    message: string;
+    line?: number;
+    column?: number;
+    path?: string;
+    type?: string;
+  }>;
+}
+
+export interface AIProvider {
+  provider_id: string;
+  label: string;
+  status: string;
+  supports_codegen: boolean;
+  supports_review: boolean;
+}
+
+export interface GenerationPipelinePreview {
+  stage_id: string;
+  provider_id: string;
+  steps: Array<{
+    id: string;
+    label: string;
+    status: string;
+  }>;
+  install_blocked: boolean;
 }
