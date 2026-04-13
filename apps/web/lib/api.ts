@@ -2,6 +2,7 @@ import { API_BASE_URL } from "@/lib/constants";
 import type {
   AIProvider,
   BoardState,
+  GenerationJob,
   GenerationPipelinePreview,
   JsonObject,
   SpecValidationResult,
@@ -122,4 +123,54 @@ export function fetchGenerationPreview(params: { stageId: string; providerId: st
     provider_id: params.providerId,
   });
   return request<GenerationPipelinePreview>(`/ai/generation/preview?${query.toString()}`);
+}
+
+export function fetchGenerationJobs(widgetId?: string) {
+  const query = widgetId ? `?widget_id=${encodeURIComponent(widgetId)}` : "";
+  return request<GenerationJob[]>(`/ai/generation/jobs${query}`);
+}
+
+export function fetchGenerationJob(jobId: string) {
+  return request<GenerationJob>(`/ai/generation/jobs/${jobId}`);
+}
+
+export function createGenerationJob(payload: {
+  provider_id?: string;
+  fallback_provider_ids?: string[];
+  stage_id?: string;
+  idea?: string;
+  regenerate_from_job_id?: string;
+  version?: string;
+}) {
+  return request<GenerationJob>("/ai/generation/jobs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approveGenerationJob(jobId: string) {
+  return request<GenerationJob>(`/ai/generation/jobs/${jobId}/approve`, {
+    method: "POST",
+  });
+}
+
+export function rejectGenerationJob(jobId: string, reason: string) {
+  return request<GenerationJob>(`/ai/generation/jobs/${jobId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function installGenerationJob(jobId: string, enabled = true) {
+  return request<GenerationJob>(`/ai/generation/jobs/${jobId}/install`, {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function rollbackGeneratedWidget(widgetId: string, version: string) {
+  return request<WidgetPlugin>(`/ai/generation/widgets/${widgetId}/rollback`, {
+    method: "POST",
+    body: JSON.stringify({ version }),
+  });
 }

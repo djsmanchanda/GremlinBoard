@@ -127,6 +127,7 @@ export interface AIProvider {
   status: string;
   supports_codegen: boolean;
   supports_review: boolean;
+  supports_idea_to_spec: boolean;
 }
 
 export interface GenerationPipelinePreview {
@@ -138,4 +139,71 @@ export interface GenerationPipelinePreview {
     status: string;
   }>;
   install_blocked: boolean;
+}
+
+export type GenerationJobStatus =
+  | "queued"
+  | "running"
+  | "review_required"
+  | "approved"
+  | "rejected"
+  | "installed"
+  | "failed";
+
+export interface GenerationArtifactFile {
+  path: string;
+  language: string;
+  content: string;
+}
+
+export interface GenerationArtifactDiff {
+  path: string;
+  changed: boolean;
+  summary: string;
+  diff: string;
+}
+
+export interface GenerationArtifact {
+  stage: string;
+  artifact_type: string;
+  artifact_version: number;
+  files: GenerationArtifactFile[];
+  payload?: JsonObject | null;
+  created_at: string;
+}
+
+export interface GenerationJobLog {
+  id: string;
+  level: string;
+  step: string;
+  message: string;
+  context: JsonObject;
+  created_at: string;
+}
+
+export interface GenerationJob {
+  id: string;
+  widget_id: string;
+  stage_id?: string | null;
+  requested_provider_id?: string | null;
+  provider_id: string;
+  status: GenerationJobStatus;
+  current_step?: string | null;
+  idea?: string | null;
+  install_blocked: boolean;
+  artifact_version: number;
+  selected_version: string;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  artifacts: GenerationArtifact[];
+  logs: GenerationJobLog[];
+  install_target?: {
+    action: "install" | "update";
+    widget_id: string;
+    current_version?: string | null;
+    next_version: string;
+  } | null;
+  diff_preview: GenerationArtifactDiff[];
 }

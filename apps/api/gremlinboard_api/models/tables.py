@@ -108,3 +108,51 @@ class RuntimeLogRecord(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False)
     context_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GenerationJobRecord(Base):
+    __tablename__ = "generation_jobs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    widget_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    stage_id: Mapped[str | None] = mapped_column(ForeignKey("staged_widget_specs.id"), nullable=True, index=True)
+    requested_provider_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
+    current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    idea_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    install_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    artifact_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    selected_version: Mapped[str] = mapped_column(String(64), nullable=False, default="0.1.0")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class GenerationJobLogRecord(Base):
+    __tablename__ = "generation_job_logs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    job_id: Mapped[str] = mapped_column(ForeignKey("generation_jobs.id"), nullable=False, index=True)
+    level: Mapped[str] = mapped_column(String(16), nullable=False)
+    step: Mapped[str] = mapped_column(String(32), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    context_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GenerationArtifactRecord(Base):
+    __tablename__ = "generation_artifacts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    job_id: Mapped[str] = mapped_column(ForeignKey("generation_jobs.id"), nullable=False, index=True)
+    widget_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    artifact_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    stage: Mapped[str] = mapped_column(String(32), nullable=False)
+    artifact_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    content_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

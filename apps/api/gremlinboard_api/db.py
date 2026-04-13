@@ -31,6 +31,9 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 async def init_db() -> None:
     from gremlinboard_api.models.tables import (
         BoardRecord,
+        GenerationArtifactRecord,
+        GenerationJobLogRecord,
+        GenerationJobRecord,
         RuntimeLogRecord,
         StagedWidgetSpecRecord,
         WidgetInstanceRecord,
