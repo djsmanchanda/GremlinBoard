@@ -246,6 +246,13 @@ class PluginManagerService:
         plugin = await self.get_plugin(widget_id)
         return bool(plugin and plugin.installed and plugin.enabled)
 
+    def read_installed_package(self, widget_id: str) -> dict[str, Any] | None:
+        try:
+            entry = self.registry.get(widget_id)
+        except KeyError:
+            return None
+        return self._read_package(entry.root_dir)
+
     @staticmethod
     def _read_package(widget_root: Path) -> dict[str, Any]:
         return {

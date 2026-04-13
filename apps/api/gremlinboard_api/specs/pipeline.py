@@ -76,9 +76,13 @@ def validate_widget_spec(spec: WidgetSpecDraft) -> list[str]:
 
 
 def build_manifest_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
+    return build_manifest_preview_with_version(spec, version="0.1.0")
+
+
+def build_manifest_preview_with_version(spec: WidgetSpecDraft, *, version: str) -> dict[str, Any]:
     manifest = WidgetManifest(
         id=spec.id,
-        version="0.1.0",
+        version=version,
         name=spec.name,
         category=spec.category,
         description=spec.description,

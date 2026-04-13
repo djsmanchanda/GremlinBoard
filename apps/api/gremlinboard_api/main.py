@@ -74,7 +74,10 @@ async def lifespan(app: FastAPI):
     )
     await plugin_manager.sync_with_filesystem()
     event_bus = EventBus()
-    generation_pipeline = GenerationPipelineService(session_factory=SessionLocal)
+    generation_pipeline = GenerationPipelineService(
+        session_factory=SessionLocal,
+        plugin_manager=plugin_manager,
+    )
     runtime_manager = RuntimeManager(
         session_factory=SessionLocal,
         registry=registry_loader,

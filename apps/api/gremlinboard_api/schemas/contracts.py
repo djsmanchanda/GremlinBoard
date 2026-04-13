@@ -281,6 +281,94 @@ class AIProviderRead(BaseModel):
     status: str
     supports_codegen: bool
     supports_review: bool
+    supports_idea_to_spec: bool
+
+
+class GenerationJobStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    REVIEW_REQUIRED = "review_required"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    INSTALLED = "installed"
+    FAILED = "failed"
+
+
+class GenerationJobCreateRequest(BaseModel):
+    provider_id: str | None = None
+    fallback_provider_ids: list[str] = Field(default_factory=list)
+    stage_id: str | None = None
+    idea: str | None = None
+    regenerate_from_job_id: str | None = None
+    version: str | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "GenerationJobCreateRequest":
+        provided = [bool(self.stage_id), bool(self.idea), bool(self.regenerate_from_job_id)]
+        if sum(provided) != 1:
+            raise ValueError("exactly one of stage_id, idea, or regenerate_from_job_id must be provided")
+        return self
+
+
+class GenerationJobRejectRequest(BaseModel):
+    reason: str = Field(min_length=1)
+
+
+class GenerationJobInstallRequest(BaseModel):
+    enabled: bool = True
+
+
+class GenerationJobLogRead(BaseModel):
+    id: str
+    level: str
+    step: str
+    message: str
+    context: dict[str, Any]
+    created_at: datetime
+
+
+class GenerationArtifactFileRead(BaseModel):
+    path: str
+    language: str
+    content: str
+
+
+class GenerationArtifactDiffRead(BaseModel):
+    path: str
+    changed: bool
+    summary: str
+    diff: str
+
+
+class GenerationArtifactRead(BaseModel):
+    stage: str
+    artifact_type: str
+    artifact_version: int
+    files: list[GenerationArtifactFileRead] = Field(default_factory=list)
+    payload: dict[str, Any] | None = None
+    created_at: datetime
+
+
+class GenerationJobRead(BaseModel):
+    id: str
+    widget_id: str
+    stage_id: str | None = None
+    requested_provider_id: str | None = None
+    provider_id: str
+    status: GenerationJobStatus
+    current_step: str | None = None
+    idea: str | None = None
+    install_blocked: bool
+    artifact_version: int
+    selected_version: str
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+    artifacts: list[GenerationArtifactRead] = Field(default_factory=list)
+    logs: list[GenerationJobLogRead] = Field(default_factory=list)
+    install_target: dict[str, Any] | None = None
+    diff_preview: list[GenerationArtifactDiffRead] = Field(default_factory=list)
 
 
 class GenerationPipelinePreviewRead(BaseModel):
