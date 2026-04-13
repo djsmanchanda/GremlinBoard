@@ -17,6 +17,7 @@ from gremlinboard_api.schemas.contracts import (
     WidgetReorder,
     WidgetResize,
 )
+from gremlinboard_api.validation.config_schema import ConfigValidationError, normalize_config
 
 
 router = APIRouter(prefix="/board", tags=["board"])
@@ -51,6 +52,10 @@ async def add_widget(
 
     if payload.size not in loaded.manifest.allowed_sizes:
         raise HTTPException(status_code=400, detail="requested size is not supported by this widget")
+    try:
+        normalized_config = normalize_config(loaded.config_schema, payload.config)
+    except ConfigValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
 
     repository = BoardRepository(session)
     await repository.ensure_board(settings.default_board_id, "GremlinBoard")
@@ -66,7 +71,7 @@ async def add_widget(
         title=payload.title or loaded.manifest.name,
         size=payload.size,
         position_index=len(widgets),
-        config=payload.config,
+        config=normalized_config,
         lifecycle_state=LifecycleState.CREATED,
         expires_at=expires_at,
     )
@@ -124,12 +129,17 @@ async def update_widget(
 
     current_config = serialize_widget(record).config
     next_config = payload.config if payload.config is not None else current_config
+    try:
+        loaded = request.app.state.registry.get(record.widget_id)
+        normalized_config = normalize_config(loaded.config_schema, next_config)
+    except ConfigValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors) from exc
     updated = await repository.update_widget(
         record,
         title=payload.title or record.title,
-        config=next_config,
+        config=normalized_config,
     )
-    await request.app.state.runtime_manager.update_widget_config(widget_instance_id, next_config)
+    await request.app.state.runtime_manager.update_widget_config(widget_instance_id, normalized_config)
     return serialize_widget(updated)
 
 

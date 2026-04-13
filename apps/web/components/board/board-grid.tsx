@@ -235,6 +235,7 @@ export function BoardGrid({
               <WidgetCard
                 widget={widget}
                 manifest={manifest}
+                configSchema={entry.config_schema}
                 plugin={entry.plugin}
                 selected={selectedId === widget.id}
                 hovered={hoveredId === widget.id}
@@ -299,6 +300,7 @@ export function BoardGrid({
                 <WidgetCard
                   widget={widget}
                   manifest={entry.manifest}
+                  configSchema={entry.config_schema}
                   plugin={entry.plugin}
                   selected
                   hovered={false}

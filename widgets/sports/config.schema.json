@@ -4,11 +4,38 @@
   "properties": {
     "sport": {
       "type": "string",
-      "enum": ["ipl", "f1", "football", "other"],
+      "enum": ["ipl", "f1", "football"],
       "default": "ipl"
     },
-    "team_or_topic": {
-      "type": "string"
+    "provider": {
+      "type": "string",
+      "enum": ["auto", "cricketdata", "openf1", "football-data"],
+      "default": "auto"
+    },
+    "competition_code": {
+      "type": "string",
+      "default": "PL"
+    },
+    "tournament": {
+      "type": "string",
+      "default": "IPL"
+    },
+    "refresh_behavior": {
+      "type": "string",
+      "enum": ["auto", "live", "interval", "manual"],
+      "default": "auto"
+    },
+    "refresh_interval_seconds": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 3600,
+      "default": 30
+    },
+    "cache_ttl_seconds": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 3600,
+      "default": 20
     }
   },
   "additionalProperties": false

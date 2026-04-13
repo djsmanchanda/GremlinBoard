@@ -9,6 +9,47 @@
         "enum": ["reddit", "x", "hackernews"]
       },
       "default": ["reddit", "x", "hackernews"]
+    },
+    "subreddit": {
+      "type": "string",
+      "default": "technology"
+    },
+    "reddit_listing": {
+      "type": "string",
+      "enum": ["hot", "new", "top", "rising"],
+      "default": "hot"
+    },
+    "x_query": {
+      "type": "string",
+      "default": "technology OR ai"
+    },
+    "hn_story_type": {
+      "type": "string",
+      "enum": ["top", "best", "new"],
+      "default": "top"
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20,
+      "default": 5
+    },
+    "refresh_behavior": {
+      "type": "string",
+      "enum": ["auto", "interval", "live", "manual"],
+      "default": "interval"
+    },
+    "refresh_interval_seconds": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 3600,
+      "default": 300
+    },
+    "cache_ttl_seconds": {
+      "type": "integer",
+      "minimum": 30,
+      "maximum": 3600,
+      "default": 120
     }
   },
   "additionalProperties": false

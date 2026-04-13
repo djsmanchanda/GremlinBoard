@@ -2,13 +2,15 @@
 
 import type { PointerEvent as ReactPointerEvent } from "react";
 
+import { WidgetRenderer } from "@/components/board/renderers";
+import { WidgetSettingsPanel } from "@/components/board/widget-settings-panel";
 import type { JsonObject, WidgetInstance, WidgetManifest, WidgetPlugin } from "@/lib/types";
 import { formatFreshness } from "@/lib/utils";
-import { WidgetRenderer } from "@/components/board/renderers";
 
 interface WidgetCardProps {
   widget: WidgetInstance;
   manifest: WidgetManifest;
+  configSchema: JsonObject;
   plugin?: WidgetPlugin | null;
   selected: boolean;
   hovered: boolean;
@@ -37,6 +39,7 @@ function formatUptime(seconds: number) {
 export function WidgetCard({
   widget,
   manifest,
+  configSchema,
   plugin,
   selected,
   hovered,
@@ -52,6 +55,17 @@ export function WidgetCard({
   onUpdateConfig,
 }: WidgetCardProps) {
   const isRunning = widget.lifecycle_state === "running" || widget.lifecycle_state === "created";
+  const meta = typeof widget.state.meta === "object" && widget.state.meta ? (widget.state.meta as JsonObject) : {};
+  const providerStates = Array.isArray(meta.providers)
+    ? (meta.providers as Array<{
+        provider_id?: string;
+        label?: string;
+        status?: string;
+        error?: string | null;
+      }>)
+    : [];
+  const primaryProvider =
+    typeof meta.primary_provider === "string" ? meta.primary_provider : providerStates[0]?.provider_id;
   const containerClasses = [
     "flex h-full flex-col rounded-[28px] border p-4 shadow-[0_24px_80px_rgba(2,8,23,0.28)] transition duration-300",
     ghost ? "border-cyan-300/40 bg-[rgba(8,14,26,0.82)] opacity-90" : "bg-[rgba(8,14,26,0.94)]",
@@ -103,11 +117,17 @@ export function WidgetCard({
 
       <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-slate-400">
         <span>Freshness {formatFreshness(widget.freshness_at)}</span>
-        <span className="text-slate-600">•</span>
+        <span className="text-slate-600">|</span>
         <span>{manifest.refresh_policy.mode}</span>
-        <span className="text-slate-600">•</span>
+        {primaryProvider ? (
+          <>
+            <span className="text-slate-600">|</span>
+            <span>Source {primaryProvider}</span>
+          </>
+        ) : null}
+        <span className="text-slate-600">|</span>
         <span>Uptime {formatUptime(widget.service_uptime_seconds)}</span>
-        <span className="text-slate-600">•</span>
+        <span className="text-slate-600">|</span>
         <span>Restarts {widget.restart_count}</span>
       </div>
 
@@ -161,6 +181,12 @@ export function WidgetCard({
       </div>
       {widget.status_message ? <p className="mt-3 text-xs text-slate-400">{widget.status_message}</p> : null}
       {widget.last_error ? <p className="mt-1 text-xs text-rose-300">{widget.last_error}</p> : null}
+      <WidgetSettingsPanel
+        configSchema={configSchema}
+        value={widget.config}
+        onSave={onUpdateConfig}
+        providerStates={providerStates}
+      />
     </div>
   );
 }

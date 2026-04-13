@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gremlinboard_api.registry.loader import WidgetRegistry
 from gremlinboard_api.repositories.board import BoardRepository, serialize_board, serialize_runtime_log
-from gremlinboard_api.runtime.base import BaseWidgetService
+from gremlinboard_api.runtime.base import BaseWidgetService, RefreshDirective, ServiceContext
 from gremlinboard_api.runtime.events import EventBus
 from gremlinboard_api.schemas.contracts import LifecycleState, WidgetManifest
 
@@ -40,6 +40,7 @@ class WidgetRunner:
     last_heartbeat_at: datetime | None = None
     last_refresh_at: datetime | None = None
     pending_stop_reason: str | None = None
+    refresh_directive: RefreshDirective | None = None
 
 
 class RuntimeManager:
@@ -51,12 +52,14 @@ class RuntimeManager:
         event_bus: EventBus,
         board_id: str,
         is_widget_enabled: Callable[[str], Awaitable[bool]] | None = None,
+        service_context: ServiceContext | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.registry = registry
         self.event_bus = event_bus
         self.board_id = board_id
         self.is_widget_enabled = is_widget_enabled
+        self.service_context = service_context
         self._runners: dict[str, WidgetRunner] = {}
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
@@ -178,7 +181,7 @@ class RuntimeManager:
         runner = self._runners.get(instance_id)
         if runner is None:
             return
-        await self._refresh_runner(runner)
+        await self._refresh_runner(runner, force=True)
         await self.publish_board_snapshot()
 
     async def update_widget_config(self, instance_id: str, config: dict[str, Any]) -> None:
@@ -186,6 +189,7 @@ class RuntimeManager:
         if runner is not None:
             runner.config = config
             if runner.service is not None:
+                await runner.service.invalidate_cache()
                 await runner.service.set_config(config)
         async with self.session_factory() as session:
             repository = BoardRepository(session)
@@ -303,11 +307,12 @@ class RuntimeManager:
             context={"widget_id": runner.widget_id, "version": runner.manifest.version},
         )
 
-        await self._refresh_runner(runner)
+        await self._refresh_runner(runner, force=False)
         while not runner.stop_event.is_set():
+            directive = self._resolve_refresh_directive(runner)
             interval = (
-                runner.manifest.refresh_policy.interval_seconds
-                if runner.manifest.refresh_policy.mode != "manual"
+                directive.interval_seconds
+                if directive.mode != "manual"
                 else min(runner.manifest.runtime_policy.heartbeat_timeout_seconds, 30)
             )
             try:
@@ -316,16 +321,16 @@ class RuntimeManager:
                 pass
             if runner.stop_event.is_set():
                 break
-            if runner.manifest.refresh_policy.mode != "manual":
-                await self._refresh_runner(runner)
+            if directive.mode != "manual":
+                await self._refresh_runner(runner, force=False)
 
-    async def _refresh_runner(self, runner: WidgetRunner) -> None:
+    async def _refresh_runner(self, runner: WidgetRunner, *, force: bool) -> None:
         if runner.service is None:
             raise RuntimeFailure(event="runner.missing_service", message="service is not available for refresh")
         now = datetime.now(timezone.utc)
         try:
             state = await asyncio.wait_for(
-                runner.service.refresh(),
+                runner.service.refresh(force=force),
                 timeout=runner.manifest.runtime_policy.refresh_timeout_seconds,
             )
             health = await asyncio.wait_for(
@@ -341,6 +346,7 @@ class RuntimeManager:
 
         runner.last_heartbeat_at = now
         runner.last_refresh_at = now
+        runner.refresh_directive = runner.service.get_refresh_directive()
         runner.consecutive_failures = 0
         lifecycle_state = LifecycleState.RUNNING
         expires_at = False
@@ -506,7 +512,12 @@ class RuntimeManager:
     ) -> BaseWidgetService:
         module = importlib.import_module(manifest.service.module)
         service_class = getattr(module, manifest.service.class_name)
-        service = service_class(instance_id=instance_id, manifest=manifest, config=config)
+        service = service_class(
+            instance_id=instance_id,
+            manifest=manifest,
+            config=config,
+            service_context=self.service_context,
+        )
         if not isinstance(service, BaseWidgetService):
             raise TypeError(f"widget service {manifest.id} must inherit BaseWidgetService")
         return service
@@ -516,3 +527,35 @@ class RuntimeManager:
         if runner.last_started_at is None:
             return 0
         return max(int((datetime.now(timezone.utc) - runner.last_started_at).total_seconds()), 0)
+
+    @staticmethod
+    def _config_interval_override(config: dict[str, Any]) -> int | None:
+        value = config.get("refresh_interval_seconds")
+        if isinstance(value, int) and value > 0 and not isinstance(value, bool):
+            return value
+        return None
+
+    def _resolve_refresh_directive(self, runner: WidgetRunner) -> RefreshDirective:
+        behavior = str(runner.config.get("refresh_behavior") or "auto")
+        interval_override = self._config_interval_override(runner.config)
+        service_directive = runner.refresh_directive
+        manifest_mode = runner.manifest.refresh_policy.mode
+        manifest_interval = runner.manifest.refresh_policy.interval_seconds
+
+        if behavior in {"manual", "interval", "live"}:
+            return RefreshDirective(
+                mode=behavior,
+                interval_seconds=interval_override or manifest_interval,
+                reason="widget config override",
+            )
+        if service_directive is not None:
+            return RefreshDirective(
+                mode=service_directive.mode,
+                interval_seconds=interval_override or service_directive.interval_seconds,
+                reason=service_directive.reason,
+            )
+        return RefreshDirective(
+            mode=manifest_mode,
+            interval_seconds=interval_override or manifest_interval,
+            reason="manifest refresh policy",
+        )
