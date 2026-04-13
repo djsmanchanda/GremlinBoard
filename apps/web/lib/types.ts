@@ -60,6 +60,7 @@ export interface WidgetRegistryEntry {
 export interface WidgetInstance {
   id: string;
   board_id: string;
+  owner_user_id?: string | null;
   widget_id: string;
   title: string;
   size: TileSize;
@@ -81,6 +82,7 @@ export interface WidgetInstance {
 export interface BoardState {
   id: string;
   name: string;
+  owner_user_id?: string | null;
   widgets: WidgetInstance[];
 }
 
@@ -206,4 +208,108 @@ export interface GenerationJob {
     next_version: string;
   } | null;
   diff_preview: GenerationArtifactDiff[];
+}
+
+export interface User {
+  id: string;
+  email: string;
+  display_name: string;
+  role: string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface SessionContext {
+  id: string;
+  user_id: string;
+  status: string;
+  last_seen_at: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export interface AuthContext {
+  user: User;
+  session: SessionContext;
+}
+
+export interface RuntimeSettingsSection {
+  monitor_interval_seconds: number;
+  metrics_retention_points: number;
+  log_view_limit: number;
+}
+
+export interface AppearanceSettingsSection {
+  theme_mode: string;
+  board_density: string;
+  show_grid_overlay: boolean;
+  reduced_motion: boolean;
+}
+
+export interface AIProviderSettingsSection {
+  default_provider_id: string;
+  fallback_provider_ids: string[];
+  enabled_provider_ids: string[];
+}
+
+export interface AppSettingsSection {
+  board_label: string;
+  command_box_hint: string;
+}
+
+export interface SystemSettings {
+  runtime: RuntimeSettingsSection;
+  appearance: AppearanceSettingsSection;
+  ai: AIProviderSettingsSection;
+  app: AppSettingsSection;
+}
+
+export interface ApiCredential {
+  id: string;
+  provider: string;
+  label: string;
+  masked_value: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuntimeMetric {
+  scope_type: string;
+  scope_id?: string | null;
+  metric_name: string;
+  metric_value: number;
+  tags: JsonObject;
+  created_at: string;
+}
+
+export interface RuntimeLog {
+  id: string;
+  widget_instance_id?: string | null;
+  widget_id?: string | null;
+  level: string;
+  event: string;
+  message: string;
+  context: JsonObject;
+  created_at: string;
+}
+
+export interface WidgetHealth {
+  widget_instance_id: string;
+  widget_id: string;
+  title: string;
+  lifecycle_state: LifecycleState;
+  status_message?: string | null;
+  freshness_at?: string | null;
+  last_error?: string | null;
+  restart_count: number;
+  consecutive_failures: number;
+  service_uptime_seconds: number;
+}
+
+export interface ObservabilityOverview {
+  collected_at: string;
+  summary: Record<string, number>;
+  metrics: RuntimeMetric[];
+  widget_health: WidgetHealth[];
+  timeline: RuntimeLog[];
 }

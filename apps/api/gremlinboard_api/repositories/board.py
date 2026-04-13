@@ -20,11 +20,15 @@ class BoardRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def ensure_board(self, board_id: str, name: str) -> BoardRecord:
+    async def ensure_board(self, board_id: str, name: str, owner_user_id: str | None = None) -> BoardRecord:
         board = await self.session.get(BoardRecord, board_id)
         if board is None:
-            board = BoardRecord(id=board_id, name=name)
+            board = BoardRecord(id=board_id, name=name, owner_user_id=owner_user_id)
             self.session.add(board)
+            await self.session.commit()
+            await self.session.refresh(board)
+        elif owner_user_id is not None and board.owner_user_id is None:
+            board.owner_user_id = owner_user_id
             await self.session.commit()
             await self.session.refresh(board)
         return board
@@ -44,6 +48,7 @@ class BoardRepository:
         self,
         *,
         board_id: str,
+        owner_user_id: str | None,
         widget_id: str,
         title: str,
         size: TileSize,
@@ -54,6 +59,7 @@ class BoardRepository:
     ) -> WidgetInstanceRecord:
         record = WidgetInstanceRecord(
             board_id=board_id,
+            owner_user_id=owner_user_id,
             widget_id=widget_id,
             title=title,
             size=size.value,
@@ -210,6 +216,7 @@ def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
     return WidgetInstanceRead(
         id=record.id,
         board_id=record.board_id,
+        owner_user_id=record.owner_user_id,
         widget_id=record.widget_id,
         title=record.title,
         size=TileSize(record.size),
@@ -230,7 +237,12 @@ def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
 
 
 def serialize_board(board: BoardRecord, widgets: list[WidgetInstanceRecord]) -> BoardRead:
-    return BoardRead(id=board.id, name=board.name, widgets=[serialize_widget(widget) for widget in widgets])
+    return BoardRead(
+        id=board.id,
+        name=board.name,
+        owner_user_id=board.owner_user_id,
+        widgets=[serialize_widget(widget) for widget in widgets],
+    )
 
 
 def serialize_runtime_log(record: RuntimeLogRecord) -> RuntimeLogRead:

@@ -143,6 +143,7 @@ class WidgetInstanceRead(BaseModel):
 
     id: str
     board_id: str
+    owner_user_id: str | None = None
     widget_id: str
     title: str
     size: TileSize
@@ -184,6 +185,7 @@ class WidgetPluginVersionRead(BaseModel):
 class BoardRead(BaseModel):
     id: str
     name: str
+    owner_user_id: str | None = None
     widgets: list[WidgetInstanceRead]
 
 
@@ -325,6 +327,120 @@ class GenerationJobLogRead(BaseModel):
     message: str
     context: dict[str, Any]
     created_at: datetime
+
+
+class RuntimeMetricRead(BaseModel):
+    scope_type: str
+    scope_id: str | None = None
+    metric_name: str
+    metric_value: int
+    tags: dict[str, Any]
+    created_at: datetime
+
+
+class UserRead(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    role: str
+    is_active: bool
+    created_at: datetime
+
+
+class SessionRead(BaseModel):
+    id: str
+    user_id: str
+    status: str
+    last_seen_at: datetime
+    expires_at: datetime
+    created_at: datetime
+
+
+class AuthContextRead(BaseModel):
+    user: UserRead
+    session: SessionRead
+
+
+class RuntimeSettingsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitor_interval_seconds: int = Field(default=5, ge=1, le=60)
+    metrics_retention_points: int = Field(default=120, ge=10, le=1000)
+    log_view_limit: int = Field(default=200, ge=20, le=1000)
+
+
+class AppearanceSettingsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    theme_mode: str = "control"
+    board_density: str = "comfortable"
+    show_grid_overlay: bool = True
+    reduced_motion: bool = False
+
+
+class AIProviderSettingsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_provider_id: str = "codex"
+    fallback_provider_ids: list[str] = Field(default_factory=lambda: ["claude"])
+    enabled_provider_ids: list[str] = Field(default_factory=lambda: ["codex", "claude"])
+
+
+class AppSettingsSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    board_label: str = "GremlinBoard"
+    command_box_hint: str = "Add widget"
+
+
+class SystemSettingsRead(BaseModel):
+    runtime: RuntimeSettingsSection
+    appearance: AppearanceSettingsSection
+    ai: AIProviderSettingsSection
+    app: AppSettingsSection
+
+
+class SystemSettingsUpdateRequest(BaseModel):
+    runtime: RuntimeSettingsSection | None = None
+    appearance: AppearanceSettingsSection | None = None
+    ai: AIProviderSettingsSection | None = None
+    app: AppSettingsSection | None = None
+
+
+class ApiCredentialRead(BaseModel):
+    id: str
+    provider: str
+    label: str
+    masked_value: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ApiCredentialUpsertRequest(BaseModel):
+    provider: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    value: str = Field(min_length=1)
+
+
+class WidgetHealthRead(BaseModel):
+    widget_instance_id: str
+    widget_id: str
+    title: str
+    lifecycle_state: LifecycleState
+    status_message: str | None = None
+    freshness_at: datetime | None = None
+    last_error: str | None = None
+    restart_count: int
+    consecutive_failures: int
+    service_uptime_seconds: int
+
+
+class ObservabilityOverviewRead(BaseModel):
+    collected_at: datetime
+    summary: dict[str, int]
+    metrics: list[RuntimeMetricRead]
+    widget_health: list[WidgetHealthRead]
+    timeline: list[RuntimeLogRead]
 
 
 class GenerationArtifactFileRead(BaseModel):

@@ -53,7 +53,8 @@ async def add_widget(
         raise HTTPException(status_code=400, detail="requested size is not supported by this widget")
 
     repository = BoardRepository(session)
-    await repository.ensure_board(settings.default_board_id, "GremlinBoard")
+    owner_user_id = request.state.auth_context.user.id
+    await repository.ensure_board(settings.default_board_id, "GremlinBoard", owner_user_id=owner_user_id)
     widgets = await repository.list_widgets(settings.default_board_id)
     expires_at = None
     if loaded.manifest.lifecycle_policy.expires and loaded.manifest.lifecycle_policy.default_ttl_seconds:
@@ -62,6 +63,7 @@ async def add_widget(
         )
     record = await repository.create_widget(
         board_id=settings.default_board_id,
+        owner_user_id=owner_user_id,
         widget_id=payload.widget_id,
         title=payload.title or loaded.manifest.name,
         size=payload.size,
