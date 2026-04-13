@@ -1,0 +1,18 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app:/app/apps/api
+
+COPY apps/api /app/apps/api
+COPY widgets /app/widgets
+COPY schemas /app/schemas
+COPY data /app/data
+
+RUN pip install --no-cache-dir /app/apps/api
+
+EXPOSE 8000
+
+CMD ["uvicorn", "--app-dir", "/app/apps/api", "gremlinboard_api.main:app", "--host", "0.0.0.0", "--port", "8000"]

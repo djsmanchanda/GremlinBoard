@@ -30,12 +30,17 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 async def init_db() -> None:
     from gremlinboard_api.models.tables import (
+        ApiCredentialRecord,
         BoardRecord,
         GenerationArtifactRecord,
         GenerationJobLogRecord,
         GenerationJobRecord,
         RuntimeLogRecord,
+        RuntimeMetricRecord,
+        SessionRecord,
         StagedWidgetSpecRecord,
+        SystemSettingsRecord,
+        UserRecord,
         WidgetInstanceRecord,
         WidgetPluginRecord,
         WidgetPluginVersionRecord,
@@ -49,8 +54,16 @@ async def init_db() -> None:
 async def _run_migrations(connection) -> None:
     await _ensure_columns(
         connection,
+        "boards",
+        {
+            "owner_user_id": "ALTER TABLE boards ADD COLUMN owner_user_id VARCHAR(64)",
+        },
+    )
+    await _ensure_columns(
+        connection,
         "widget_instances",
         {
+            "owner_user_id": "ALTER TABLE widget_instances ADD COLUMN owner_user_id VARCHAR(64)",
             "service_started_at": "ALTER TABLE widget_instances ADD COLUMN service_started_at DATETIME",
             "service_uptime_seconds": "ALTER TABLE widget_instances ADD COLUMN service_uptime_seconds INTEGER NOT NULL DEFAULT 0",
             "restart_count": "ALTER TABLE widget_instances ADD COLUMN restart_count INTEGER NOT NULL DEFAULT 0",

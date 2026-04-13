@@ -29,6 +29,7 @@ from gremlinboard_api.schemas.contracts import (
 )
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.scaffold_generator import WidgetScaffoldGenerator
+from gremlinboard_api.services.system_settings import SystemSettingsService
 from gremlinboard_api.specs.pipeline import (
     build_manifest_preview_with_version,
     scaffold_preview,
@@ -42,9 +43,11 @@ class GenerationPipelineService:
         *,
         session_factory: async_sessionmaker[AsyncSession],
         plugin_manager: PluginManagerService,
+        settings_service: SystemSettingsService,
     ) -> None:
         self.session_factory = session_factory
         self.plugin_manager = plugin_manager
+        self.settings_service = settings_service
         self.scaffold_generator = WidgetScaffoldGenerator()
         self.providers: dict[str, AIProvider] = {
             "codex": CodexProvider(),
@@ -52,14 +55,16 @@ class GenerationPipelineService:
         }
 
     async def list_providers(self) -> list[AIProviderRead]:
+        settings = await self.settings_service.read()
         items: list[AIProviderRead] = []
         for provider in self.providers.values():
             health = await provider.health()
+            enabled = provider.provider_id in settings.ai.enabled_provider_ids
             items.append(
                 AIProviderRead(
                     provider_id=provider.provider_id,
                     label=provider.label,
-                    status=str(health.get("status", "unknown")),
+                    status="disabled" if not enabled else str(health.get("status", "unknown")),
                     supports_codegen=provider.supports_codegen,
                     supports_review=provider.supports_review,
                     supports_idea_to_spec=provider.supports_idea_to_spec,
@@ -464,15 +469,21 @@ class GenerationPipelineService:
         }
 
     async def _select_provider(self, requested_provider_id: str | None, fallback_provider_ids: list[str]) -> AIProvider:
-        if requested_provider_id is not None:
-            chain = [requested_provider_id, *fallback_provider_ids]
+        settings = await self.settings_service.read()
+        enabled_provider_ids = set(settings.ai.enabled_provider_ids)
+        preferred_provider_id = requested_provider_id or settings.ai.default_provider_id
+        fallback_chain = fallback_provider_ids or settings.ai.fallback_provider_ids
+        if preferred_provider_id is not None:
+            chain = [preferred_provider_id, *fallback_chain]
         else:
-            chain = [*fallback_provider_ids, *self.providers.keys()]
+            chain = [*fallback_chain, *self.providers.keys()]
         seen: set[str] = set()
         for provider_id in chain:
             if provider_id in seen:
                 continue
             seen.add(provider_id)
+            if provider_id not in enabled_provider_ids:
+                continue
             provider = provider_from_id(provider_id, self.providers)
             health = await provider.health()
             if str(health.get("status", "")).lower() not in {"unavailable", "error"}:

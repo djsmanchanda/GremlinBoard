@@ -53,6 +53,8 @@ class RuntimeManager:
         board_id: str,
         is_widget_enabled: Callable[[str], Awaitable[bool]] | None = None,
         service_context: ServiceContext | None = None,
+        capture_metrics: Callable[[], Awaitable[None]] | None = None,
+        monitor_interval_seconds: int = 5,
     ) -> None:
         self.session_factory = session_factory
         self.registry = registry
@@ -60,13 +62,22 @@ class RuntimeManager:
         self.board_id = board_id
         self.is_widget_enabled = is_widget_enabled
         self.service_context = service_context
+        self.capture_metrics = capture_metrics
         self._runners: dict[str, WidgetRunner] = {}
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
+        self._monitor_interval_seconds = monitor_interval_seconds
 
     @property
     def active_count(self) -> int:
         return len(self._runners)
+
+    @property
+    def monitor_interval_seconds(self) -> int:
+        return self._monitor_interval_seconds
+
+    def update_monitor_interval(self, seconds: int) -> None:
+        self._monitor_interval_seconds = max(seconds, 1)
 
     async def bootstrap(self) -> None:
         async with self.session_factory() as session:
@@ -448,12 +459,14 @@ class RuntimeManager:
     async def _monitor_loop(self) -> None:
         while not self._monitor_stop.is_set():
             try:
-                await asyncio.wait_for(self._monitor_stop.wait(), timeout=5)
+                await asyncio.wait_for(self._monitor_stop.wait(), timeout=self._monitor_interval_seconds)
             except TimeoutError:
                 pass
             if self._monitor_stop.is_set():
                 break
             await self._monitor_runtime_health()
+            if self.capture_metrics is not None:
+                await self.capture_metrics()
 
     async def _monitor_runtime_health(self) -> None:
         now = datetime.now(timezone.utc)

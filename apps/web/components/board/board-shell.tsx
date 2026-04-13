@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState } from "react";
 
 import {
@@ -163,6 +164,12 @@ export function BoardShell() {
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
+              href={"/system" as Route}
+              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+            >
+              System
+            </Link>
+            <Link
               href="/studio"
               className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
             >
@@ -196,7 +203,22 @@ export function BoardShell() {
 
         {loading || !board ? (
           <div className="rounded-[28px] border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
-            Loading board runtime...
+            <p>{error ? "Board state is unavailable." : "Loading board runtime..."}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+              >
+                Retry load
+              </button>
+              <Link
+                href={"/system" as Route}
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+              >
+                Open system panel
+              </Link>
+            </div>
           </div>
         ) : (
           <BoardGrid

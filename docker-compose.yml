@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - .env
+    environment:
+      GREMLINBOARD_API_HOST: 0.0.0.0
+      GREMLINBOARD_DATABASE_URL: sqlite+aiosqlite:////app/data/gremlinboard.db
+      GREMLINBOARD_CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - gremlinboard-data:/app/data
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_GREMLINBOARD_API_URL: http://localhost:8000/api
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  gremlinboard-data:

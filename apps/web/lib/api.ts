@@ -1,11 +1,15 @@
 import { API_BASE_URL } from "@/lib/constants";
 import type {
   AIProvider,
+  ApiCredential,
+  AuthContext,
   BoardState,
   GenerationJob,
   GenerationPipelinePreview,
   JsonObject,
+  ObservabilityOverview,
   SpecValidationResult,
+  SystemSettings,
   TileSize,
   WidgetPlugin,
   WidgetPreset,
@@ -23,8 +27,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const detail = await response.text();
-    throw new Error(detail || `Request failed for ${path}`);
+    const body = await response.text();
+    try {
+      const parsed = JSON.parse(body) as { detail?: string };
+      throw new Error(parsed.detail || `Request failed for ${path}`);
+    } catch {
+      throw new Error(body || `Request failed for ${path}`);
+    }
   }
 
   return response.json() as Promise<T>;
@@ -173,4 +182,44 @@ export function rollbackGeneratedWidget(widgetId: string, version: string) {
     method: "POST",
     body: JSON.stringify({ version }),
   });
+}
+
+export function fetchSystemContext() {
+  return request<AuthContext>("/system/context");
+}
+
+export function fetchSystemSettings() {
+  return request<SystemSettings>("/system/settings");
+}
+
+export function updateSystemSettings(payload: Partial<SystemSettings>) {
+  return request<SystemSettings>("/system/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchApiCredentials() {
+  return request<ApiCredential[]>("/system/credentials");
+}
+
+export function upsertApiCredential(payload: { id?: string; provider: string; label: string; value: string }) {
+  return request<ApiCredential>(payload.id ? `/system/credentials/${payload.id}` : "/system/credentials", {
+    method: "PUT",
+    body: JSON.stringify({
+      provider: payload.provider,
+      label: payload.label,
+      value: payload.value,
+    }),
+  });
+}
+
+export function deleteApiCredential(credentialId: string) {
+  return request<{ status: string }>(`/system/credentials/${credentialId}`, {
+    method: "DELETE",
+  });
+}
+
+export function fetchObservabilityOverview(limit = 80) {
+  return request<ObservabilityOverview>(`/observability/overview?limit=${limit}`);
 }

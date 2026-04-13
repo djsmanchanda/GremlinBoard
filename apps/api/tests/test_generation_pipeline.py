@@ -5,12 +5,15 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base
 from gremlinboard_api.registry.loader import load_registry
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.schemas.contracts import GenerationJobCreateRequest, WidgetSpecDraft
+from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
+from gremlinboard_api.services.system_settings import SystemSettingsService
 from gremlinboard_api.specs.pipeline import scaffold_preview
 
 
@@ -28,6 +31,10 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
         await connection.run_sync(Base.metadata.create_all)
 
     registry = load_registry(widgets_dir)
+    auth_service = AuthService(session_factory=session_factory)
+    await auth_service.ensure_default_user()
+    settings_service = SystemSettingsService(session_factory=session_factory)
+    await settings_service.ensure_defaults(user_id=settings.default_user_id)
     plugin_manager = PluginManagerService(
         session_factory=session_factory,
         widgets_dir=widgets_dir,
@@ -36,6 +43,7 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
     generation_service = GenerationPipelineService(
         session_factory=session_factory,
         plugin_manager=plugin_manager,
+        settings_service=settings_service,
     )
 
     spec = WidgetSpecDraft.model_validate(
@@ -102,6 +110,10 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
         await connection.run_sync(Base.metadata.create_all)
 
     registry = load_registry(widgets_dir)
+    auth_service = AuthService(session_factory=session_factory)
+    await auth_service.ensure_default_user()
+    settings_service = SystemSettingsService(session_factory=session_factory)
+    await settings_service.ensure_defaults(user_id=settings.default_user_id)
     plugin_manager = PluginManagerService(
         session_factory=session_factory,
         widgets_dir=widgets_dir,
@@ -110,6 +122,7 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
     generation_service = GenerationPipelineService(
         session_factory=session_factory,
         plugin_manager=plugin_manager,
+        settings_service=settings_service,
     )
 
     first_job = await generation_service.create_job(
