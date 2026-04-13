@@ -1,0 +1,27 @@
+{
+  "id": "trending",
+  "name": "Trend Stack",
+  "category": "social",
+  "description": "Tracks trending signals from Reddit, X, Hacker News, and extensible future sources.",
+  "min_size": "1x2",
+  "preferred_size": "2x4",
+  "allowed_sizes": ["1x2", "2x2", "2x4", "4x4"],
+  "refresh_policy": {
+    "mode": "interval",
+    "interval_seconds": 300
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "permissions": ["network"],
+  "renderer": {
+    "target": "trending"
+  },
+  "service": {
+    "module": "widgets.trending.backend",
+    "class_name": "TrendingWidgetService"
+  },
+  "config_schema": "config.schema.json"
+}

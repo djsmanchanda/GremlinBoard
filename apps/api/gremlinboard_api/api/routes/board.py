@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from gremlinboard_api.config import settings
+from gremlinboard_api.db import get_session
+from gremlinboard_api.repositories.board import BoardRepository, serialize_board, serialize_widget
+from gremlinboard_api.schemas.contracts import (
+    BoardRead,
+    LifecycleState,
+    WidgetConfigUpdate,
+    WidgetCreate,
+    WidgetInstanceRead,
+    WidgetReorder,
+    WidgetResize,
+)
+
+
+router = APIRouter(prefix="/board", tags=["board"])
+
+
+async def _read_board(session: AsyncSession) -> BoardRead:
+    repository = BoardRepository(session)
+    board = await repository.ensure_board(settings.default_board_id, "GremlinBoard")
+    widgets = await repository.list_widgets(settings.default_board_id)
+    return serialize_board(board, widgets)
+
+
+@router.get("", response_model=BoardRead)
+async def get_board(session: AsyncSession = Depends(get_session)) -> BoardRead:
+    return await _read_board(session)
+
+
+@router.post("/widgets", response_model=WidgetInstanceRead)
+async def add_widget(
+    payload: WidgetCreate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> WidgetInstanceRead:
+    registry = request.app.state.registry
+    runtime = request.app.state.runtime_manager
+    try:
+        loaded = registry.get(payload.widget_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if payload.size not in loaded.manifest.allowed_sizes:
+        raise HTTPException(status_code=400, detail="requested size is not supported by this widget")
+
+    repository = BoardRepository(session)
+    await repository.ensure_board(settings.default_board_id, "GremlinBoard")
+    widgets = await repository.list_widgets(settings.default_board_id)
+    expires_at = None
+    if loaded.manifest.lifecycle_policy.expires and loaded.manifest.lifecycle_policy.default_ttl_seconds:
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=loaded.manifest.lifecycle_policy.default_ttl_seconds
+        )
+    record = await repository.create_widget(
+        board_id=settings.default_board_id,
+        widget_id=payload.widget_id,
+        title=payload.title or loaded.manifest.name,
+        size=payload.size,
+        position_index=len(widgets),
+        config=payload.config,
+        lifecycle_state=LifecycleState.CREATED,
+        expires_at=expires_at,
+    )
+    await runtime.start_widget(record.id)
+    fresh = await repository.get_widget(record.id)
+    if fresh is None:
+        raise HTTPException(status_code=500, detail="widget was created but could not be reloaded")
+    return serialize_widget(fresh)
+
+
+@router.patch("/widgets/reorder", response_model=BoardRead)
+async def reorder_widgets(
+    payload: WidgetReorder,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    repository = BoardRepository(session)
+    await repository.reorder_widgets(settings.default_board_id, payload.ordered_ids)
+    await request.app.state.runtime_manager.publish_board_snapshot()
+    return await _read_board(session)
+
+
+@router.patch("/widgets/{widget_instance_id}/size", response_model=WidgetInstanceRead)
+async def resize_widget(
+    widget_instance_id: str,
+    payload: WidgetResize,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> WidgetInstanceRead:
+    repository = BoardRepository(session)
+    record = await repository.get_widget(widget_instance_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="widget instance not found")
+
+    manifest = request.app.state.registry.get(record.widget_id).manifest
+    if payload.size not in manifest.allowed_sizes:
+        raise HTTPException(status_code=400, detail="requested size is not supported by this widget")
+
+    updated = await repository.update_widget(record, size=payload.size)
+    await request.app.state.runtime_manager.publish_board_snapshot()
+    return serialize_widget(updated)
+
+
+@router.patch("/widgets/{widget_instance_id}", response_model=WidgetInstanceRead)
+async def update_widget(
+    widget_instance_id: str,
+    payload: WidgetConfigUpdate,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> WidgetInstanceRead:
+    repository = BoardRepository(session)
+    record = await repository.get_widget(widget_instance_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="widget instance not found")
+
+    current_config = serialize_widget(record).config
+    next_config = payload.config if payload.config is not None else current_config
+    updated = await repository.update_widget(
+        record,
+        title=payload.title or record.title,
+        config=next_config,
+    )
+    await request.app.state.runtime_manager.update_widget_config(widget_instance_id, next_config)
+    return serialize_widget(updated)
+
+
+@router.post("/widgets/{widget_instance_id}/start", response_model=BoardRead)
+async def start_widget(
+    widget_instance_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    await request.app.state.runtime_manager.start_widget(widget_instance_id)
+    return await _read_board(session)
+
+
+@router.post("/widgets/{widget_instance_id}/stop", response_model=BoardRead)
+async def stop_widget(
+    widget_instance_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    await request.app.state.runtime_manager.stop_widget(widget_instance_id)
+    return await _read_board(session)
+
+
+@router.post("/widgets/{widget_instance_id}/refresh", response_model=BoardRead)
+async def refresh_widget(
+    widget_instance_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    await request.app.state.runtime_manager.refresh_widget(widget_instance_id)
+    return await _read_board(session)
+
+
+@router.delete("/widgets/{widget_instance_id}", response_model=BoardRead)
+async def remove_widget(
+    widget_instance_id: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    await request.app.state.runtime_manager.stop_widget(widget_instance_id, removed=True)
+    return await _read_board(session)
+
+
+@router.websocket("/stream")
+async def board_stream(websocket: WebSocket) -> None:
+    await websocket.accept()
+    event_bus = websocket.app.state.event_bus
+    queue = event_bus.subscribe()
+    try:
+        async with websocket.app.state.session_factory() as session:
+            snapshot = await _read_board(session)
+            await websocket.send_json({"type": "board.snapshot", "payload": snapshot.model_dump(mode="json")})
+
+        while True:
+            event = await queue.get()
+            await websocket.send_json(event)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        event_bus.unsubscribe(queue)

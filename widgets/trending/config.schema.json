@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["reddit", "x", "hackernews"]
+      },
+      "default": ["reddit", "x", "hackernews"]
+    }
+  },
+  "additionalProperties": false
+}

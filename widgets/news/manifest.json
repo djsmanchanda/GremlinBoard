@@ -1,0 +1,27 @@
+{
+  "id": "news",
+  "name": "News Radar",
+  "category": "news",
+  "description": "Refreshes curated news headlines every 10 minutes.",
+  "min_size": "1x2",
+  "preferred_size": "2x2",
+  "allowed_sizes": ["1x2", "2x2", "4x2"],
+  "refresh_policy": {
+    "mode": "interval",
+    "interval_seconds": 600
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "permissions": ["network"],
+  "renderer": {
+    "target": "news"
+  },
+  "service": {
+    "module": "widgets.news.backend",
+    "class_name": "NewsWidgetService"
+  },
+  "config_schema": "config.schema.json"
+}

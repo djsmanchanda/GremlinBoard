@@ -1,0 +1,27 @@
+{
+  "id": "sports",
+  "name": "Sports Pulse",
+  "category": "sports",
+  "description": "Live sports monitor for IPL, F1, football, and other sports feeds.",
+  "min_size": "2x2",
+  "preferred_size": "4x2",
+  "allowed_sizes": ["2x2", "4x2", "4x4"],
+  "refresh_policy": {
+    "mode": "live",
+    "interval_seconds": 30
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "permissions": ["network"],
+  "renderer": {
+    "target": "sports"
+  },
+  "service": {
+    "module": "widgets.sports.backend",
+    "class_name": "SportsWidgetService"
+  },
+  "config_schema": "config.schema.json"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "pinboard",
+  "name": "Personal Pinboard",
+  "category": "personal",
+  "description": "Structured personal notes and pinned reminders that persist until removed.",
+  "min_size": "2x2",
+  "preferred_size": "2x4",
+  "allowed_sizes": ["2x2", "2x4", "4x4"],
+  "refresh_policy": {
+    "mode": "manual",
+    "interval_seconds": 0
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "permissions": [],
+  "renderer": {
+    "target": "pinboard"
+  },
+  "service": {
+    "module": "widgets.pinboard.backend",
+    "class_name": "PinboardWidgetService"
+  },
+  "config_schema": "config.schema.json"
+}

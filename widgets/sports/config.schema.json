@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "sport": {
+      "type": "string",
+      "enum": ["ipl", "f1", "football", "other"],
+      "default": "ipl"
+    },
+    "team_or_topic": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
