@@ -83,6 +83,8 @@ class PluginRepository:
                 WidgetPluginVersionRecord.widget_id == widget_id,
                 WidgetPluginVersionRecord.version == version,
             )
+            .order_by(WidgetPluginVersionRecord.created_at.desc())
+            .limit(1)
         )
         return result.scalar_one_or_none()
 
