@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -99,7 +100,11 @@ def build_manifest_preview_with_version(spec: WidgetSpecDraft, *, version: str) 
             "default_ttl_seconds": spec.lifecycle_policy.get("default_ttl_seconds"),
         },
         permissions=spec.permissions,
-        renderer={"target": spec.renderer_type},
+        renderer={
+            "target": "react",
+            "module": f"@widgets/{spec.id}/renderer",
+            "export_name": _component_name(spec.name),
+        },
         service={"module": widget_service_module(widget_id), "class_name": service_class_name},
         config_schema="config.schema.json",
     )
@@ -121,3 +126,8 @@ def scaffold_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
         "review_required": True,
         "install_blocked": True,
     }
+
+
+def _component_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9]+", " ", name).title().replace(" ", "")
+    return f"{cleaned}Renderer" if cleaned else "GeneratedWidgetRenderer"

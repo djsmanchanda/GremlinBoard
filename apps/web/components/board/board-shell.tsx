@@ -64,11 +64,21 @@ export function BoardShell() {
       const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
       if (payload.type === "board.snapshot") {
         setBoard(payload.payload);
+        return;
+      }
+      if (payload.type === "registry.updated") {
+        void fetchRegistry()
+          .then((registryResponse) => {
+            setRegistry(registryResponse);
+          })
+          .catch((loadError) => {
+            setError(loadError instanceof Error ? loadError.message : "Failed to refresh widget registry");
+          });
       }
     };
     socket.onerror = () => setError("Realtime board stream disconnected");
     return () => socket.close();
-  }, [setBoard, setError]);
+  }, [setBoard, setError, setRegistry]);
 
   useEffect(() => {
     if (!removedWidget) {
@@ -380,7 +390,12 @@ export function BoardShell() {
         </div>
       ) : null}
 
-      <CommandPalette open={commandOpen} onClose={() => setCommandOpen(false)} onSelect={handleAddWidget} />
+      <CommandPalette
+        open={commandOpen}
+        registry={registry}
+        onClose={() => setCommandOpen(false)}
+        onSelect={handleAddWidget}
+      />
     </main>
   );
 }

@@ -34,7 +34,9 @@ export interface WidgetManifest {
   };
   permissions: string[];
   renderer: {
-    target: string;
+    target: "react";
+    module: string;
+    export_name: string;
   };
 }
 

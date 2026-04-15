@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+import re
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -68,7 +69,9 @@ class RuntimePolicy(BaseModel):
 class RendererTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    target: str
+    target: Literal["react"] = "react"
+    module: str
+    export_name: str
 
 
 class ServiceTarget(BaseModel):
@@ -112,6 +115,10 @@ class WidgetManifest(BaseModel):
         if any(size.value not in ALLOWED_TILE_SIZES for size in self.allowed_sizes):
             raise ValueError("manifest includes unsupported tile sizes")
         self.service.module = widget_service_module(self.id)
+        if self.renderer.module != f"@widgets/{self.id}/renderer":
+            raise ValueError("renderer.module must point at the widget package renderer entry")
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.renderer.export_name):
+            raise ValueError("renderer.export_name must be a valid identifier")
         return self
 
 

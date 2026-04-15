@@ -277,13 +277,22 @@ class RuntimeManager:
                     break
                 except RuntimeFailure as exc:
                     should_retry = await self._handle_failure(runner, exc)
-                    if not should_retry or runner.stop_event.is_set():
-                        break
-                    backoff = runner.manifest.runtime_policy.retry_backoff_seconds * max(runner.consecutive_failures, 1)
-                    try:
-                        await asyncio.wait_for(runner.stop_event.wait(), timeout=backoff)
-                    except TimeoutError:
-                        pass
+                except Exception as exc:
+                    should_retry = await self._handle_failure(
+                        runner,
+                        RuntimeFailure(
+                            event="runner.crashed",
+                            message=str(exc),
+                            context={"error_type": type(exc).__name__},
+                        ),
+                    )
+                if not should_retry or runner.stop_event.is_set():
+                    break
+                backoff = runner.manifest.runtime_policy.retry_backoff_seconds * max(runner.consecutive_failures, 1)
+                try:
+                    await asyncio.wait_for(runner.stop_event.wait(), timeout=backoff)
+                except TimeoutError:
+                    pass
         finally:
             await self._safe_stop_service(runner)
             await self.publish_board_snapshot()
@@ -304,6 +313,12 @@ class RuntimeManager:
                 event="runner.start_timeout",
                 message="service start timed out",
                 context={"timeout_seconds": runner.manifest.runtime_policy.start_timeout_seconds},
+            ) from exc
+        except Exception as exc:
+            raise RuntimeFailure(
+                event="runner.start_failed",
+                message=str(exc),
+                context={"error_type": type(exc).__name__},
             ) from exc
 
         runner.service.mark_started()
@@ -354,6 +369,12 @@ class RuntimeManager:
                 event="runner.refresh_timeout",
                 message="service refresh timed out",
                 context={"timeout_seconds": runner.manifest.runtime_policy.refresh_timeout_seconds},
+            ) from exc
+        except Exception as exc:
+            raise RuntimeFailure(
+                event="runner.refresh_failed",
+                message=str(exc),
+                context={"error_type": type(exc).__name__},
             ) from exc
 
         runner.last_heartbeat_at = now
