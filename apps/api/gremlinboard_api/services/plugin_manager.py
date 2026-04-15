@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -76,12 +77,13 @@ class PluginManagerService:
             return [serialize_plugin_version(record) for record in await repository.list_versions(widget_id)]
 
     async def install_widget(self, request: WidgetPluginInstallRequest) -> WidgetPluginRead:
-        manifest = WidgetManifest.model_validate(request.package.manifest)
+        package = request.package.model_dump()
+        manifest = self._validate_package(package)
         widget_root = self.widgets_dir / manifest.id
         if widget_root.exists():
             raise ValueError(f"widget '{manifest.id}' already exists")
 
-        self._write_package(widget_root, request.package.model_dump())
+        self._write_package(widget_root, package)
         self.registry.load()
         await self.sync_with_filesystem()
 
@@ -100,12 +102,13 @@ class PluginManagerService:
             await repository.create_version_snapshot(
                 widget_id=manifest.id,
                 version=manifest.version,
-                package=request.package.model_dump(),
+                package=package,
             )
             return serialize_plugin(record)
 
     async def update_widget(self, widget_id: str, request: WidgetPluginUpdateRequest) -> WidgetPluginRead:
-        manifest = WidgetManifest.model_validate(request.package.manifest)
+        package = request.package.model_dump()
+        manifest = self._validate_package(package)
         if manifest.id != widget_id:
             raise ValueError("package manifest id must match the widget being updated")
 
@@ -126,7 +129,7 @@ class PluginManagerService:
                     package=self._read_package(current_entry.root_dir),
                 )
 
-        self._write_package(self.widgets_dir / widget_id, request.package.model_dump(), replace=True)
+        self._write_package(self.widgets_dir / widget_id, package, replace=True)
         self.registry.load()
         await self.sync_with_filesystem()
 
@@ -145,7 +148,7 @@ class PluginManagerService:
             await repository.create_version_snapshot(
                 widget_id=widget_id,
                 version=manifest.version,
-                package=request.package.model_dump(),
+                package=package,
             )
             return serialize_plugin(record)
 
@@ -161,6 +164,7 @@ class PluginManagerService:
             if version_record is None:
                 raise ValueError(f"widget '{widget_id}' does not have a stored version '{version}'")
             package = decode_version_package(version_record)
+            self._validate_package(package)
 
         self._write_package(self.widgets_dir / widget_id, package, replace=True)
         self.registry.load()
@@ -278,3 +282,23 @@ class PluginManagerService:
         (widget_root / "backend.py").write_text(package["backend_source"], encoding="utf-8")
         (widget_root / "renderer.tsx").write_text(package["renderer_source"], encoding="utf-8")
         (widget_root / "__init__.py").write_text('"""Widget package."""\n', encoding="utf-8")
+
+    @staticmethod
+    def _validate_package(package: dict[str, Any]) -> WidgetManifest:
+        manifest = WidgetManifest.model_validate(package["manifest"])
+        PluginManagerService._validate_renderer_contract(
+            renderer_source=str(package["renderer_source"]),
+            export_name=manifest.renderer.export_name,
+        )
+        return manifest
+
+    @staticmethod
+    def _validate_renderer_contract(*, renderer_source: str, export_name: str) -> None:
+        export_patterns = (
+            rf"export\s+function\s+{re.escape(export_name)}\s*\(",
+            rf"export\s+async\s+function\s+{re.escape(export_name)}\s*\(",
+            rf"export\s+(?:const|let|var)\s+{re.escape(export_name)}\s*=",
+            rf"export\s+class\s+{re.escape(export_name)}\b",
+        )
+        if not any(re.search(pattern, renderer_source) for pattern in export_patterns):
+            raise ValueError(f"renderer.tsx must export '{export_name}'")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,9 @@ class WidgetRegistry:
                 raise FileNotFoundError(f"missing renderer.tsx for widget {manifest.id}")
             if not backend_path.exists():
                 raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
+            renderer_source = renderer_path.read_text(encoding="utf-8")
+            if not _renderer_exports_symbol(renderer_source, manifest.renderer.export_name):
+                raise ValueError(f"renderer.tsx for widget {manifest.id} must export '{manifest.renderer.export_name}'")
 
             config_schema = json.loads(schema_path.read_text(encoding="utf-8"))
             entries[manifest.id] = LoadedWidget(
@@ -70,3 +74,13 @@ def load_registry(widgets_dir: Path) -> WidgetRegistry:
     registry = WidgetRegistry(widgets_dir)
     registry.load()
     return registry
+
+
+def _renderer_exports_symbol(renderer_source: str, export_name: str) -> bool:
+    patterns = (
+        rf"export\s+function\s+{re.escape(export_name)}\s*\(",
+        rf"export\s+async\s+function\s+{re.escape(export_name)}\s*\(",
+        rf"export\s+(?:const|let|var)\s+{re.escape(export_name)}\s*=",
+        rf"export\s+class\s+{re.escape(export_name)}\b",
+    )
+    return any(re.search(pattern, renderer_source) for pattern in patterns)
