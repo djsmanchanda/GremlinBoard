@@ -100,7 +100,7 @@ export function WidgetCard({
     typeof meta.primary_provider === "string" ? meta.primary_provider : providerStates[0]?.provider_id;
   const issues = [plugin?.last_error, widget.last_error].filter((value): value is string => Boolean(value));
   const containerClasses = [
-    "premium-ring flex h-full flex-col overflow-hidden rounded-[30px] border p-4 transition duration-300 md:p-5",
+    "premium-ring relative flex h-full flex-col overflow-hidden rounded-[30px] border p-4 transition duration-300 md:p-5",
     ghost ? "border-cyan-300/40 bg-[rgba(8,14,26,0.82)] opacity-90" : "bg-[rgba(8,14,26,0.94)]",
     selected
       ? "border-cyan-300/45 shadow-[0_24px_80px_rgba(8,145,178,0.2)]"

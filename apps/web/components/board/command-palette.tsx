@@ -84,7 +84,7 @@ export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps)
                       </span>
                     </div>
                     <p className="mt-2 text-xs leading-5 text-slate-400">
-                      {preset.widget_id} · {preset.title}
+                      {preset.widget_id} - {preset.title}
                     </p>
                   </div>
                   <span className="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-300">

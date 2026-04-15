@@ -59,6 +59,15 @@ lifecycle_policy:
   stateful: true
 `;
 
+const studioStages = [
+  { id: "draft", label: "Spec draft" },
+  { id: "validation", label: "Validation" },
+  { id: "scaffold", label: "Scaffold" },
+  { id: "codegen", label: "Codegen" },
+  { id: "review", label: "Review" },
+  { id: "install", label: "Install" },
+] as const;
+
 export function SpecStudio() {
   const [format, setFormat] = useState<"json" | "yaml">("json");
   const [payload, setPayload] = useState(defaultJson);
@@ -152,6 +161,38 @@ export function SpecStudio() {
   );
   const files = useMemo(() => codeArtifact?.files ?? [], [codeArtifact]);
   const selectedFile = files.find((file) => file.path === selectedFilePath) ?? files[0] ?? null;
+  const stageStates = {
+    draft: "complete",
+    validation: validationLoading ? "active" : result?.valid ? "complete" : result?.errors.length ? "error" : "idle",
+    scaffold: currentJob?.artifacts.some((artifact) => artifact.stage === "scaffold")
+      ? "complete"
+      : result?.valid
+        ? "active"
+        : "idle",
+    codegen: currentJob?.artifacts.some((artifact) => artifact.stage === "codegen")
+      ? "complete"
+      : currentJob?.status === "failed"
+        ? "error"
+        : currentJob && ["queued", "running"].includes(currentJob.status)
+          ? "active"
+          : "idle",
+    review:
+      currentJob?.status === "review_required"
+        ? "active"
+        : currentJob && ["approved", "installed"].includes(currentJob.status)
+          ? "complete"
+          : currentJob && ["rejected", "failed"].includes(currentJob.status)
+            ? "error"
+            : "idle",
+    install:
+      currentJob?.status === "installed"
+        ? "complete"
+        : currentJob?.status === "approved"
+          ? "active"
+          : currentJob?.status === "failed"
+            ? "error"
+            : "idle",
+  } as const;
 
   useEffect(() => {
     if (!selectedFile && files[0]) {
@@ -221,8 +262,39 @@ export function SpecStudio() {
   };
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-      <section className="space-y-6">
+    <div className="space-y-6">
+      <section className="glass-panel premium-ring rounded-[30px] p-5 md:p-6">
+        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+          <div>
+            <p className="text-xs uppercase tracking-[0.28em] text-cyan-200/70">Staged pipeline</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Review-gated widget creation</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+              Ideas and specs move through validation, scaffold, code generation, review, and registry install before they reach the board.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <MetricSummary label="Provider" value={selectedProvider} />
+            <MetricSummary label="Validation" value={validationLoading ? "Running" : result?.valid ? "Ready" : "Draft"} />
+            <MetricSummary label="Current job" value={currentJob?.status ?? "Idle"} />
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 lg:grid-cols-6">
+          {studioStages.map((stage, index) => (
+            <StageChip key={stage.id} index={index + 1} label={stage.label} state={stageStates[stage.id]} />
+          ))}
+        </div>
+      </section>
+
+      {error ? (
+        <div className="glass-panel accent-border rounded-[28px] px-5 py-4 text-sm text-rose-50">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-rose-200/80">Studio signal degraded</p>
+          <p className="mt-2">{error}</p>
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <section className="space-y-6">
         <Panel
           eyebrow="Idea"
           title="Natural language entry"
@@ -231,7 +303,7 @@ export function SpecStudio() {
           <textarea
             value={idea}
             onChange={(event) => setIdea(event.target.value)}
-            className="min-h-[120px] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
+            className="min-h-[140px] w-full rounded-[28px] border border-white/10 bg-slate-950/80 p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-300/40"
             placeholder="Describe the widget idea, data source, and board behavior."
           />
           <div className="mt-4 flex flex-wrap gap-3">
@@ -239,7 +311,7 @@ export function SpecStudio() {
               type="button"
               disabled={!idea.trim() || isPending || !selectedProviderDetails?.supports_idea_to_spec}
               onClick={() => runGeneration("idea")}
-              className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isPending ? "Generating..." : "Generate From Idea"}
             </button>
@@ -264,10 +336,10 @@ export function SpecStudio() {
                     setFormat(nextFormat);
                     setPayload(nextFormat === "json" ? defaultJson : defaultYaml);
                   }}
-                  className={`rounded-full px-3 py-2 text-xs uppercase tracking-[0.18em] transition ${
+                  className={`rounded-full px-3 py-2 text-xs uppercase tracking-[0.18em] transition duration-200 ${
                     format === nextFormat
                       ? "border border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                      : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                      : "border border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
                   }`}
                 >
                   {nextFormat}
@@ -278,29 +350,39 @@ export function SpecStudio() {
               type="button"
               disabled={!result?.valid || isPending}
               onClick={() => runGeneration("stage")}
-              className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isPending ? "Generating..." : "Generate From Validated Spec"}
             </button>
           </div>
-          <textarea
-            value={payload}
-            onChange={(event) => setPayload(event.target.value)}
-            className={`mt-4 min-h-[420px] w-full rounded-3xl border p-4 font-mono text-sm outline-none ${
-              result?.errors.length
-                ? "border-rose-400/40 bg-rose-400/5 text-rose-50"
-                : "border-white/10 bg-slate-950/80 text-slate-100 focus:border-cyan-300/40"
-            }`}
-          />
+          <div className="mt-4 overflow-hidden rounded-[28px] border border-white/10 bg-black/20">
+            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-rose-300/90" />
+                <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-300/90" />
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{format} editor</span>
+            </div>
+            <textarea
+              value={payload}
+              onChange={(event) => setPayload(event.target.value)}
+              className={`min-h-[460px] w-full border-0 bg-transparent p-4 font-mono text-sm leading-6 outline-none ${
+                result?.errors.length ? "text-rose-50" : "text-slate-100"
+              }`}
+            />
+          </div>
           <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
             <span className="rounded-full border border-white/10 px-3 py-1 text-slate-300">
               {validationLoading ? "Validating..." : result?.valid ? "Validated for generation" : "Draft needs attention"}
             </span>
-            {error ? <span className="text-rose-300">{error}</span> : null}
+            {result?.stage_id ? (
+              <span className="rounded-full border border-white/10 px-3 py-1 text-slate-400">Stage {result.stage_id}</span>
+            ) : null}
           </div>
           {highlightedError ? (
-            <div className="mt-4 rounded-3xl border border-rose-400/20 bg-rose-400/10 p-4">
-              <p className="text-sm font-medium text-rose-100">Highlighted error</p>
+            <div className="mt-4 rounded-[28px] border border-rose-400/20 bg-rose-400/10 p-4">
+              <p className="text-sm font-medium text-rose-100">Highlighted validation issue</p>
               <p className="mt-1 text-sm text-rose-100">
                 {highlightedError.message}
                 {highlightedError.line ? ` at line ${highlightedError.line}` : ""}
@@ -314,7 +396,7 @@ export function SpecStudio() {
                     return (
                       <div
                         key={`${actualLine}-${line}`}
-                        className={`rounded-lg px-3 py-1 ${
+                        className={`rounded-xl px-3 py-1.5 ${
                           actualLine === highlightedLine ? "bg-rose-400/20 text-rose-50" : "text-slate-300"
                         }`}
                       >
@@ -332,7 +414,10 @@ export function SpecStudio() {
       <section className="space-y-6">
         <Panel eyebrow="Validation" title="Spec and manifest preview">
           {!result ? (
-            <p className="text-sm text-slate-300">Waiting for the first validation result.</p>
+            <EmptyState
+              title="Waiting for the first validation result"
+              body="As soon as the draft parses, the manifest, normalized spec, and scaffold preview land here."
+            />
           ) : (
             <div className="space-y-4">
               <PreviewBlock title="Stage">
@@ -351,9 +436,13 @@ export function SpecStudio() {
                 </PreviewBlock>
               ) : null}
               <PreviewBlock title="Scaffold Preview">
-                {result.scaffold_preview.files.map((file) => (
-                  <p key={file}>{file}</p>
-                ))}
+                <div className="grid gap-2">
+                  {result.scaffold_preview.files.map((file) => (
+                    <div key={file} className="rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
+                      {file}
+                    </div>
+                  ))}
+                </div>
               </PreviewBlock>
             </div>
           )}
@@ -377,7 +466,7 @@ export function SpecStudio() {
                 type="button"
                 onClick={() => runGeneration("regenerate")}
                 disabled={isPending}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Regenerate
               </button>
@@ -385,26 +474,30 @@ export function SpecStudio() {
           </div>
           <div className="mt-4 grid gap-3">
             {providers.map((provider) => (
-              <div key={provider.provider_id} className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+              <div key={provider.provider_id} className="rounded-[24px] border border-white/10 bg-slate-950/60 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-white">{provider.label}</p>
+                  <div>
+                    <p className="text-sm font-medium text-white">{provider.label}</p>
+                    <p className="mt-1 text-xs text-slate-400">{provider.provider_id}</p>
+                  </div>
                   <span className="rounded-full border border-white/10 px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-300">
                     {provider.status}
                   </span>
                 </div>
-                <p className="mt-2 text-xs text-slate-400">
-                  Idea→Spec: {String(provider.supports_idea_to_spec)} | Codegen: {String(provider.supports_codegen)} | Review:{" "}
-                  {String(provider.supports_review)}
-                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <CapabilityPill enabled={provider.supports_idea_to_spec} label="Idea to Spec" />
+                  <CapabilityPill enabled={provider.supports_codegen} label="Codegen" />
+                  <CapabilityPill enabled={provider.supports_review} label="Review" />
+                </div>
               </div>
             ))}
           </div>
           {generationPreview ? (
-            <div className="mt-4 rounded-2xl border border-cyan-300/15 bg-cyan-300/10 p-4">
+            <div className="mt-4 rounded-[24px] border border-cyan-300/15 bg-cyan-300/10 p-4">
               <p className="text-sm font-medium text-cyan-50">Pipeline preview</p>
-              <div className="mt-3 space-y-2 text-sm text-cyan-50">
+              <div className="mt-3 grid gap-2 text-sm text-cyan-50">
                 {generationPreview.steps.map((step) => (
-                  <div key={step.id} className="flex items-center justify-between gap-4">
+                  <div key={step.id} className="flex items-center justify-between gap-4 rounded-[18px] border border-cyan-100/10 bg-black/10 px-3 py-2">
                     <span>{step.label}</span>
                     <span className="rounded-full border border-cyan-100/20 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em]">
                       {step.status}
@@ -418,14 +511,17 @@ export function SpecStudio() {
 
         <Panel eyebrow="Widget Forge" title="Generation job, review, and install">
           {!currentJob ? (
-            <p className="text-sm text-slate-300">Run a generation job to inspect artifacts, review output, and install through the registry.</p>
+            <EmptyState
+              title="No active generation job"
+              body="Run a generation job to inspect artifacts, review output, compare diffs, and install through the registry."
+            />
           ) : (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-white">{currentJob.widget_id}</p>
                   <p className="text-xs text-slate-400">
-                    Artifact v{currentJob.artifact_version} · provider {currentJob.provider_id} · job {currentJob.id}
+                    Artifact v{currentJob.artifact_version} - provider {currentJob.provider_id} - job {currentJob.id}
                   </p>
                 </div>
                 <StatusBadge status={currentJob.status} />
@@ -441,13 +537,13 @@ export function SpecStudio() {
                 ) : null}
               </PreviewBlock>
 
-              <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+              <div className="rounded-[24px] border border-white/10 bg-slate-950/60 p-4">
                 <div className="flex flex-wrap gap-3">
                   <button
                     type="button"
                     onClick={() => runReviewAction("approve")}
                     disabled={isPending || currentJob.status !== "review_required"}
-                    className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Approve
                   </button>
@@ -455,7 +551,7 @@ export function SpecStudio() {
                     type="button"
                     onClick={() => runReviewAction("reject")}
                     disabled={isPending || !["review_required", "approved"].includes(currentJob.status)}
-                    className="rounded-full border border-rose-300/30 bg-rose-300/15 px-4 py-2 text-sm text-rose-50 transition hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-rose-300/30 bg-rose-300/15 px-4 py-2 text-sm text-rose-50 transition duration-200 hover:-translate-y-0.5 hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Reject
                   </button>
@@ -463,7 +559,7 @@ export function SpecStudio() {
                     type="button"
                     onClick={() => runReviewAction("install")}
                     disabled={isPending || currentJob.status !== "approved"}
-                    className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Install Through Registry
                   </button>
@@ -471,7 +567,7 @@ export function SpecStudio() {
                 <textarea
                   value={reviewNote}
                   onChange={(event) => setReviewNote(event.target.value)}
-                  className="mt-4 min-h-[96px] w-full rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
+                  className="mt-4 min-h-[110px] w-full rounded-[22px] border border-white/10 bg-slate-950/80 p-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40"
                   placeholder="Review note or rejection reason."
                 />
               </div>
@@ -487,15 +583,19 @@ export function SpecStudio() {
 
               <PreviewBlock title="Diff preview before deployment">
                 {currentJob.diff_preview.length === 0 ? (
-                  <p>No diff available yet.</p>
+                  <EmptyState
+                    title="No diff available yet"
+                    body="When generated output changes tracked files, the staged diff preview appears here."
+                    compact
+                  />
                 ) : (
                   currentJob.diff_preview.map((diffItem) => (
-                    <div key={diffItem.path} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <div key={diffItem.path} className="overflow-hidden rounded-[22px] border border-white/10 bg-black/20">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium text-white">{diffItem.path}</p>
-                        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{diffItem.summary}</span>
+                        <p className="px-4 py-3 text-sm font-medium text-white">{diffItem.path}</p>
+                        <span className="px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-slate-400">{diffItem.summary}</span>
                       </div>
-                      <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all text-[11px] text-slate-300">
+                      <pre className="max-h-48 overflow-auto border-t border-white/10 px-4 py-3 whitespace-pre-wrap break-all text-[11px] text-slate-300">
                         {diffItem.diff || "No textual diff."}
                       </pre>
                     </div>
@@ -505,16 +605,16 @@ export function SpecStudio() {
 
               <PreviewBlock title="Job logs">
                 {currentJob.logs.map((log) => (
-                  <div key={log.id} className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                  <div key={log.id} className="rounded-[22px] border border-white/10 bg-black/20 p-3">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-white">
-                        {log.step} · {log.level}
+                        {log.step} - {log.level}
                       </p>
                       <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                         {new Date(log.created_at).toLocaleString()}
                       </span>
                     </div>
-                    <p className="mt-2 text-sm text-slate-300">{log.message}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{log.message}</p>
                   </div>
                 ))}
               </PreviewBlock>
@@ -525,24 +625,24 @@ export function SpecStudio() {
         <Panel eyebrow="History" title="Generation history">
           <div className="space-y-3">
             {jobHistory.length === 0 ? (
-              <p className="text-sm text-slate-300">No generation history yet.</p>
+              <EmptyState title="No generation history yet" body="Run an idea or validated spec to create the first reviewed artifact." compact />
             ) : (
               jobHistory.map((job) => (
                 <button
                   key={job.id}
                   type="button"
                   onClick={() => setCurrentJob(job)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                  className={`w-full rounded-[24px] border p-4 text-left transition duration-200 ${
                     currentJob?.id === job.id
                       ? "border-cyan-300/30 bg-cyan-300/10"
-                      : "border-white/10 bg-slate-950/60 hover:bg-white/10"
+                      : "border-white/10 bg-slate-950/60 hover:-translate-y-0.5 hover:bg-white/10"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-medium text-white">{job.widget_id}</p>
                       <p className="mt-1 text-xs text-slate-400">
-                        {job.provider_id} · artifact v{job.artifact_version} · {job.selected_version}
+                        {job.provider_id} - artifact v{job.artifact_version} - {job.selected_version}
                       </p>
                     </div>
                     <StatusBadge status={job.status} />
@@ -553,6 +653,7 @@ export function SpecStudio() {
           </div>
         </Panel>
       </section>
+    </div>
     </div>
   );
 }
@@ -569,10 +670,10 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/5 p-5">
+    <section className="glass-panel premium-ring rounded-[30px] p-5 md:p-6">
       <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
-      {description ? <p className="mt-2 text-sm text-slate-300">{description}</p> : null}
+      {description ? <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p> : null}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -580,15 +681,19 @@ function Panel({
 
 function PreviewBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 text-sm text-slate-200">
-      <p className="mb-2 text-sm font-medium text-white">{title}</p>
-      <div className="space-y-2 text-sm text-slate-300">{children}</div>
+    <div className="rounded-[24px] border border-white/10 bg-slate-950/70 p-4 text-sm text-slate-200">
+      <p className="mb-3 text-sm font-medium text-white">{title}</p>
+      <div className="space-y-2 text-sm leading-6 text-slate-300">{children}</div>
     </div>
   );
 }
 
 function JsonBlock({ value }: { value: unknown }) {
-  return <pre className="whitespace-pre-wrap break-all text-xs text-slate-300">{JSON.stringify(value, null, 2)}</pre>;
+  return (
+    <pre className="overflow-auto rounded-[20px] border border-white/10 bg-black/20 p-4 whitespace-pre-wrap break-all text-xs leading-6 text-slate-300">
+      {JSON.stringify(value, null, 2)}
+    </pre>
+  );
 }
 
 function StatusBadge({ status }: { status: GenerationJob["status"] }) {
@@ -617,7 +722,7 @@ function ArtifactTabs({
   selectedContent: string;
 }) {
   if (files.length === 0) {
-    return <p>No generated files yet.</p>;
+    return <EmptyState title="No generated files yet" body="When code generation completes, the package contents will appear here." compact />;
   }
 
   return (
@@ -628,19 +733,88 @@ function ArtifactTabs({
             key={file.path}
             type="button"
             onClick={() => onSelect(file.path)}
-            className={`rounded-full px-3 py-2 text-xs transition ${
+            className={`rounded-full px-3 py-2 text-xs transition duration-200 ${
               file.path === selectedFilePath
                 ? "border border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                : "border border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
             }`}
           >
             {file.path.split("/").slice(-2).join("/")}
           </button>
         ))}
       </div>
-      <pre className="max-h-[420px] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4 text-[12px] text-slate-200">
+      <pre className="max-h-[420px] overflow-auto rounded-[22px] border border-white/10 bg-black/30 p-4 text-[12px] leading-6 text-slate-200">
         {selectedContent}
       </pre>
+    </div>
+  );
+}
+
+function MetricSummary({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
+    </div>
+  );
+}
+
+function StageChip({
+  index,
+  label,
+  state,
+}: {
+  index: number;
+  label: string;
+  state: "idle" | "active" | "complete" | "error";
+}) {
+  const styles =
+    state === "complete"
+      ? "border-emerald-300/18 bg-emerald-300/10"
+      : state === "active"
+        ? "border-cyan-300/20 bg-cyan-300/10"
+        : state === "error"
+          ? "border-rose-300/18 bg-rose-300/10"
+          : "border-white/10 bg-black/20";
+
+  return (
+    <div className={`rounded-[24px] border px-4 py-4 ${styles}`}>
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{String(index).padStart(2, "0")}</span>
+        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+          {state}
+        </span>
+      </div>
+      <p className="mt-3 text-sm font-medium text-white">{label}</p>
+    </div>
+  );
+}
+
+function CapabilityPill({ enabled, label }: { enabled: boolean; label: string }) {
+  return (
+    <span
+      className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${
+        enabled ? "border-emerald-300/20 bg-emerald-300/12 text-emerald-50" : "border-white/10 bg-white/5 text-slate-300"
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function EmptyState({
+  title,
+  body,
+  compact = false,
+}: {
+  title: string;
+  body: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className={`rounded-[24px] border border-dashed border-white/12 bg-white/[0.03] text-center ${compact ? "p-5" : "p-6"}`}>
+      <p className="text-sm font-medium text-white">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
     </div>
   );
 }
