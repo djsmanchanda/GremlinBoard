@@ -58,11 +58,7 @@ body {
 body {
   margin: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 26%, transparent), transparent 26%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 24%),
-    radial-gradient(circle at 50% 120%, rgba(15, 23, 42, 0.65), transparent 40%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 90%, black) 0%, var(--background) 100%);
+  background: #05070a;
   font-family:
     "IBM Plex Sans",
     "Segoe UI",
@@ -73,28 +69,15 @@ body {
 
 body::before,
 body::after {
-  content: "";
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  z-index: -1;
+  content: none;
 }
 
 body::before {
-  background:
-    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: radial-gradient(circle at center, black 48%, transparent 92%);
-  opacity: 0.55;
+  background: none;
 }
 
 body::after {
-  background:
-    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 18%),
-    radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 18%);
-  filter: blur(42px);
-  opacity: 0.9;
+  background: none;
 }
 
 a {
@@ -131,22 +114,17 @@ textarea {
 }
 
 .glass-panel {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
-    var(--panel-soft);
+  background: rgba(9, 11, 15, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: var(--shadow-ambient);
-  backdrop-filter: blur(22px);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .glass-panel-strong {
-  background:
-    radial-gradient(circle at top, rgba(103, 232, 249, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
-    var(--panel-strong);
+  background: rgba(6, 8, 11, 0.98);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: var(--shadow-ambient);
-  backdrop-filter: blur(24px);
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .surface-grid {
@@ -157,10 +135,7 @@ textarea {
 }
 
 .premium-ring {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.04),
-    var(--shadow-ambient);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .accent-border {
@@ -174,7 +149,7 @@ textarea {
   inset: 0;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, rgba(103, 232, 249, 0.38), rgba(255, 255, 255, 0.04), rgba(52, 211, 153, 0.22));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
   mask:
     linear-gradient(#fff 0 0) content-box,
     linear-gradient(#fff 0 0);
@@ -198,10 +173,10 @@ textarea {
 }
 
 .text-gradient {
-  background: linear-gradient(135deg, #f8fafc, color-mix(in srgb, var(--accent) 72%, white), color-mix(in srgb, var(--accent-2) 58%, white));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  color: #f8fafc;
 }
 
 @keyframes shimmer {

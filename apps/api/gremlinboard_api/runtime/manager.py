@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -523,6 +524,9 @@ class RuntimeManager:
     def _build_service(
         self, *, manifest: WidgetManifest, instance_id: str, config: dict[str, Any]
     ) -> BaseWidgetService:
+        widgets_parent = str(self.registry.widgets_dir.parent)
+        if widgets_parent not in sys.path:
+            sys.path.insert(0, widgets_parent)
         module = importlib.import_module(manifest.service.module)
         service_class = getattr(module, manifest.service.class_name)
         service = service_class(

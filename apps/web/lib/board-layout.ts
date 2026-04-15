@@ -1,8 +1,8 @@
 import type { TileSize, WidgetInstance } from "@/lib/types";
 
 export const BOARD_COLUMNS = 4;
-export const BOARD_GAP_PX = 16;
-export const BOARD_ROW_HEIGHT_PX = 148;
+export const BOARD_GAP_PX = 12;
+export const BOARD_ROW_HEIGHT_PX = 176;
 
 const TILE_DIMENSIONS: Record<TileSize, { width: number; height: number }> = {
   "1x1": { width: 1, height: 1 },

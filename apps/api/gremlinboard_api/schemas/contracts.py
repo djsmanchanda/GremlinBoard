@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from gremlinboard_api.specs.widget_ids import sanitize_widget_id, widget_service_module
+
 
 class TileSize(str, Enum):
     SMALL = "1x1"
@@ -98,9 +100,7 @@ class WidgetManifest(BaseModel):
     @field_validator("id")
     @classmethod
     def validate_id(cls, value: str) -> str:
-        if not value or not value[0].isalpha():
-            raise ValueError("widget id must start with a letter")
-        return value
+        return sanitize_widget_id(value)
 
     @model_validator(mode="after")
     def validate_sizes(self) -> "WidgetManifest":
@@ -111,6 +111,7 @@ class WidgetManifest(BaseModel):
             raise ValueError("preferred_size must be included in allowed_sizes")
         if any(size.value not in ALLOWED_TILE_SIZES for size in self.allowed_sizes):
             raise ValueError("manifest includes unsupported tile sizes")
+        self.service.module = widget_service_module(self.id)
         return self
 
 
@@ -227,6 +228,16 @@ class WidgetSpecDraft(BaseModel):
     output_schema: dict[str, Any]
     renderer_type: str
     lifecycle_policy: dict[str, Any]
+
+    @field_validator("id")
+    @classmethod
+    def validate_id(cls, value: str) -> str:
+        return sanitize_widget_id(value)
+
+    @field_validator("name", "category", "description", "source_type", "renderer_type")
+    @classmethod
+    def trim_text_fields(cls, value: str) -> str:
+        return " ".join(value.split())
 
 
 class WidgetSpecValidationRead(BaseModel):

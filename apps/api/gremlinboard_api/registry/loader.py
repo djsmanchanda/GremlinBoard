@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from gremlinboard_api.schemas.contracts import WidgetManifest, WidgetRegistryEntry
+from gremlinboard_api.specs.widget_ids import sanitize_widget_id, widget_service_module
 
 
 @dataclass(slots=True)
@@ -23,8 +24,7 @@ class WidgetRegistry:
     def load(self) -> None:
         entries: dict[str, LoadedWidget] = {}
         for manifest_path in sorted(self.widgets_dir.glob("*/manifest.json")):
-            widget_root = manifest_path.parent
-            raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            widget_root, raw_manifest = self._normalize_widget_package(manifest_path.parent)
             manifest = WidgetManifest.model_validate(raw_manifest)
             schema_path = widget_root / raw_manifest["config_schema"]
             renderer_path = widget_root / "renderer.tsx"
@@ -45,6 +45,39 @@ class WidgetRegistry:
             )
 
         self._entries = entries
+
+    def _normalize_widget_package(self, widget_root: Path) -> tuple[Path, dict[str, Any]]:
+        manifest_path = widget_root / "manifest.json"
+        raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        canonical_id = sanitize_widget_id(str(raw_manifest.get("id") or widget_root.name))
+        changed = False
+
+        if raw_manifest.get("id") != canonical_id:
+            raw_manifest["id"] = canonical_id
+            changed = True
+
+        service = raw_manifest.setdefault("service", {})
+        expected_module = widget_service_module(canonical_id)
+        if service.get("module") != expected_module:
+            service["module"] = expected_module
+            changed = True
+
+        target_root = self.widgets_dir / canonical_id
+        if widget_root != target_root:
+            if target_root.exists():
+                raise FileExistsError(f"cannot migrate widget '{widget_root.name}' to '{canonical_id}'; target already exists")
+            widget_root.rename(target_root)
+            widget_root = target_root
+            changed = True
+
+        if changed:
+            (widget_root / "manifest.json").write_text(json.dumps(raw_manifest, indent=2) + "\n", encoding="utf-8")
+
+        init_path = widget_root / "__init__.py"
+        if not init_path.exists():
+            init_path.write_text('"""Widget package."""\n', encoding="utf-8")
+
+        return widget_root, raw_manifest
 
     def all(self) -> list[LoadedWidget]:
         return list(self._entries.values())

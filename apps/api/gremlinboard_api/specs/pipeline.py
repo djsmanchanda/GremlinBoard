@@ -11,6 +11,7 @@ from gremlinboard_api.schemas.contracts import (
     WidgetManifest,
     WidgetSpecDraft,
 )
+from gremlinboard_api.specs.widget_ids import sanitize_widget_id, sanitize_identifier, widget_root_name, widget_service_module
 
 try:
     import yaml
@@ -80,8 +81,10 @@ def build_manifest_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
 
 
 def build_manifest_preview_with_version(spec: WidgetSpecDraft, *, version: str) -> dict[str, Any]:
+    widget_id = sanitize_widget_id(spec.id)
+    service_class_name = f"{sanitize_identifier(spec.name, fallback='GeneratedWidget')}Service"
     manifest = WidgetManifest(
-        id=spec.id,
+        id=widget_id,
         version=version,
         name=spec.name,
         category=spec.category,
@@ -97,14 +100,15 @@ def build_manifest_preview_with_version(spec: WidgetSpecDraft, *, version: str) 
         },
         permissions=spec.permissions,
         renderer={"target": spec.renderer_type},
-        service={"module": f"widgets.{spec.id}.backend", "class_name": f"{spec.name.replace(' ', '')}Service"},
+        service={"module": widget_service_module(widget_id), "class_name": service_class_name},
         config_schema="config.schema.json",
     )
     return manifest.model_dump(mode="json")
 
 
 def scaffold_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
-    widget_root = f"widgets/{spec.id}"
+    widget_id = widget_root_name(spec.id)
+    widget_root = f"widgets/{widget_id}"
     return {
         "widget_root": widget_root,
         "files": [
@@ -112,7 +116,7 @@ def scaffold_preview(spec: WidgetSpecDraft) -> dict[str, Any]:
             f"{widget_root}/backend.py",
             f"{widget_root}/renderer.tsx",
             f"{widget_root}/config.schema.json",
-            f"apps/api/tests/test_{spec.id}_widget.py",
+            f"apps/api/tests/test_{widget_id}_widget.py",
         ],
         "review_required": True,
         "install_blocked": True,

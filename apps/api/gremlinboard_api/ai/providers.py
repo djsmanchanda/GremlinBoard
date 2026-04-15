@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import re
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -10,6 +8,7 @@ from gremlinboard_api.ai.prompts import (
     render_review_prompt,
 )
 from gremlinboard_api.schemas.contracts import WidgetSpecDraft
+from gremlinboard_api.specs.widget_ids import sanitize_widget_id
 
 
 class AIProvider(ABC):
@@ -213,12 +212,7 @@ def _draft_spec_payload(*, idea: str, provider_label: str) -> dict[str, Any]:
 
 
 def _slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    if not slug:
-        slug = "generated_widget"
-    if not slug[0].isalpha():
-        slug = f"widget_{slug}"
-    return slug[:48]
+    return sanitize_widget_id(value or "generated_widget")
 
 
 def _titleize(widget_id: str) -> str:

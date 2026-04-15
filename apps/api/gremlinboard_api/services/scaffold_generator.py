@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
-import re
 from textwrap import dedent
 from typing import Any
 
 from gremlinboard_api.schemas.contracts import WidgetPackagePayload, WidgetSpecDraft
 from gremlinboard_api.specs.pipeline import build_manifest_preview_with_version, scaffold_preview
+from gremlinboard_api.specs.widget_ids import sanitize_identifier, sanitize_widget_id
 
 
 class WidgetScaffoldGenerator:
@@ -17,6 +17,7 @@ class WidgetScaffoldGenerator:
         version: str,
         artifact_version: int,
     ) -> dict[str, Any]:
+        widget_id = sanitize_widget_id(spec.id)
         manifest = build_manifest_preview_with_version(spec, version=version)
         config_schema = self._build_config_schema(spec)
         backend_source = self._build_backend_source(spec)
@@ -31,27 +32,27 @@ class WidgetScaffoldGenerator:
         preview = scaffold_preview(spec)
         files = [
             {
-                "path": f"widgets/{spec.id}/manifest.json",
+                "path": f"widgets/{widget_id}/manifest.json",
                 "language": "json",
                 "content": json.dumps(manifest, indent=2) + "\n",
             },
             {
-                "path": f"widgets/{spec.id}/config.schema.json",
+                "path": f"widgets/{widget_id}/config.schema.json",
                 "language": "json",
                 "content": json.dumps(config_schema, indent=2) + "\n",
             },
             {
-                "path": f"widgets/{spec.id}/backend.py",
+                "path": f"widgets/{widget_id}/backend.py",
                 "language": "python",
                 "content": backend_source,
             },
             {
-                "path": f"widgets/{spec.id}/renderer.tsx",
+                "path": f"widgets/{widget_id}/renderer.tsx",
                 "language": "tsx",
                 "content": renderer_source,
             },
             {
-                "path": f"apps/api/tests/test_{spec.id}_widget.py",
+                "path": f"apps/api/tests/test_{widget_id}_widget.py",
                 "language": "python",
                 "content": test_source,
             },
@@ -79,9 +80,10 @@ class WidgetScaffoldGenerator:
         }
 
     def _build_backend_source(self, spec: WidgetSpecDraft) -> str:
+        widget_id = sanitize_widget_id(spec.id)
         class_name = _service_class_name(spec.name)
         state_template = {
-            "kind": spec.id,
+            "kind": widget_id,
             "title": {"$ref": "config.title_override", "fallback": spec.name},
             "category": spec.category,
             "description": spec.description,
@@ -114,7 +116,7 @@ class WidgetScaffoldGenerator:
                 async def get_state(self) -> dict[str, object]:
                     title = self.config.get("title_override") or {json.dumps(spec.name)}
                     return {{
-                        "kind": {json.dumps(spec.id)},
+                        "kind": {json.dumps(widget_id)},
                         "title": title,
                         "category": {json.dumps(spec.category)},
                         "description": {json.dumps(spec.description)},
@@ -161,32 +163,33 @@ class WidgetScaffoldGenerator:
         ).strip() + "\n"
 
     def _build_test_source(self, spec: WidgetSpecDraft, version: str) -> str:
+        widget_id = sanitize_widget_id(spec.id)
         return dedent(
             f"""
             from gremlinboard_api.specs.pipeline import build_manifest_preview_with_version
             from gremlinboard_api.schemas.contracts import WidgetSpecDraft
 
 
-            def test_{spec.id}_generated_manifest_shape() -> None:
+            def test_{widget_id}_generated_manifest_shape() -> None:
                 spec = WidgetSpecDraft.model_validate(
                     {json.dumps(spec.model_dump(mode="json"), indent=2)}
                 )
                 manifest = build_manifest_preview_with_version(spec, version={json.dumps(version)})
 
-                assert manifest["id"] == {json.dumps(spec.id)}
+                assert manifest["id"] == {json.dumps(widget_id)}
                 assert manifest["version"] == {json.dumps(version)}
             """
         ).strip() + "\n"
 
 
 def _service_class_name(name: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9]+", " ", name).title().replace(" ", "")
-    return f"{cleaned}Service" if cleaned else "GeneratedWidgetService"
+    cleaned = sanitize_identifier(name, fallback="GeneratedWidget")
+    return f"{cleaned}Service"
 
 
 def _component_name(name: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9]+", " ", name).title().replace(" ", "")
-    return f"{cleaned}Renderer" if cleaned else "GeneratedWidgetRenderer"
+    cleaned = sanitize_identifier(name, fallback="GeneratedWidget")
+    return f"{cleaned}Renderer"
 
 
 def _flatten_output_schema_keys(value: dict[str, Any], *, prefix: str = "") -> list[str]:

@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
     await auth_service.ensure_default_user()
     system_settings = SystemSettingsService(session_factory=SessionLocal)
     await system_settings.ensure_defaults(user_id=settings.default_user_id)
+    await provider_runtime.secrets.sync_from_repository(SessionLocal)
     plugin_manager = PluginManagerService(
         session_factory=SessionLocal,
         widgets_dir=settings.widgets_dir,

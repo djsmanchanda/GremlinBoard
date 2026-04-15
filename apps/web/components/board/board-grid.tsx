@@ -6,7 +6,6 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import {
   BOARD_COLUMNS,
   BOARD_GAP_PX,
-  BOARD_ROW_HEIGHT_PX,
   findClosestWidgetId,
   packBoardLayout,
   reorderWidgetCollection,
@@ -34,6 +33,16 @@ interface DragState {
   previewWidgets: BoardState["widgets"];
 }
 
+interface PendingDragState {
+  widgetId: string;
+  startClientX: number;
+  startClientY: number;
+  cardX: number;
+  cardY: number;
+  pointerOffsetX: number;
+  pointerOffsetY: number;
+}
+
 export function BoardGrid({
   board,
   registry,
@@ -48,7 +57,7 @@ export function BoardGrid({
   const [containerWidth, setContainerWidth] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [previewSizes, setPreviewSizes] = useState<Record<string, TileSize>>({});
+  const [pendingDrag, setPendingDrag] = useState<PendingDragState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
 
   useEffect(() => {
@@ -67,18 +76,12 @@ export function BoardGrid({
   }, []);
 
   const displayWidgets = dragState?.previewWidgets ?? board.widgets;
-  const packedLayout = useMemo(
-    () => packBoardLayout(displayWidgets, { sizeOverrides: previewSizes }),
-    [displayWidgets, previewSizes],
-  );
-  const committedLayout = useMemo(
-    () => packBoardLayout(board.widgets, { sizeOverrides: previewSizes }),
-    [board.widgets, previewSizes],
-  );
+  const packedLayout = useMemo(() => packBoardLayout(displayWidgets), [displayWidgets]);
+  const committedLayout = useMemo(() => packBoardLayout(board.widgets), [board.widgets]);
   const cellWidth =
-    containerWidth > 0 ? Math.max((containerWidth - (BOARD_COLUMNS - 1) * BOARD_GAP_PX) / BOARD_COLUMNS, 120) : 120;
-  const boardHeight =
-    Math.max(packedLayout.rows, 1) * BOARD_ROW_HEIGHT_PX + Math.max(packedLayout.rows - 1, 0) * BOARD_GAP_PX;
+    containerWidth > 0 ? Math.max((containerWidth - (BOARD_COLUMNS - 1) * BOARD_GAP_PX) / BOARD_COLUMNS, 144) : 176;
+  const rowHeight = cellWidth;
+  const boardHeight = Math.max(packedLayout.rows, 1) * rowHeight + Math.max(packedLayout.rows - 1, 0) * BOARD_GAP_PX;
   const occupiedCellKeys = new Set(packedLayout.occupiedCells.map((cell) => `${cell.col}-${cell.row}`));
   const previewCellKeys = new Set(
     (selectedId ? packedLayout.occupiedCells.filter((cell) => cell.widgetId === selectedId) : []).map(
@@ -103,23 +106,27 @@ export function BoardGrid({
       return;
     }
     const cardX = placement.x * (cellWidth + BOARD_GAP_PX);
-    const cardY = placement.y * (BOARD_ROW_HEIGHT_PX + BOARD_GAP_PX);
-    setSelectedId(widgetId);
-    setDragState({
+    const cardY = placement.y * (rowHeight + BOARD_GAP_PX);
+    setPendingDrag({
       widgetId,
-      ghostX: cardX,
-      ghostY: cardY,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      cardX,
+      cardY,
       pointerOffsetX: event.clientX - containerRect.left - cardX,
       pointerOffsetY: event.clientY - containerRect.top - cardY,
-      previewWidgets: board.widgets,
     });
   }
 
   useEffect(() => {
-    if (!dragState || !containerRef.current) {
+    if ((!dragState && !pendingDrag) || !containerRef.current) {
       return;
     }
-    const dragWidgetId = dragState.widgetId;
+    const dragWidgetId = dragState?.widgetId ?? pendingDrag?.widgetId;
+    if (!dragWidgetId) {
+      return;
+    }
+    const activeWidgetId = dragWidgetId;
 
     function handlePointerMove(event: PointerEvent) {
       if (!containerRef.current) {
@@ -128,16 +135,43 @@ export function BoardGrid({
       const containerRect = containerRef.current.getBoundingClientRect();
       const localX = event.clientX - containerRect.left;
       const localY = event.clientY - containerRect.top;
-      const targetId =
-        localY > boardHeight + BOARD_ROW_HEIGHT_PX / 2
+      if (dragState == null && pendingDrag != null) {
+        const distance = Math.hypot(event.clientX - pendingDrag.startClientX, event.clientY - pendingDrag.startClientY);
+        if (distance < 8) {
+          return;
+        }
+        const targetId =
+          localY > boardHeight + rowHeight / 2
             ? null
             : findClosestWidgetId(
-                packedLayout.orderedPlacements,
+                committedLayout.orderedPlacements,
                 { x: localX, y: localY },
-                dragWidgetId,
+                pendingDrag.widgetId,
                 cellWidth,
-                BOARD_ROW_HEIGHT_PX,
+                rowHeight,
               );
+        setSelectedId(pendingDrag.widgetId);
+        setPendingDrag(null);
+        setDragState({
+          widgetId: pendingDrag.widgetId,
+          ghostX: localX - pendingDrag.pointerOffsetX,
+          ghostY: localY - pendingDrag.pointerOffsetY,
+          pointerOffsetX: pendingDrag.pointerOffsetX,
+          pointerOffsetY: pendingDrag.pointerOffsetY,
+          previewWidgets: reorderWidgetCollection(board.widgets, pendingDrag.widgetId, targetId),
+        });
+        return;
+      }
+      const targetId =
+        localY > boardHeight + rowHeight / 2
+          ? null
+          : findClosestWidgetId(
+              packedLayout.orderedPlacements,
+              { x: localX, y: localY },
+              activeWidgetId,
+              cellWidth,
+              rowHeight,
+            );
 
       setDragState((current) =>
         current
@@ -152,6 +186,7 @@ export function BoardGrid({
     }
 
     function handlePointerUp() {
+      setPendingDrag(null);
       setDragState((current) => {
         if (current) {
           const orderedIds = current.previewWidgets.map((widget) => widget.id);
@@ -170,7 +205,17 @@ export function BoardGrid({
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [board.widgets, boardHeight, cellWidth, dragState, onReorder, packedLayout.orderedPlacements]);
+  }, [
+    board.widgets,
+    boardHeight,
+    cellWidth,
+    committedLayout.orderedPlacements,
+    dragState,
+    onReorder,
+    packedLayout.orderedPlacements,
+    pendingDrag,
+    rowHeight,
+  ]);
 
   return (
     <div className="glass-panel-strong premium-ring overflow-x-auto rounded-[34px] p-4 md:p-5">
@@ -192,15 +237,14 @@ export function BoardGrid({
       </div>
       <div
         ref={containerRef}
-        className="surface-grid relative min-w-[920px] overflow-hidden rounded-[30px] border border-white/8 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.11),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(52,211,153,0.08),transparent_24%),rgba(6,10,19,0.92)] p-2"
+        className="relative min-w-[920px] overflow-hidden rounded-[24px] border border-white/8 bg-[#06080b] p-2"
         style={{ height: boardHeight + 16 }}
       >
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_18%,transparent_82%,rgba(255,255,255,0.02))]" />
         {Array.from({ length: Math.max(packedLayout.rows, 4) }).map((_, row) =>
           Array.from({ length: BOARD_COLUMNS }).map((__, col) => {
             const key = `${col}-${row}`;
             const x = col * (cellWidth + BOARD_GAP_PX) + 8;
-            const y = row * (BOARD_ROW_HEIGHT_PX + BOARD_GAP_PX) + 8;
+            const y = row * (rowHeight + BOARD_GAP_PX) + 8;
             return (
               <div
                 key={key}
@@ -215,7 +259,7 @@ export function BoardGrid({
                   left: x,
                   top: y,
                   width: cellWidth,
-                  height: BOARD_ROW_HEIGHT_PX,
+                  height: rowHeight,
                 }}
               />
             );
@@ -233,9 +277,9 @@ export function BoardGrid({
             return null;
           }
           const left = placement.x * (cellWidth + BOARD_GAP_PX) + 8;
-          const top = placement.y * (BOARD_ROW_HEIGHT_PX + BOARD_GAP_PX) + 8;
+          const top = placement.y * (rowHeight + BOARD_GAP_PX) + 8;
           const width = placement.width * cellWidth + (placement.width - 1) * BOARD_GAP_PX;
-          const height = placement.height * BOARD_ROW_HEIGHT_PX + (placement.height - 1) * BOARD_GAP_PX;
+          const height = placement.height * rowHeight + (placement.height - 1) * BOARD_GAP_PX;
           const isDragged = dragState?.widgetId === widget.id;
 
           return (
@@ -256,31 +300,16 @@ export function BoardGrid({
                 configSchema={entry.config_schema}
                 plugin={entry.plugin}
                 selected={selectedId === widget.id}
-                hovered={hoveredId === widget.id}
+                hovered={!dragState && !pendingDrag && hoveredId === widget.id}
                 onSelect={() => setSelectedId(widget.id)}
                 onHoverChange={(hovered) =>
-                  setHoveredId((current) => (hovered ? widget.id : current === widget.id ? null : current))
+                  setHoveredId((current) =>
+                    dragState || pendingDrag ? current : hovered ? widget.id : current === widget.id ? null : current,
+                  )
                 }
                 onDragHandlePointerDown={(event) => beginDrag(widget.id, event)}
-                onResize={(size) => {
-                  setPreviewSizes((current) => {
-                    const next = { ...current };
-                    delete next[widget.id];
-                    return next;
-                  });
-                  onResize(widget.id, size);
-                }}
-                onPreviewResize={(size) =>
-                  setPreviewSizes((current) => {
-                    const next = { ...current };
-                    if (size) {
-                      next[widget.id] = size;
-                    } else {
-                      delete next[widget.id];
-                    }
-                    return next;
-                  })
-                }
+                onResize={(size) => onResize(widget.id, size)}
+                onPreviewResize={() => undefined}
                 onRefresh={() => onRefresh(widget.id)}
                 onToggleRun={() =>
                   onToggleRun(widget.id, widget.lifecycle_state === "running" || widget.lifecycle_state === "created")
@@ -300,7 +329,7 @@ export function BoardGrid({
                 committedLayout.placements[dragState.widgetId].width * cellWidth +
                 (committedLayout.placements[dragState.widgetId].width - 1) * BOARD_GAP_PX,
               height:
-                committedLayout.placements[dragState.widgetId].height * BOARD_ROW_HEIGHT_PX +
+                committedLayout.placements[dragState.widgetId].height * rowHeight +
                 (committedLayout.placements[dragState.widgetId].height - 1) * BOARD_GAP_PX,
               transform: `translate3d(${dragState.ghostX + 8}px, ${dragState.ghostY + 8}px, 0) rotate(1.2deg) scale(1.015)`,
               filter: "drop-shadow(0 24px 70px rgba(8,145,178,0.34))",

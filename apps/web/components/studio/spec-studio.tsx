@@ -59,11 +59,9 @@ lifecycle_policy:
   stateful: true
 `;
 
-const studioStages = [
-  { id: "draft", label: "Spec draft" },
-  { id: "validation", label: "Validation" },
-  { id: "scaffold", label: "Scaffold" },
-  { id: "codegen", label: "Codegen" },
+const workflowStages = [
+  { id: "prompt", label: "Prompt" },
+  { id: "generate", label: "Generate" },
   { id: "review", label: "Review" },
   { id: "install", label: "Install" },
 ] as const;
@@ -148,51 +146,19 @@ export function SpecStudio() {
     return () => window.clearTimeout(timeout);
   }, [currentJob]);
 
-  const highlightedError = result?.errors[0];
-  const lines = payload.split("\n");
-  const highlightedLine = highlightedError?.line ?? null;
   const selectedProviderDetails = providers.find((provider) => provider.provider_id === selectedProvider) ?? null;
   const fallbackProviders = providers
     .filter((provider) => provider.provider_id !== selectedProvider)
     .map((provider) => provider.provider_id);
+  const highlightedError = result?.errors[0] ?? null;
+  const lines = payload.split("\n");
+  const highlightedLine = highlightedError?.line ?? null;
   const codeArtifact = useMemo(
     () => currentJob?.artifacts.find((artifact) => artifact.stage === "codegen" && artifact.artifact_type === "package") ?? null,
     [currentJob],
   );
   const files = useMemo(() => codeArtifact?.files ?? [], [codeArtifact]);
   const selectedFile = files.find((file) => file.path === selectedFilePath) ?? files[0] ?? null;
-  const stageStates = {
-    draft: "complete",
-    validation: validationLoading ? "active" : result?.valid ? "complete" : result?.errors.length ? "error" : "idle",
-    scaffold: currentJob?.artifacts.some((artifact) => artifact.stage === "scaffold")
-      ? "complete"
-      : result?.valid
-        ? "active"
-        : "idle",
-    codegen: currentJob?.artifacts.some((artifact) => artifact.stage === "codegen")
-      ? "complete"
-      : currentJob?.status === "failed"
-        ? "error"
-        : currentJob && ["queued", "running"].includes(currentJob.status)
-          ? "active"
-          : "idle",
-    review:
-      currentJob?.status === "review_required"
-        ? "active"
-        : currentJob && ["approved", "installed"].includes(currentJob.status)
-          ? "complete"
-          : currentJob && ["rejected", "failed"].includes(currentJob.status)
-            ? "error"
-            : "idle",
-    install:
-      currentJob?.status === "installed"
-        ? "complete"
-        : currentJob?.status === "approved"
-          ? "active"
-          : currentJob?.status === "failed"
-            ? "error"
-            : "idle",
-  } as const;
 
   useEffect(() => {
     if (!selectedFile && files[0]) {
@@ -202,6 +168,37 @@ export function SpecStudio() {
       setSelectedFilePath(selectedFile.path);
     }
   }, [files, selectedFile, selectedFilePath]);
+
+  const workflowState = {
+    prompt: idea.trim() || payload.trim() ? "complete" : "idle",
+    generate:
+      validationLoading || currentJob?.status === "queued" || currentJob?.status === "running"
+        ? "active"
+        : currentJob
+          ? "complete"
+          : result?.valid
+            ? "ready"
+            : "idle",
+    review:
+      currentJob?.status === "review_required"
+        ? "active"
+        : currentJob && ["approved", "installed"].includes(currentJob.status)
+          ? "complete"
+          : currentJob && ["failed", "rejected"].includes(currentJob.status)
+            ? "error"
+            : "idle",
+    install:
+      currentJob?.status === "installed"
+        ? "complete"
+        : currentJob?.status === "approved"
+          ? "ready"
+          : currentJob?.status === "failed"
+            ? "error"
+            : "idle",
+  } as const;
+
+  const providerUnavailable = providers.length === 0;
+  const generationBlocked = providerUnavailable || !selectedProviderDetails;
 
   const runGeneration = (mode: "idea" | "stage" | "regenerate") => {
     setError(null);
@@ -262,71 +259,130 @@ export function SpecStudio() {
   };
 
   return (
-    <div className="space-y-6">
-      <section className="glass-panel premium-ring rounded-[30px] p-5 md:p-6">
-        <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
-          <div>
-            <p className="text-xs uppercase tracking-[0.28em] text-cyan-200/70">Staged pipeline</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white">Review-gated widget creation</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Ideas and specs move through validation, scaffold, code generation, review, and registry install before they reach the board.
+    <div className="space-y-5">
+      <section className="rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Spec studio</p>
+            <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">Prompt, generate, review, install</h2>
+            <p className="mt-3 text-sm leading-6 text-slate-400">
+              Keep the main path short. Raw spec editing, scaffold detail, diffs, and logs stay available, but they do not lead the screen anymore.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <MetricSummary label="Provider" value={selectedProvider} />
+            <MetricSummary label="Provider" value={selectedProviderDetails?.label ?? "None"} />
             <MetricSummary label="Validation" value={validationLoading ? "Running" : result?.valid ? "Ready" : "Draft"} />
             <MetricSummary label="Current job" value={currentJob?.status ?? "Idle"} />
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 lg:grid-cols-6">
-          {studioStages.map((stage, index) => (
-            <StageChip key={stage.id} index={index + 1} label={stage.label} state={stageStates[stage.id]} />
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          {workflowStages.map((stage, index) => (
+            <WorkflowCard key={stage.id} index={index + 1} label={stage.label} state={workflowState[stage.id]} />
           ))}
         </div>
       </section>
 
       {error ? (
-        <div className="glass-panel accent-border rounded-[28px] px-5 py-4 text-sm text-rose-50">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-rose-200/80">Studio signal degraded</p>
-          <p className="mt-2">{error}</p>
+        <div className="rounded-[18px] border border-rose-300/18 bg-rose-300/8 px-4 py-3 text-sm text-rose-50">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-rose-200/80">Studio warning</p>
+          <p className="mt-1">{error}</p>
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <section className="space-y-6">
-        <Panel
-          eyebrow="Idea"
-          title="Natural language entry"
-          description="Use an idea prompt or the strict JSON/YAML editor. Both paths stay review-gated."
-        >
-          <textarea
-            value={idea}
-            onChange={(event) => setIdea(event.target.value)}
-            className="min-h-[140px] w-full rounded-[28px] border border-white/10 bg-slate-950/80 p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-300/40"
-            placeholder="Describe the widget idea, data source, and board behavior."
-          />
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={!idea.trim() || isPending || !selectedProviderDetails?.supports_idea_to_spec}
-              onClick={() => runGeneration("idea")}
-              className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isPending ? "Generating..." : "Generate From Idea"}
-            </button>
-            <span className="rounded-full border border-white/10 px-3 py-2 text-xs uppercase tracking-[0.18em] text-slate-400">
-              Provider {selectedProvider}
-            </span>
-          </div>
-        </Panel>
+      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
+        <section className="space-y-5">
+          <Panel
+            eyebrow="Step 1"
+            title="Prompt"
+            description="Describe the widget in plain language, then choose which provider should stage the spec and code generation pass."
+          >
+            <textarea
+              value={idea}
+              onChange={(event) => setIdea(event.target.value)}
+              className="min-h-[160px] w-full rounded-[18px] border border-white/10 bg-[#07090d] p-4 text-sm leading-6 text-slate-100 outline-none transition focus:border-cyan-300/30"
+              placeholder="Describe the widget idea, expected data source, and board behavior."
+            />
 
-        <Panel
-          eyebrow="Draft"
-          title="YAML / JSON spec editor"
-          description="Validation is live. The studio stages specs, previews manifests, and keeps install blocked until review."
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+              <label className="grid gap-2">
+                <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Provider</span>
+                <select
+                  value={selectedProvider}
+                  onChange={(event) => setSelectedProvider(event.target.value)}
+                  className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
+                >
+                  {providers.map((provider) => (
+                    <option key={provider.provider_id} value={provider.provider_id}>
+                      {provider.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <ActionButton
+                onClick={() => runGeneration("idea")}
+                disabled={!idea.trim() || isPending || generationBlocked || !selectedProviderDetails?.supports_idea_to_spec}
+                tone="primary"
+              >
+                {isPending ? "Generating..." : "Generate"}
+              </ActionButton>
+
+              {currentJob ? (
+                <ActionButton onClick={() => runGeneration("regenerate")} disabled={isPending || generationBlocked}>
+                  Regenerate
+                </ActionButton>
+              ) : null}
+            </div>
+
+            {providerUnavailable ? (
+              <InlineNotice title="No providers available" body="Open System Panel to enable or configure at least one AI provider before generation." tone="warning" />
+            ) : null}
+          </Panel>
+
+          <Panel
+            eyebrow="Step 2"
+            title="Generate"
+            description="A valid staged spec can generate from the editor path as well. Validation runs in the background while you edit."
+          >
+            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+              <div className="rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Validation state</p>
+                <p className="mt-2 text-sm font-medium text-white">
+                  {validationLoading ? "Validating draft..." : result?.valid ? "Draft is ready for generation." : "Draft needs attention."}
+                </p>
+                {result?.stage_id ? <p className="mt-1 text-xs text-slate-400">Stage {result.stage_id}</p> : null}
+              </div>
+              <ActionButton onClick={() => runGeneration("stage")} disabled={!result?.valid || isPending || generationBlocked} tone="success">
+                {isPending ? "Generating..." : "Generate From Spec"}
+              </ActionButton>
+            </div>
+
+            {generationPreview ? (
+              <div className="mt-4 grid gap-2">
+                {generationPreview.steps.map((step) => (
+                  <div key={step.id} className="flex items-center justify-between gap-3 rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-200">
+                    <span>{step.label}</span>
+                    <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                      {step.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {highlightedError ? (
+              <div className="mt-4 rounded-[16px] border border-rose-300/18 bg-rose-300/8 p-4">
+                <p className="text-sm font-medium text-rose-50">{highlightedError.message}</p>
+                <p className="mt-1 text-xs text-rose-100/80">
+                  {highlightedError.line ? `Line ${highlightedError.line}` : "Validation detail"}
+                  {highlightedError.column ? `, column ${highlightedError.column}` : ""}
+                </p>
+              </div>
+            ) : null}
+          </Panel>
+
+          <CollapsiblePanel eyebrow="Advanced" title="Spec editor and validation detail">
             <div className="flex flex-wrap gap-2">
               {(["json", "yaml"] as const).map((nextFormat) => (
                 <button
@@ -336,59 +392,27 @@ export function SpecStudio() {
                     setFormat(nextFormat);
                     setPayload(nextFormat === "json" ? defaultJson : defaultYaml);
                   }}
-                  className={`rounded-full px-3 py-2 text-xs uppercase tracking-[0.18em] transition duration-200 ${
+                  className={`rounded-[10px] border px-3 py-2 text-xs uppercase tracking-[0.14em] transition ${
                     format === nextFormat
-                      ? "border border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                      : "border border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
+                      ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-50"
+                      : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
                   }`}
                 >
                   {nextFormat}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              disabled={!result?.valid || isPending}
-              onClick={() => runGeneration("stage")}
-              className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isPending ? "Generating..." : "Generate From Validated Spec"}
-            </button>
-          </div>
-          <div className="mt-4 overflow-hidden rounded-[28px] border border-white/10 bg-black/20">
-            <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
-              <div className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-rose-300/90" />
-                <span className="h-2.5 w-2.5 rounded-full bg-amber-300/90" />
-                <span className="h-2.5 w-2.5 rounded-full bg-emerald-300/90" />
-              </div>
-              <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{format} editor</span>
-            </div>
+
             <textarea
               value={payload}
               onChange={(event) => setPayload(event.target.value)}
-              className={`min-h-[460px] w-full border-0 bg-transparent p-4 font-mono text-sm leading-6 outline-none ${
+              className={`mt-4 min-h-[360px] w-full rounded-[18px] border border-white/10 bg-[#07090d] p-4 font-mono text-sm leading-6 outline-none ${
                 result?.errors.length ? "text-rose-50" : "text-slate-100"
               }`}
             />
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full border border-white/10 px-3 py-1 text-slate-300">
-              {validationLoading ? "Validating..." : result?.valid ? "Validated for generation" : "Draft needs attention"}
-            </span>
-            {result?.stage_id ? (
-              <span className="rounded-full border border-white/10 px-3 py-1 text-slate-400">Stage {result.stage_id}</span>
-            ) : null}
-          </div>
-          {highlightedError ? (
-            <div className="mt-4 rounded-[28px] border border-rose-400/20 bg-rose-400/10 p-4">
-              <p className="text-sm font-medium text-rose-100">Highlighted validation issue</p>
-              <p className="mt-1 text-sm text-rose-100">
-                {highlightedError.message}
-                {highlightedError.line ? ` at line ${highlightedError.line}` : ""}
-                {highlightedError.column ? `, column ${highlightedError.column}` : ""}
-              </p>
-              <div className="mt-3 space-y-1 font-mono text-xs">
+
+            {highlightedError ? (
+              <div className="mt-4 space-y-1 rounded-[16px] border border-white/10 bg-[#07090d] p-3 font-mono text-xs">
                 {lines
                   .slice(Math.max((highlightedLine ?? 1) - 3, 0), Math.min((highlightedLine ?? 1) + 2, lines.length))
                   .map((line, index) => {
@@ -396,8 +420,8 @@ export function SpecStudio() {
                     return (
                       <div
                         key={`${actualLine}-${line}`}
-                        className={`rounded-xl px-3 py-1.5 ${
-                          actualLine === highlightedLine ? "bg-rose-400/20 text-rose-50" : "text-slate-300"
+                        className={`rounded px-3 py-1.5 ${
+                          actualLine === highlightedLine ? "bg-rose-300/10 text-rose-50" : "text-slate-300"
                         }`}
                       >
                         <span className="mr-3 text-slate-500">{String(actualLine).padStart(3, "0")}</span>
@@ -406,254 +430,221 @@ export function SpecStudio() {
                     );
                   })}
               </div>
-            </div>
-          ) : null}
-        </Panel>
-      </section>
+            ) : null}
 
-      <section className="space-y-6">
-        <Panel eyebrow="Validation" title="Spec and manifest preview">
-          {!result ? (
-            <EmptyState
-              title="Waiting for the first validation result"
-              body="As soon as the draft parses, the manifest, normalized spec, and scaffold preview land here."
-            />
-          ) : (
-            <div className="space-y-4">
-              <PreviewBlock title="Stage">
-                <p>{result.stage}</p>
-                <p className="mt-1 text-xs text-slate-400">Stage id: {result.stage_id}</p>
+            <div className="mt-4 grid gap-4">
+              <PreviewBlock title="Manifest preview">
+                <JsonBlock value={result?.manifest_preview ?? null} />
               </PreviewBlock>
-              <PreviewBlock title="Notes">
-                {result.notes.length === 0 ? <p>No blocking notes.</p> : result.notes.map((note) => <p key={note}>{note}</p>)}
-              </PreviewBlock>
-              <PreviewBlock title="Manifest Preview">
-                <JsonBlock value={result.manifest_preview} />
-              </PreviewBlock>
-              {result.normalized_spec ? (
-                <PreviewBlock title="Normalized Spec">
+              {result?.normalized_spec ? (
+                <PreviewBlock title="Normalized spec">
                   <JsonBlock value={result.normalized_spec} />
                 </PreviewBlock>
               ) : null}
-              <PreviewBlock title="Scaffold Preview">
+              <PreviewBlock title="Scaffold preview">
                 <div className="grid gap-2">
-                  {result.scaffold_preview.files.map((file) => (
-                    <div key={file} className="rounded-[18px] border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300">
+                  {(result?.scaffold_preview.files ?? []).map((file) => (
+                    <div key={file} className="rounded-[12px] border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-slate-300">
                       {file}
                     </div>
                   ))}
                 </div>
               </PreviewBlock>
             </div>
-          )}
-        </Panel>
+          </CollapsiblePanel>
+        </section>
 
-        <Panel eyebrow="AI Layer" title="Provider adapters and staged execution">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <select
-              value={selectedProvider}
-              onChange={(event) => setSelectedProvider(event.target.value)}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-100 outline-none"
-            >
-              {providers.map((provider) => (
-                <option key={provider.provider_id} value={provider.provider_id}>
-                  {provider.label}
-                </option>
-              ))}
-            </select>
-            {currentJob ? (
-              <button
-                type="button"
-                onClick={() => runGeneration("regenerate")}
-                disabled={isPending}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Regenerate
-              </button>
-            ) : null}
-          </div>
-          <div className="mt-4 grid gap-3">
-            {providers.map((provider) => (
-              <div key={provider.provider_id} className="rounded-[24px] border border-white/10 bg-slate-950/60 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-white">{provider.label}</p>
-                    <p className="mt-1 text-xs text-slate-400">{provider.provider_id}</p>
+        <section className="space-y-5">
+          <Panel
+            eyebrow="Step 3"
+            title="Review"
+            description="Review stays explicit. Generated output must move through approval before installation is unlocked."
+          >
+            {!currentJob ? (
+              <EmptyState
+                title="No generation job yet"
+                body="Run generation from the prompt or validated spec to inspect staged artifacts."
+              />
+            ) : (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between gap-3 rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{currentJob.widget_id}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Provider {currentJob.provider_id} · Artifact v{currentJob.artifact_version}
+                    </p>
                   </div>
-                  <span className="rounded-full border border-white/10 px-2 py-1 text-[11px] uppercase tracking-[0.16em] text-slate-300">
-                    {provider.status}
-                  </span>
+                  <StatusBadge status={currentJob.status} />
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <CapabilityPill enabled={provider.supports_idea_to_spec} label="Idea to Spec" />
-                  <CapabilityPill enabled={provider.supports_codegen} label="Codegen" />
-                  <CapabilityPill enabled={provider.supports_review} label="Review" />
-                </div>
-              </div>
-            ))}
-          </div>
-          {generationPreview ? (
-            <div className="mt-4 rounded-[24px] border border-cyan-300/15 bg-cyan-300/10 p-4">
-              <p className="text-sm font-medium text-cyan-50">Pipeline preview</p>
-              <div className="mt-3 grid gap-2 text-sm text-cyan-50">
-                {generationPreview.steps.map((step) => (
-                  <div key={step.id} className="flex items-center justify-between gap-4 rounded-[18px] border border-cyan-100/10 bg-black/10 px-3 py-2">
-                    <span>{step.label}</span>
-                    <span className="rounded-full border border-cyan-100/20 px-2 py-0.5 text-[11px] uppercase tracking-[0.16em]">
-                      {step.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </Panel>
 
-        <Panel eyebrow="Widget Forge" title="Generation job, review, and install">
-          {!currentJob ? (
-            <EmptyState
-              title="No active generation job"
-              body="Run a generation job to inspect artifacts, review output, compare diffs, and install through the registry."
-            />
-          ) : (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-white">{currentJob.widget_id}</p>
-                  <p className="text-xs text-slate-400">
-                    Artifact v{currentJob.artifact_version} - provider {currentJob.provider_id} - job {currentJob.id}
+                <div className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Install target</p>
+                  <p className="mt-2 text-sm text-white">
+                    {currentJob.install_target?.action === "update" ? "Update installed widget" : "Install new widget"} to{" "}
+                    {currentJob.install_target?.next_version ?? currentJob.selected_version}
                   </p>
+                  {currentJob.install_target?.current_version ? (
+                    <p className="mt-1 text-xs text-slate-400">Current version {currentJob.install_target.current_version}</p>
+                  ) : null}
                 </div>
-                <StatusBadge status={currentJob.status} />
-              </div>
 
-              <PreviewBlock title="Install target">
-                <p>
-                  {currentJob.install_target?.action === "update" ? "Update installed widget" : "Install new widget"} to{" "}
-                  {currentJob.install_target?.next_version ?? currentJob.selected_version}
-                </p>
-                {currentJob.install_target?.current_version ? (
-                  <p className="text-xs text-slate-400">Current version {currentJob.install_target.current_version}</p>
-                ) : null}
-              </PreviewBlock>
-
-              <div className="rounded-[24px] border border-white/10 bg-slate-950/60 p-4">
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <ActionButton
                     onClick={() => runReviewAction("approve")}
                     disabled={isPending || currentJob.status !== "review_required"}
-                    className="rounded-full border border-emerald-300/30 bg-emerald-300/15 px-4 py-2 text-sm text-emerald-50 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    tone="success"
                   >
                     Approve
-                  </button>
-                  <button
-                    type="button"
+                  </ActionButton>
+                  <ActionButton
                     onClick={() => runReviewAction("reject")}
                     disabled={isPending || !["review_required", "approved"].includes(currentJob.status)}
-                    className="rounded-full border border-rose-300/30 bg-rose-300/15 px-4 py-2 text-sm text-rose-50 transition duration-200 hover:-translate-y-0.5 hover:bg-rose-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    tone="danger"
                   >
                     Reject
-                  </button>
-                  <button
-                    type="button"
+                  </ActionButton>
+                  <ActionButton
                     onClick={() => runReviewAction("install")}
                     disabled={isPending || currentJob.status !== "approved"}
-                    className="rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+                    tone="primary"
                   >
-                    Install Through Registry
-                  </button>
+                    Install
+                  </ActionButton>
                 </div>
+
                 <textarea
                   value={reviewNote}
                   onChange={(event) => setReviewNote(event.target.value)}
-                  className="mt-4 min-h-[110px] w-full rounded-[22px] border border-white/10 bg-slate-950/80 p-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40"
-                  placeholder="Review note or rejection reason."
+                  className="min-h-[110px] w-full rounded-[18px] border border-white/10 bg-[#07090d] p-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
+                  placeholder="Optional review note or rejection reason."
                 />
               </div>
+            )}
+          </Panel>
 
-              <PreviewBlock title="Generated files">
-                <ArtifactTabs
-                  files={files}
-                  selectedFilePath={selectedFilePath}
-                  onSelect={setSelectedFilePath}
-                  selectedContent={selectedFile?.content ?? ""}
-                />
-              </PreviewBlock>
-
-              <PreviewBlock title="Diff preview before deployment">
-                {currentJob.diff_preview.length === 0 ? (
-                  <EmptyState
-                    title="No diff available yet"
-                    body="When generated output changes tracked files, the staged diff preview appears here."
-                    compact
+          <Panel
+            eyebrow="Step 4"
+            title="Install readiness"
+            description="Generated code stays readable here. Full diffs and logs are still available, but secondary."
+          >
+            {!currentJob ? (
+              <EmptyState title="Nothing staged" body="Generate a widget first to inspect the code package and install readiness." />
+            ) : (
+              <div className="space-y-4">
+                <PreviewBlock title="Generated files">
+                  <ArtifactTabs
+                    files={files}
+                    selectedFilePath={selectedFilePath}
+                    onSelect={setSelectedFilePath}
+                    selectedContent={selectedFile?.content ?? ""}
                   />
-                ) : (
-                  currentJob.diff_preview.map((diffItem) => (
-                    <div key={diffItem.path} className="overflow-hidden rounded-[22px] border border-white/10 bg-black/20">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="px-4 py-3 text-sm font-medium text-white">{diffItem.path}</p>
-                        <span className="px-4 py-3 text-[11px] uppercase tracking-[0.16em] text-slate-400">{diffItem.summary}</span>
-                      </div>
-                      <pre className="max-h-48 overflow-auto border-t border-white/10 px-4 py-3 whitespace-pre-wrap break-all text-[11px] text-slate-300">
-                        {diffItem.diff || "No textual diff."}
-                      </pre>
-                    </div>
-                  ))
-                )}
-              </PreviewBlock>
+                </PreviewBlock>
 
-              <PreviewBlock title="Job logs">
+                {currentJob.diff_preview.length > 0 ? (
+                  <PreviewBlock title="Diff summary">
+                    <div className="grid gap-2">
+                      {currentJob.diff_preview.map((diffItem) => (
+                        <div key={diffItem.path} className="rounded-[12px] border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <p className="text-sm font-medium text-white">{diffItem.path}</p>
+                          <p className="mt-1 text-xs text-slate-400">{diffItem.summary}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </PreviewBlock>
+                ) : null}
+              </div>
+            )}
+          </Panel>
+
+          <CollapsiblePanel eyebrow="Advanced" title="Providers, full diffs, and logs">
+            <div className="grid gap-3">
+              {providers.map((provider) => (
+                <div key={provider.provider_id} className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-white">{provider.label}</p>
+                      <p className="mt-1 text-xs text-slate-400">{provider.provider_id}</p>
+                    </div>
+                    <span className="rounded border border-white/10 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
+                      {provider.status}
+                    </span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <CapabilityPill enabled={provider.supports_idea_to_spec} label="Idea to Spec" />
+                    <CapabilityPill enabled={provider.supports_codegen} label="Codegen" />
+                    <CapabilityPill enabled={provider.supports_review} label="Review" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {currentJob?.diff_preview.length ? (
+              <div className="mt-4 space-y-3">
+                {currentJob.diff_preview.map((diffItem) => (
+                  <div key={diffItem.path} className="overflow-hidden rounded-[16px] border border-white/10 bg-[#07090d]">
+                    <div className="flex items-center justify-between gap-3 px-4 py-3">
+                      <p className="text-sm font-medium text-white">{diffItem.path}</p>
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{diffItem.summary}</span>
+                    </div>
+                    <pre className="max-h-52 overflow-auto border-t border-white/10 px-4 py-3 whitespace-pre-wrap break-all text-[11px] text-slate-300">
+                      {diffItem.diff || "No textual diff."}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            {currentJob?.logs.length ? (
+              <div className="mt-4 space-y-3">
                 {currentJob.logs.map((log) => (
-                  <div key={log.id} className="rounded-[22px] border border-white/10 bg-black/20 p-3">
+                  <div key={log.id} className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-sm font-medium text-white">
-                        {log.step} - {log.level}
+                        {log.step} · {log.level}
                       </p>
-                      <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-slate-400">
                         {new Date(log.created_at).toLocaleString()}
                       </span>
                     </div>
                     <p className="mt-2 text-sm leading-6 text-slate-300">{log.message}</p>
                   </div>
                 ))}
-              </PreviewBlock>
-            </div>
-          )}
-        </Panel>
+              </div>
+            ) : null}
+          </CollapsiblePanel>
 
-        <Panel eyebrow="History" title="Generation history">
-          <div className="space-y-3">
-            {jobHistory.length === 0 ? (
-              <EmptyState title="No generation history yet" body="Run an idea or validated spec to create the first reviewed artifact." compact />
-            ) : (
-              jobHistory.map((job) => (
-                <button
-                  key={job.id}
-                  type="button"
-                  onClick={() => setCurrentJob(job)}
-                  className={`w-full rounded-[24px] border p-4 text-left transition duration-200 ${
-                    currentJob?.id === job.id
-                      ? "border-cyan-300/30 bg-cyan-300/10"
-                      : "border-white/10 bg-slate-950/60 hover:-translate-y-0.5 hover:bg-white/10"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium text-white">{job.widget_id}</p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {job.provider_id} - artifact v{job.artifact_version} - {job.selected_version}
-                      </p>
+          <Panel eyebrow="History" title="Recent jobs">
+            <div className="space-y-2">
+              {jobHistory.length === 0 ? (
+                <EmptyState title="No generation history" body="Successful and failed jobs will collect here after the first run." />
+              ) : (
+                jobHistory.map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    onClick={() => setCurrentJob(job)}
+                    className={`w-full rounded-[16px] border px-4 py-3 text-left transition ${
+                      currentJob?.id === job.id
+                        ? "border-cyan-300/20 bg-cyan-300/8"
+                        : "border-white/10 bg-[#07090d] hover:bg-white/[0.05]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-white">{job.widget_id}</p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {job.provider_id} · artifact v{job.artifact_version} · {job.selected_version}
+                        </p>
+                      </div>
+                      <StatusBadge status={job.status} />
                     </div>
-                    <StatusBadge status={job.status} />
-                  </div>
-                </button>
-              ))
-            )}
-          </div>
-        </Panel>
-      </section>
-    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </Panel>
+        </section>
+      </div>
     </div>
   );
 }
@@ -670,18 +661,30 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="glass-panel premium-ring rounded-[30px] p-5 md:p-6">
-      <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{eyebrow}</p>
+    <section className="rounded-[24px] border border-white/10 bg-[#090c10] p-5">
+      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
-      {description ? <p className="mt-2 text-sm leading-6 text-slate-300">{description}</p> : null}
+      {description ? <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p> : null}
       <div className="mt-4">{children}</div>
     </section>
   );
 }
 
+function CollapsiblePanel({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
+  return (
+    <details className="rounded-[24px] border border-white/10 bg-[#090c10]">
+      <summary className="cursor-pointer list-none px-5 py-4">
+        <span className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">{eyebrow}</span>
+        <span className="mt-2 block text-lg font-semibold text-white">{title}</span>
+      </summary>
+      <div className="border-t border-white/10 px-5 py-4">{children}</div>
+    </details>
+  );
+}
+
 function PreviewBlock({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[24px] border border-white/10 bg-slate-950/70 p-4 text-sm text-slate-200">
+    <div className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
       <p className="mb-3 text-sm font-medium text-white">{title}</p>
       <div className="space-y-2 text-sm leading-6 text-slate-300">{children}</div>
     </div>
@@ -690,24 +693,10 @@ function PreviewBlock({ title, children }: { title: string; children: ReactNode 
 
 function JsonBlock({ value }: { value: unknown }) {
   return (
-    <pre className="overflow-auto rounded-[20px] border border-white/10 bg-black/20 p-4 whitespace-pre-wrap break-all text-xs leading-6 text-slate-300">
+    <pre className="overflow-auto rounded-[14px] border border-white/10 bg-black/20 p-4 whitespace-pre-wrap break-all text-xs leading-6 text-slate-300">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
-}
-
-function StatusBadge({ status }: { status: GenerationJob["status"] }) {
-  const styles =
-    status === "installed"
-      ? "border-emerald-300/30 bg-emerald-300/15 text-emerald-50"
-      : status === "approved"
-        ? "border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-        : status === "review_required"
-          ? "border-amber-300/30 bg-amber-300/15 text-amber-50"
-          : status === "failed" || status === "rejected"
-            ? "border-rose-300/30 bg-rose-300/15 text-rose-50"
-            : "border-white/10 bg-white/5 text-slate-200";
-  return <span className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.16em] ${styles}`}>{status}</span>;
 }
 
 function ArtifactTabs({
@@ -722,7 +711,7 @@ function ArtifactTabs({
   selectedContent: string;
 }) {
   if (files.length === 0) {
-    return <EmptyState title="No generated files yet" body="When code generation completes, the package contents will appear here." compact />;
+    return <EmptyState title="No generated files yet" body="Generated package contents appear here after codegen finishes." compact />;
   }
 
   return (
@@ -733,17 +722,17 @@ function ArtifactTabs({
             key={file.path}
             type="button"
             onClick={() => onSelect(file.path)}
-            className={`rounded-full px-3 py-2 text-xs transition duration-200 ${
+            className={`rounded-[10px] border px-3 py-2 text-xs transition ${
               file.path === selectedFilePath
-                ? "border border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                : "border border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
+                ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-50"
+                : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
             }`}
           >
             {file.path.split("/").slice(-2).join("/")}
           </button>
         ))}
       </div>
-      <pre className="max-h-[420px] overflow-auto rounded-[22px] border border-white/10 bg-black/30 p-4 text-[12px] leading-6 text-slate-200">
+      <pre className="max-h-[420px] overflow-auto rounded-[16px] border border-white/10 bg-black/20 p-4 text-[12px] leading-6 text-slate-200">
         {selectedContent}
       </pre>
     </div>
@@ -752,36 +741,38 @@ function ArtifactTabs({
 
 function MetricSummary({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[22px] border border-white/10 bg-black/20 px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
+    <div className="rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+      <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-2 truncate text-sm font-medium text-white">{value}</p>
     </div>
   );
 }
 
-function StageChip({
+function WorkflowCard({
   index,
   label,
   state,
 }: {
   index: number;
   label: string;
-  state: "idle" | "active" | "complete" | "error";
+  state: "idle" | "ready" | "active" | "complete" | "error";
 }) {
   const styles =
     state === "complete"
-      ? "border-emerald-300/18 bg-emerald-300/10"
+      ? "border-emerald-300/18 bg-emerald-300/8"
       : state === "active"
-        ? "border-cyan-300/20 bg-cyan-300/10"
-        : state === "error"
-          ? "border-rose-300/18 bg-rose-300/10"
-          : "border-white/10 bg-black/20";
+        ? "border-cyan-300/20 bg-cyan-300/8"
+        : state === "ready"
+          ? "border-white/10 bg-white/[0.04]"
+          : state === "error"
+            ? "border-rose-300/18 bg-rose-300/8"
+            : "border-white/10 bg-[#07090d]";
 
   return (
-    <div className={`rounded-[24px] border px-4 py-4 ${styles}`}>
+    <div className={`rounded-[16px] border px-4 py-3 ${styles}`}>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{String(index).padStart(2, "0")}</span>
-        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+        <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{String(index).padStart(2, "0")}</span>
+        <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-slate-300">
           {state}
         </span>
       </div>
@@ -790,15 +781,82 @@ function StageChip({
   );
 }
 
+function ActionButton({
+  children,
+  onClick,
+  disabled,
+  tone = "default",
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  tone?: "default" | "primary" | "success" | "danger";
+}) {
+  const toneClass =
+    tone === "primary"
+      ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/16"
+      : tone === "success"
+        ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-50 hover:bg-emerald-300/16"
+        : tone === "danger"
+          ? "border-rose-300/20 bg-rose-300/10 text-rose-50 hover:bg-rose-300/16"
+          : "border-white/10 bg-white/[0.04] text-slate-100 hover:bg-white/[0.08]";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-[12px] border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusBadge({ status }: { status: GenerationJob["status"] }) {
+  const styles =
+    status === "installed"
+      ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-50"
+      : status === "approved"
+        ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-50"
+        : status === "review_required"
+          ? "border-amber-300/20 bg-amber-300/10 text-amber-50"
+          : status === "failed" || status === "rejected"
+            ? "border-rose-300/20 bg-rose-300/10 text-rose-50"
+            : "border-white/10 bg-white/[0.04] text-slate-200";
+  return <span className={`rounded-[10px] border px-3 py-1 text-xs uppercase tracking-[0.14em] ${styles}`}>{status}</span>;
+}
+
 function CapabilityPill({ enabled, label }: { enabled: boolean; label: string }) {
   return (
     <span
-      className={`rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.18em] ${
-        enabled ? "border-emerald-300/20 bg-emerald-300/12 text-emerald-50" : "border-white/10 bg-white/5 text-slate-300"
+      className={`rounded-[10px] border px-3 py-1 text-[11px] uppercase tracking-[0.14em] ${
+        enabled ? "border-emerald-300/18 bg-emerald-300/10 text-emerald-50" : "border-white/10 bg-white/[0.04] text-slate-300"
       }`}
     >
       {label}
     </span>
+  );
+}
+
+function InlineNotice({
+  title,
+  body,
+  tone = "default",
+}: {
+  title: string;
+  body: string;
+  tone?: "default" | "warning";
+}) {
+  return (
+    <div
+      className={`mt-4 rounded-[16px] border px-4 py-3 ${
+        tone === "warning" ? "border-amber-300/18 bg-amber-300/8 text-amber-50" : "border-white/10 bg-white/[0.04] text-slate-200"
+      }`}
+    >
+      <p className="text-sm font-medium">{title}</p>
+      <p className={`mt-1 text-sm leading-6 ${tone === "warning" ? "text-amber-50/80" : "text-slate-400"}`}>{body}</p>
+    </div>
   );
 }
 
@@ -812,7 +870,7 @@ function EmptyState({
   compact?: boolean;
 }) {
   return (
-    <div className={`rounded-[24px] border border-dashed border-white/12 bg-white/[0.03] text-center ${compact ? "p-5" : "p-6"}`}>
+    <div className={`rounded-[16px] border border-dashed border-white/12 bg-white/[0.03] text-center ${compact ? "p-4" : "p-5"}`}>
       <p className="text-sm font-medium text-white">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
     </div>

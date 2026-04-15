@@ -264,11 +264,12 @@ class PluginManagerService:
 
     @staticmethod
     def _write_package(widget_root: Path, package: dict[str, Any], *, replace: bool = False) -> None:
+        manifest = WidgetManifest.model_validate(package["manifest"]).model_dump(mode="json")
         if replace and widget_root.exists():
             shutil.rmtree(widget_root)
         widget_root.mkdir(parents=True, exist_ok=True)
         (widget_root / "manifest.json").write_text(
-            json.dumps(package["manifest"], indent=2) + "\n",
+            json.dumps(manifest, indent=2) + "\n",
             encoding="utf-8",
         )
         (widget_root / "config.schema.json").write_text(

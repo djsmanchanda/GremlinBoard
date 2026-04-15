@@ -47,11 +47,13 @@ async def create_credential(
     payload: ApiCredentialUpsertRequest,
     request: Request,
 ) -> ApiCredentialRead:
-    return await request.app.state.system_settings.upsert_credential(
+    credential = await request.app.state.system_settings.upsert_credential(
         payload,
         credential_id=None,
         user_id=request.state.auth_context.user.id,
     )
+    await request.app.state.provider_registry.runtime.secrets.sync_from_repository(request.app.state.session_factory)
+    return credential
 
 
 @router.put("/credentials/{credential_id}", response_model=ApiCredentialRead)
@@ -60,17 +62,20 @@ async def update_credential(
     payload: ApiCredentialUpsertRequest,
     request: Request,
 ) -> ApiCredentialRead:
-    return await request.app.state.system_settings.upsert_credential(
+    credential = await request.app.state.system_settings.upsert_credential(
         payload,
         credential_id=credential_id,
         user_id=request.state.auth_context.user.id,
     )
+    await request.app.state.provider_registry.runtime.secrets.sync_from_repository(request.app.state.session_factory)
+    return credential
 
 
 @router.delete("/credentials/{credential_id}")
 async def delete_credential(credential_id: str, request: Request) -> dict[str, str]:
     try:
         await request.app.state.system_settings.delete_credential(credential_id)
+        await request.app.state.provider_registry.runtime.secrets.sync_from_repository(request.app.state.session_factory)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"status": "deleted"}
