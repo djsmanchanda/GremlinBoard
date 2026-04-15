@@ -71,9 +71,14 @@ export function WidgetSettingsPanel({
   }
 
   return (
-    <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03]">
-      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-100">
-        Source settings
+    <details className="mt-4 overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.03]">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/[0.04]">
+        <span className="flex items-center justify-between gap-3">
+          <span>Source settings</span>
+          <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+            {Object.keys(properties).length} fields
+          </span>
+        </span>
       </summary>
       <div className="space-y-4 border-t border-white/10 px-4 py-4">
         {providerStates.length > 0 ? (
@@ -81,7 +86,7 @@ export function WidgetSettingsPanel({
             {providerStates.map((provider) => (
               <div
                 key={`${provider.provider_id}-${provider.label}`}
-                className="rounded-2xl border border-white/10 bg-black/20 px-3 py-2 text-xs text-slate-300"
+                className="rounded-[20px] border border-white/10 bg-black/20 px-3 py-2.5 text-xs text-slate-300"
               >
                 <div className="flex items-center justify-between gap-3">
                   <span>{provider.label ?? provider.provider_id ?? "provider"}</span>
@@ -133,10 +138,10 @@ export function WidgetSettingsPanel({
                                 : [...values, option],
                             }))
                           }
-                          className={`rounded-full border px-3 py-1 text-xs transition ${
+                          className={`rounded-full border px-3 py-1.5 text-xs transition ${
                             selected
                               ? "border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                              : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"
+                              : "border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
                           }`}
                         >
                           {option}
@@ -163,7 +168,7 @@ export function WidgetSettingsPanel({
                     }))
                   }
                   rows={4}
-                  className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none"
+                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 />
               </label>
             );
@@ -176,7 +181,7 @@ export function WidgetSettingsPanel({
                 <select
                   value={typeof currentValue === "string" ? currentValue : String(property.default ?? property.enum[0])}
                   onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                  className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none"
+                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 >
                   {property.enum.map((option) => (
                     <option key={option} value={option}>
@@ -203,7 +208,7 @@ export function WidgetSettingsPanel({
                       [key]: Number(event.target.value),
                     }))
                   }
-                  className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none"
+                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 />
               </label>
             );
@@ -216,7 +221,7 @@ export function WidgetSettingsPanel({
                 type="text"
                 value={typeof currentValue === "string" ? currentValue : String(property.default ?? "")}
                 onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                className="rounded-2xl border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none"
+                className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
               />
             </label>
           );
@@ -227,14 +232,14 @@ export function WidgetSettingsPanel({
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs text-cyan-100 transition hover:bg-cyan-300/20 disabled:opacity-60"
+            className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs text-cyan-100 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:opacity-60"
           >
             {saving ? "Saving..." : "Apply settings"}
           </button>
           <button
             type="button"
             onClick={() => setDraft(value)}
-            className="rounded-full border border-white/10 px-4 py-2 text-xs text-slate-300 transition hover:bg-white/10"
+            className="rounded-full border border-white/10 px-4 py-2 text-xs text-slate-300 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
           >
             Reset
           </button>

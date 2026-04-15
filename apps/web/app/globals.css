@@ -11,6 +11,10 @@
   --accent: #22d3ee;
   --accent-2: #34d399;
   --danger: #fb7185;
+  --panel-soft: rgba(12, 20, 36, 0.72);
+  --shadow-ambient: 0 24px 80px rgba(2, 8, 23, 0.38);
+  --shadow-focus: 0 24px 80px rgba(34, 211, 238, 0.14);
+  --grid-line: rgba(148, 163, 184, 0.08);
 }
 
 html[data-theme="ember"] {
@@ -55,13 +59,42 @@ body {
   margin: 0;
   color: var(--text);
   background:
-    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 22%, transparent), transparent 28%),
-    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 22%),
-    linear-gradient(180deg, color-mix(in srgb, var(--background) 92%, black) 0%, var(--background) 100%);
+    radial-gradient(circle at top left, color-mix(in srgb, var(--accent) 26%, transparent), transparent 26%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 24%),
+    radial-gradient(circle at 50% 120%, rgba(15, 23, 42, 0.65), transparent 40%),
+    linear-gradient(180deg, color-mix(in srgb, var(--background) 90%, black) 0%, var(--background) 100%);
   font-family:
     "IBM Plex Sans",
     "Segoe UI",
     sans-serif;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body::before,
+body::after {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+}
+
+body::before {
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 72px 72px;
+  mask-image: radial-gradient(circle at center, black 48%, transparent 92%);
+  opacity: 0.55;
+}
+
+body::after {
+  background:
+    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 18%),
+    radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--accent-2) 10%, transparent), transparent 18%);
+  filter: blur(42px);
+  opacity: 0.9;
 }
 
 a {
@@ -74,4 +107,125 @@ input,
 select,
 textarea {
   font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: white;
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.32);
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(103, 232, 249, 0.32), rgba(52, 211, 153, 0.22));
+  background-clip: padding-box;
+}
+
+.glass-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
+    var(--panel-soft);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-ambient);
+  backdrop-filter: blur(22px);
+}
+
+.glass-panel-strong {
+  background:
+    radial-gradient(circle at top, rgba(103, 232, 249, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    var(--panel-strong);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: var(--shadow-ambient);
+  backdrop-filter: blur(24px);
+}
+
+.surface-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.premium-ring {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    var(--shadow-ambient);
+}
+
+.accent-border {
+  position: relative;
+  overflow: hidden;
+}
+
+.accent-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(103, 232, 249, 0.38), rgba(255, 255, 255, 0.04), rgba(52, 211, 153, 0.22));
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+  animation: shimmer 2.2s infinite;
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #f8fafc, color-mix(in srgb, var(--accent) 72%, white), color-mix(in srgb, var(--accent-2) 58%, white));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes float-panel {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -4px, 0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.24);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0);
+  }
 }

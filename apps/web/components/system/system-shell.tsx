@@ -120,42 +120,89 @@ export function SystemShell() {
     });
   };
 
+  const maxMetricValue = Math.max(...(overview?.metrics.map((metric) => metric.metric_value) ?? [1]), 1);
+
   return (
-    <main className="min-h-screen px-4 py-6 md:px-6">
+    <main className="min-h-screen px-4 py-6 md:px-6 md:py-8">
       <section className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-col gap-4 rounded-[32px] border border-white/10 bg-white/5 p-5 backdrop-blur md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-cyan-300/80">Platform Control Surface</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight text-white">System Panel</h1>
-            <p className="mt-3 max-w-3xl text-sm text-slate-300">
-              Production-readiness controls for runtime, observability, AI providers, credentials, and session foundation.
-            </p>
+        <header className="glass-panel accent-border premium-ring mb-6 rounded-[36px] p-6 md:p-7">
+          <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-cyan-100">
+                  Platform Control Surface
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-slate-300">
+                  Runtime observability
+                </span>
+              </div>
+              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+                <span className="text-gradient">System Panel</span>
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+                Production-readiness controls for runtime, observability, AI providers, credentials, and session foundation.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href="/"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
+              >
+                Board
+              </Link>
+              <Link
+                href="/studio"
+                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
+              >
+                Studio
+              </Link>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Link
-              href="/"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
-            >
-              Board
-            </Link>
-            <Link
-              href="/studio"
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
-            >
-              Studio
-            </Link>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Polling cadence</p>
+              <p className="mt-2 text-sm font-medium text-white">8s observability refresh</p>
+            </div>
+            <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Providers</p>
+              <p className="mt-2 text-sm font-medium text-white">{providers.length || "Loading"} configured adapters</p>
+            </div>
+            <div className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Credentials</p>
+              <p className="mt-2 text-sm font-medium text-white">{credentials.length || 0} secure entries</p>
+            </div>
           </div>
         </header>
 
         {error ? (
-          <div className="mb-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-            {error}
+          <div className="glass-panel accent-border mb-4 rounded-[28px] px-5 py-4 text-sm text-rose-50">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-rose-200/80">System signal degraded</p>
+            <p className="mt-2">{error}</p>
           </div>
         ) : null}
 
         {loading || !settings || !overview || !context ? (
-          <div className="rounded-[28px] border border-white/10 bg-white/5 p-8 text-sm text-slate-300">
-            Loading system state...
+          <div className="glass-panel-strong premium-ring rounded-[32px] p-6 md:p-7">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Runtime sync</p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">Loading system state</h2>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                  Fetching auth context, control settings, credential inventory, and the latest observability snapshot.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} className="shimmer rounded-[28px] border border-white/10 bg-white/[0.04] p-5">
+                  <div className="h-3 w-24 rounded-full bg-white/10" />
+                  <div className="mt-4 h-8 w-2/3 rounded-full bg-white/10" />
+                  <div className="mt-6 h-32 rounded-[24px] bg-white/[0.06]" />
+                </div>
+              ))}
+            </div>
           </div>
         ) : (
           <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
@@ -311,18 +358,18 @@ export function SystemShell() {
               <Panel eyebrow="Secrets" title="API key management">
                 <div className="space-y-3">
                   {credentials.map((credential) => (
-                    <div key={credential.id} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div key={credential.id} className="rounded-[24px] border border-white/10 bg-slate-950/50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium text-white">{credential.provider}</p>
                           <p className="text-xs text-slate-400">
-                            {credential.label} · {credential.masked_value}
+                            {credential.label} - {credential.masked_value}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => removeCredential(credential.id)}
-                          className="rounded-full border border-rose-300/30 bg-rose-300/15 px-3 py-1 text-xs text-rose-50 transition hover:bg-rose-300/20"
+                          className="rounded-full border border-rose-300/30 bg-rose-300/15 px-3 py-1 text-xs text-rose-50 transition duration-200 hover:-translate-y-0.5 hover:bg-rose-300/20"
                         >
                           Delete
                         </button>
@@ -363,19 +410,25 @@ export function SystemShell() {
               <Panel eyebrow="Widgets" title="Widget and service health">
                 <div className="space-y-3">
                   {overview.widget_health.map((item) => (
-                    <div key={item.widget_instance_id} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div key={item.widget_instance_id} className="rounded-[24px] border border-white/10 bg-slate-950/50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium text-white">{item.title}</p>
                           <p className="text-xs text-slate-400">
-                            {item.widget_id} · uptime {item.service_uptime_seconds}s · restarts {item.restart_count}
+                            {item.widget_id} - uptime {item.service_uptime_seconds}s - restarts {item.restart_count}
                           </p>
                         </div>
                         <span className="rounded-full border border-white/10 px-3 py-1 text-xs uppercase tracking-[0.16em] text-slate-200">
                           {item.lifecycle_state}
                         </span>
                       </div>
-                      <p className="mt-2 text-sm text-slate-300">{item.status_message ?? "No status message"}</p>
+                      <p className="mt-3 text-sm leading-6 text-slate-300">{item.status_message ?? "No status message"}</p>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-300/70 to-emerald-300/70"
+                          style={{ width: `${Math.min(item.service_uptime_seconds / 36, 100)}%` }}
+                        />
+                      </div>
                       {item.last_error ? <p className="mt-2 text-xs text-rose-300">{item.last_error}</p> : null}
                     </div>
                   ))}
@@ -385,14 +438,20 @@ export function SystemShell() {
               <Panel eyebrow="Metrics" title="Latest metric samples">
                 <div className="space-y-3">
                   {overview.metrics.slice(0, 12).map((metric, index) => (
-                    <div key={`${metric.metric_name}-${metric.scope_id ?? index}`} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div key={`${metric.metric_name}-${metric.scope_id ?? index}`} className="rounded-[24px] border border-white/10 bg-slate-950/50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-white">{metric.metric_name}</p>
                         <span className="text-xs text-slate-400">{metric.metric_value}</span>
                       </div>
+                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/5">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-cyan-300/70 to-sky-300/70"
+                          style={{ width: `${Math.max((metric.metric_value / maxMetricValue) * 100, 6)}%` }}
+                        />
+                      </div>
                       <p className="mt-2 text-xs text-slate-400">
                         {metric.scope_type}
-                        {metric.scope_id ? ` · ${metric.scope_id}` : ""}
+                        {metric.scope_id ? ` - ${metric.scope_id}` : ""}
                       </p>
                     </div>
                   ))}
@@ -402,14 +461,17 @@ export function SystemShell() {
               <Panel eyebrow="Timeline" title="Error and event timeline">
                 <div className="space-y-3">
                   {overview.timeline.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-white/10 bg-slate-950/50 p-4">
+                    <div key={item.id} className="rounded-[24px] border border-white/10 bg-slate-950/50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-medium text-white">
-                          {item.event} · {item.level}
+                          {item.event} - {item.level}
                         </p>
                         <span className="text-xs text-slate-400">{formatTime(item.created_at)}</span>
                       </div>
-                      <p className="mt-2 text-sm text-slate-300">{item.message}</p>
+                      <div className="mt-3 flex gap-3">
+                        <span className={`mt-1 h-2.5 w-2.5 rounded-full ${timelineDotClass(item.level)}`} />
+                        <p className="text-sm leading-6 text-slate-300">{item.message}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -432,7 +494,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[28px] border border-white/10 bg-white/5 p-5">
+    <section className="glass-panel premium-ring rounded-[30px] p-5 md:p-6">
       <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
       <div className="mt-4">{children}</div>
@@ -442,7 +504,7 @@ function Panel({
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+    <div className="rounded-[24px] border border-white/10 bg-slate-950/60 p-4">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-xl font-semibold text-white">{value}</p>
       {hint ? <p className="mt-2 text-xs text-slate-400">{hint}</p> : null}
@@ -469,7 +531,7 @@ function TextField({
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
+        className="w-full rounded-[22px] border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40"
       />
     </label>
   );
@@ -497,7 +559,7 @@ function NumberField({
         max={max}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
+        className="w-full rounded-[22px] border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40"
       />
     </label>
   );
@@ -520,7 +582,7 @@ function SelectField({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none focus:border-cyan-300/40"
+        className="w-full rounded-[22px] border border-white/10 bg-slate-950/80 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-cyan-300/40"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -542,7 +604,7 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="mt-3 flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/60 px-4 py-3">
+    <label className="mt-3 flex items-center justify-between rounded-[22px] border border-white/10 bg-slate-950/60 px-4 py-3">
       <span className="text-sm text-slate-200">{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
@@ -555,11 +617,21 @@ function SaveButton({ pending, onClick, label }: { pending: boolean; onClick: ()
       type="button"
       onClick={onClick}
       disabled={pending}
-      className="mt-4 rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
+      className="mt-4 rounded-full border border-cyan-300/30 bg-cyan-300/15 px-4 py-2 text-sm text-cyan-50 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:cursor-not-allowed disabled:opacity-50"
     >
       {pending ? "Saving..." : label}
     </button>
   );
+}
+
+function timelineDotClass(level: string) {
+  if (level.toLowerCase() === "error") {
+    return "bg-rose-300 shadow-[0_0_16px_rgba(251,113,133,0.5)]";
+  }
+  if (level.toLowerCase() === "warning") {
+    return "bg-amber-300 shadow-[0_0_16px_rgba(252,211,77,0.45)]";
+  }
+  return "bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.45)]";
 }
 
 function splitCsv(value: string) {

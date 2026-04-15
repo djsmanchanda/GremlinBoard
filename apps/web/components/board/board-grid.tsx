@@ -173,12 +173,29 @@ export function BoardGrid({
   }, [board.widgets, boardHeight, cellWidth, dragState, onReorder, packedLayout.orderedPlacements]);
 
   return (
-    <div className="overflow-x-auto rounded-[32px] border border-white/10 bg-[rgba(5,10,20,0.48)] p-4 md:p-5">
+    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-[34px] p-4 md:p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+        <div>
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Live grid</p>
+          <p className="mt-1 text-sm text-slate-300">
+            Drag tiles to reorder, preview approved sizes on hover, and keep every widget snapped to the strict board grid.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+            {displayWidgets.length} widgets
+          </span>
+          <span className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+            {selectedId ? `Selected ${selectedId}` : "Select a tile"}
+          </span>
+        </div>
+      </div>
       <div
         ref={containerRef}
-        className="relative min-w-[920px] rounded-[28px] border border-white/8 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.08),transparent_28%),rgba(6,10,19,0.9)] p-2"
+        className="surface-grid relative min-w-[920px] overflow-hidden rounded-[30px] border border-white/8 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.11),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(52,211,153,0.08),transparent_24%),rgba(6,10,19,0.92)] p-2"
         style={{ height: boardHeight + 16 }}
       >
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_18%,transparent_82%,rgba(255,255,255,0.02))]" />
         {Array.from({ length: Math.max(packedLayout.rows, 4) }).map((_, row) =>
           Array.from({ length: BOARD_COLUMNS }).map((__, col) => {
             const key = `${col}-${row}`;
@@ -187,12 +204,12 @@ export function BoardGrid({
             return (
               <div
                 key={key}
-                className={`absolute rounded-3xl border transition duration-200 ${
+                className={`absolute rounded-[28px] border transition duration-300 ${
                   previewCellKeys.has(key)
-                    ? "border-cyan-300/35 bg-cyan-300/10"
+                    ? "border-cyan-300/35 bg-cyan-300/12 shadow-[0_0_0_1px_rgba(103,232,249,0.14)]"
                     : occupiedCellKeys.has(key)
-                      ? "border-white/8 bg-white/[0.03]"
-                      : "border-white/[0.04] bg-white/[0.015]"
+                      ? "border-white/8 bg-white/[0.035]"
+                      : "border-white/[0.04] bg-white/[0.012]"
                 }`}
                 style={{
                   left: x,
@@ -224,12 +241,13 @@ export function BoardGrid({
           return (
             <div
               key={widget.id}
-              className="absolute transition-[transform,width,height,opacity] duration-300 ease-out"
+              className="absolute will-change-transform transition-[transform,width,height,opacity,filter] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
               style={{
                 width,
                 height,
                 transform: `translate3d(${left}px, ${top}px, 0)`,
-                opacity: isDragged ? 0.24 : 1,
+                opacity: isDragged ? 0.18 : 1,
+                filter: isDragged ? "saturate(0.85)" : "none",
               }}
             >
               <WidgetCard
@@ -284,7 +302,8 @@ export function BoardGrid({
               height:
                 committedLayout.placements[dragState.widgetId].height * BOARD_ROW_HEIGHT_PX +
                 (committedLayout.placements[dragState.widgetId].height - 1) * BOARD_GAP_PX,
-              transform: `translate3d(${dragState.ghostX + 8}px, ${dragState.ghostY + 8}px, 0) rotate(1deg)`,
+              transform: `translate3d(${dragState.ghostX + 8}px, ${dragState.ghostY + 8}px, 0) rotate(1.2deg) scale(1.015)`,
+              filter: "drop-shadow(0 24px 70px rgba(8,145,178,0.34))",
             }}
           >
             {(() => {

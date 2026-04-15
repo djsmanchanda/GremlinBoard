@@ -17,29 +17,32 @@ export default function Error({
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-8">
-      <div className="w-full max-w-2xl rounded-[32px] border border-rose-400/20 bg-rose-400/10 p-6">
+      <div className="glass-panel accent-border w-full max-w-2xl rounded-[34px] p-6 md:p-7">
         <p className="text-xs uppercase tracking-[0.24em] text-rose-200/80">Route Error</p>
         <h1 className="mt-3 text-3xl font-semibold text-white">This page failed to load.</h1>
-        <p className="mt-3 text-sm text-rose-50/90">
+        <p className="mt-3 text-sm leading-6 text-rose-50/90">
           {error.message || "GremlinBoard could not recover the current route state."}
         </p>
+        <div className="mt-5 rounded-[24px] border border-white/10 bg-black/20 px-4 py-4">
+          <p className="text-sm text-slate-200">Retry the route first. If the failure repeats, move to the board or system panel and inspect the broader runtime state.</p>
+        </div>
         <div className="mt-6 flex flex-wrap gap-3">
           <button
             type="button"
             onClick={() => reset()}
-            className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition duration-200 hover:-translate-y-0.5 hover:bg-white/15"
           >
             Retry page
           </button>
           <Link
             href="/"
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
           >
             Board
           </Link>
           <Link
             href={"/system" as Route}
-            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/10"
+            className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
           >
             System panel
           </Link>
