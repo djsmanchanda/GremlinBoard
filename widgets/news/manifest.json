@@ -26,7 +26,9 @@
   },
   "permissions": ["network"],
   "renderer": {
-    "target": "news"
+    "target": "react",
+    "module": "@widgets/news/renderer",
+    "export_name": "NewsRenderer"
   },
   "service": {
     "module": "widgets.news.backend",

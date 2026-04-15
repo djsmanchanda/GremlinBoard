@@ -1,28 +1,146 @@
-import { CountdownRenderer } from "@widgets/countdown/renderer";
-import { NewsRenderer } from "@widgets/news/renderer";
-import { PinboardRenderer } from "@widgets/pinboard/renderer";
-import { SportsRenderer } from "@widgets/sports/renderer";
-import { TrendingRenderer } from "@widgets/trending/renderer";
+"use client";
 
-import type { WidgetRendererProps } from "@/lib/types";
+import { Component, type ComponentType, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 
-const registry = {
-  countdown: CountdownRenderer,
-  news: NewsRenderer,
-  sports: SportsRenderer,
-  trending: TrendingRenderer,
-  pinboard: PinboardRenderer,
-} as const;
+import type { WidgetManifest, WidgetRendererProps } from "@/lib/types";
 
-export function WidgetRenderer(props: WidgetRendererProps) {
-  const Component = registry[props.manifest.renderer.target as keyof typeof registry];
-  if (!Component) {
-    return (
-      <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">
-        No renderer registered for {props.manifest.renderer.target}.
-      </div>
-    );
+type WidgetRendererComponent = ComponentType<WidgetRendererProps>;
+
+const rendererCache = new Map<string, Promise<WidgetRendererComponent>>();
+
+function getRendererCacheKey(manifest: WidgetManifest) {
+  return `${manifest.id}:${manifest.renderer.module}:${manifest.renderer.export_name}`;
+}
+
+function getRendererLoadError(error: unknown) {
+  return error instanceof Error ? error.message : "Renderer failed to load.";
+}
+
+function UnsupportedWidgetRenderer({ manifest, reason }: { manifest: WidgetManifest; reason: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">
+      <p className="font-medium text-slate-200">Unsupported widget renderer</p>
+      <p className="mt-2">{reason}</p>
+      <p className="mt-2 text-xs text-slate-500">
+        {manifest.renderer.module}#{manifest.renderer.export_name}
+      </p>
+    </div>
+  );
+}
+
+function LoadingWidgetRenderer({ manifest }: { manifest: WidgetManifest }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/10 p-4 text-sm text-slate-400">
+      Loading renderer for {manifest.name}...
+    </div>
+  );
+}
+
+class WidgetRendererBoundary extends Component<
+  { children: ReactNode; manifest: WidgetManifest },
+  { message: string | null }
+> {
+  state = { message: null as string | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { message: error.message };
   }
 
-  return <Component {...props} />;
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error(`Renderer failed for widget ${this.props.manifest.id}`, error, errorInfo);
+  }
+
+  render() {
+    if (this.state.message) {
+      return <UnsupportedWidgetRenderer manifest={this.props.manifest} reason={this.state.message} />;
+    }
+
+    return this.props.children;
+  }
+}
+
+function parseRendererModule(manifest: WidgetManifest) {
+  const match = /^@widgets\/([a-z][a-z0-9_-]+)\/renderer$/.exec(manifest.renderer.module);
+  if (!match) {
+    throw new Error(`Renderer module '${manifest.renderer.module}' is not supported.`);
+  }
+  if (match[1] !== manifest.id) {
+    throw new Error("Renderer module does not match the widget manifest id.");
+  }
+  return match[1];
+}
+
+async function importRendererModule(widgetId: string) {
+  return import(`../../../../widgets/${widgetId}/renderer`);
+}
+
+async function loadWidgetRenderer(manifest: WidgetManifest): Promise<WidgetRendererComponent> {
+  if (manifest.renderer.target !== "react") {
+    throw new Error(`Renderer target '${manifest.renderer.target}' is not supported.`);
+  }
+
+  const widgetId = parseRendererModule(manifest);
+  const rendererModule = (await importRendererModule(widgetId)) as Record<string, unknown>;
+  const component = rendererModule[manifest.renderer.export_name];
+
+  if (typeof component !== "function") {
+    throw new Error(`Renderer export '${manifest.renderer.export_name}' was not found.`);
+  }
+
+  return component as WidgetRendererComponent;
+}
+
+function getRendererPromise(manifest: WidgetManifest) {
+  const cacheKey = getRendererCacheKey(manifest);
+  const cached = rendererCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const pending = loadWidgetRenderer(manifest);
+  rendererCache.set(cacheKey, pending);
+  return pending;
+}
+
+export function WidgetRenderer(props: WidgetRendererProps) {
+  const cacheKey = getRendererCacheKey(props.manifest);
+  const [RendererComponent, setRendererComponent] = useState<WidgetRendererComponent | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRendererComponent(null);
+    setLoadError(null);
+
+    void getRendererPromise(props.manifest)
+      .then((component) => {
+        if (!cancelled) {
+          setRendererComponent(() => component);
+        }
+      })
+      .catch((error) => {
+        rendererCache.delete(cacheKey);
+        if (!cancelled) {
+          setLoadError(getRendererLoadError(error));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheKey, props.manifest]);
+
+  if (loadError) {
+    return <UnsupportedWidgetRenderer manifest={props.manifest} reason={loadError} />;
+  }
+
+  if (!RendererComponent) {
+    return <LoadingWidgetRenderer manifest={props.manifest} />;
+  }
+
+  return (
+    <WidgetRendererBoundary key={cacheKey} manifest={props.manifest}>
+      <RendererComponent {...props} />
+    </WidgetRendererBoundary>
+  );
 }

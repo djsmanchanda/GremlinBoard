@@ -132,10 +132,18 @@
     },
     "renderer": {
       "type": "object",
-      "required": ["target"],
+      "required": ["target", "module", "export_name"],
       "properties": {
         "target": {
-          "type": "string"
+          "const": "react"
+        },
+        "module": {
+          "type": "string",
+          "pattern": "^@widgets\\/[a-z][a-z0-9_-]+\\/renderer$"
+        },
+        "export_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         }
       },
       "additionalProperties": false

@@ -26,7 +26,9 @@
   },
   "permissions": [],
   "renderer": {
-    "target": "countdown"
+    "target": "react",
+    "module": "@widgets/countdown/renderer",
+    "export_name": "CountdownRenderer"
   },
   "service": {
     "module": "widgets.countdown.backend",

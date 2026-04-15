@@ -68,11 +68,21 @@ export function BoardShell() {
       const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
       if (payload.type === "board.snapshot") {
         setBoard(payload.payload);
+        return;
+      }
+      if (payload.type === "registry.updated") {
+        void fetchRegistry()
+          .then((registryResponse) => {
+            setRegistry(registryResponse);
+          })
+          .catch((loadError) => {
+            setError(loadError instanceof Error ? loadError.message : "Failed to refresh widget registry");
+          });
       }
     };
     socket.onerror = () => setError("Realtime board stream disconnected");
     return () => socket.close();
-  }, [setBoard, setError]);
+  }, [setBoard, setError, setRegistry]);
 
   async function handleAddWidget(preset: WidgetPreset) {
     setError(null);
@@ -235,6 +245,7 @@ export function BoardShell() {
       </section>
       <CommandPalette
         open={commandOpen}
+        registry={registry}
         onClose={() => setCommandOpen(false)}
         onSelect={handleAddWidget}
       />

@@ -97,6 +97,9 @@ async def install_generation_job(
             reason="generated widget installed",
         )
         await request.app.state.runtime_manager.publish_board_snapshot()
+        await request.app.state.event_bus.publish(
+            {"type": "registry.updated", "payload": {"widget_id": result.widget_id}}
+        )
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -114,6 +117,7 @@ async def rollback_generated_widget(
             widget_id,
             reason="generated widget rolled back",
         )
+        await request.app.state.event_bus.publish({"type": "registry.updated", "payload": {"widget_id": widget_id}})
         return plugin
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

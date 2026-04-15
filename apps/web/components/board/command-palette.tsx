@@ -4,29 +4,53 @@ import { useMemo, useState } from "react";
 
 import { WIDGET_PRESETS } from "@/lib/widget-presets";
 import { cn } from "@/lib/utils";
-import type { WidgetPreset } from "@/lib/types";
+import type { WidgetPreset, WidgetRegistryEntry } from "@/lib/types";
 
 interface CommandPaletteProps {
   open: boolean;
+  registry: Record<string, WidgetRegistryEntry>;
   onClose: () => void;
   onSelect: (preset: WidgetPreset) => void;
 }
 
-export function CommandPalette({ open, onClose, onSelect }: CommandPaletteProps) {
+function buildRegistryPresets(registry: Record<string, WidgetRegistryEntry>) {
+  const presetWidgetIds = new Set(WIDGET_PRESETS.map((preset) => preset.widget_id));
+  return Object.values(registry)
+    .filter((entry) => !presetWidgetIds.has(entry.manifest.id))
+    .map((entry) => ({
+      key: `${entry.manifest.id}-default`,
+      label: entry.manifest.name,
+      widget_id: entry.manifest.id,
+      title: entry.manifest.name,
+      size: entry.manifest.preferred_size,
+      config: {},
+    }));
+}
+
+export function CommandPalette({ open, registry, onClose, onSelect }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
+
+  const availableWidgetIds = useMemo(() => new Set(Object.keys(registry)), [registry]);
+  const catalog = useMemo(
+    () => [
+      ...WIDGET_PRESETS.filter((preset) => availableWidgetIds.has(preset.widget_id)),
+      ...buildRegistryPresets(registry),
+    ],
+    [availableWidgetIds, registry],
+  );
 
   const presets = useMemo(() => {
     if (!query) {
-      return WIDGET_PRESETS;
+      return catalog;
     }
     const needle = query.toLowerCase();
-    return WIDGET_PRESETS.filter(
+    return catalog.filter(
       (preset) =>
         preset.label.toLowerCase().includes(needle) ||
         preset.title.toLowerCase().includes(needle) ||
         preset.widget_id.toLowerCase().includes(needle),
     );
-  }, [query]);
+  }, [catalog, query]);
 
   if (!open) {
     return null;
