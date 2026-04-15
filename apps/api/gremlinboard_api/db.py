@@ -29,22 +29,8 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 
 async def init_db() -> None:
-    from gremlinboard_api.models.tables import (
-        ApiCredentialRecord,
-        BoardRecord,
-        GenerationArtifactRecord,
-        GenerationJobLogRecord,
-        GenerationJobRecord,
-        RuntimeLogRecord,
-        RuntimeMetricRecord,
-        SessionRecord,
-        StagedWidgetSpecRecord,
-        SystemSettingsRecord,
-        UserRecord,
-        WidgetInstanceRecord,
-        WidgetPluginRecord,
-        WidgetPluginVersionRecord,
-    )
+    # Import models so SQLAlchemy registers table metadata before create_all.
+    import gremlinboard_api.models.tables  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

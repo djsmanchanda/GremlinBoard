@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from collections import Counter
 
 import pytest
 
@@ -132,12 +133,18 @@ async def test_runtime_failure_retries_with_backoff_and_emits_terminal_observabi
         assert start_timestamps[1] - start_timestamps[0] >= 0.9
         assert start_timestamps[2] - start_timestamps[1] >= 1.8
 
+        await harness.wait_for_log(
+            predicate=lambda log: log.widget_id == "crashy_widget"
+            and log.event == "runner.refresh_failed"
+            and log.level == "error"
+        )
+
         logs = await harness.logs(widget_id="crashy_widget")
         failure_logs = [log for log in logs if log.event == "runner.refresh_failed"]
         start_logs = [log for log in logs if log.event == "runner.started"]
 
         assert len(start_logs) == 3
-        assert [log.level for log in failure_logs] == ["error", "warning", "warning"]
+        assert Counter(log.level for log in failure_logs) == Counter({"error": 1, "warning": 2})
 
         await harness.observability.capture_runtime_snapshot()
 

@@ -37,7 +37,8 @@ def build_widget_package(
     backend_source: str,
     config_schema: dict[str, Any],
     description: str,
-    renderer_target: str = "test-runtime-widget",
+    renderer_target: str = "react",
+    renderer_export_name: str = "TestRuntimeWidget",
     allowed_sizes: list[str] | None = None,
     refresh_mode: str = "manual",
     refresh_interval_seconds: int = 0,
@@ -76,6 +77,8 @@ def build_widget_package(
             "permissions": [],
             "renderer": {
                 "target": renderer_target,
+                "module": f"@widgets/{widget_id}/renderer",
+                "export_name": renderer_export_name,
             },
             "service": {
                 "module": f"{package_name}.{widget_id}.backend",
@@ -85,7 +88,12 @@ def build_widget_package(
         },
         "config_schema": config_schema,
         "backend_source": backend_source,
-        "renderer_source": "export default function TestRuntimeWidget() { return null; }\n",
+        "renderer_source": (
+            "import type { JSX } from 'react';\n\n"
+            f"export function {renderer_export_name}(): JSX.Element | null {{\n"
+            "  return null;\n"
+            "}\n"
+        ),
     }
 
 
