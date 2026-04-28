@@ -74,6 +74,7 @@ export function SpecStudio() {
   const [result, setResult] = useState<SpecValidationResult | null>(null);
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("codex");
+  const [selectedModel, setSelectedModel] = useState<string>("");
   const [generationPreview, setGenerationPreview] = useState<GenerationPipelinePreview | null>(null);
   const [jobHistory, setJobHistory] = useState<GenerationJob[]>([]);
   const [currentJob, setCurrentJob] = useState<GenerationJob | null>(null);
@@ -96,6 +97,11 @@ export function SpecStudio() {
         }
         if (providerItems[0] && !providerItems.some((provider) => provider.provider_id === selectedProvider)) {
           setSelectedProvider(providerItems[0].provider_id);
+        }
+        const activeProvider =
+          providerItems.find((provider) => provider.provider_id === selectedProvider) ?? providerItems[0] ?? null;
+        if (activeProvider) {
+          setSelectedModel(activeProvider.default_model_id ?? activeProvider.supported_model_ids[0] ?? "");
         }
       })
       .catch((loadError) => {
@@ -147,6 +153,7 @@ export function SpecStudio() {
   }, [currentJob]);
 
   const selectedProviderDetails = providers.find((provider) => provider.provider_id === selectedProvider) ?? null;
+  const modelOptions = selectedProviderDetails?.supported_model_ids ?? [];
   const fallbackProviders = providers
     .filter((provider) => provider.provider_id !== selectedProvider)
     .map((provider) => provider.provider_id);
@@ -207,17 +214,20 @@ export function SpecStudio() {
         mode === "idea"
           ? {
               provider_id: selectedProvider,
+              model_id: selectedModel || undefined,
               fallback_provider_ids: fallbackProviders,
               idea: idea.trim(),
             }
           : mode === "regenerate" && currentJob
             ? {
                 provider_id: selectedProvider,
+                model_id: selectedModel || undefined,
                 fallback_provider_ids: fallbackProviders,
                 regenerate_from_job_id: currentJob.id,
               }
             : {
                 provider_id: selectedProvider,
+                model_id: selectedModel || undefined,
                 fallback_provider_ids: fallbackProviders,
                 stage_id: result?.stage_id,
               };
@@ -304,12 +314,17 @@ export function SpecStudio() {
               placeholder="Describe the widget idea, expected data source, and board behavior."
             />
 
-            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-center">
+            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] md:items-center">
               <label className="grid gap-2">
                 <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Provider</span>
                 <select
                   value={selectedProvider}
-                  onChange={(event) => setSelectedProvider(event.target.value)}
+                  onChange={(event) => {
+                    const providerId = event.target.value;
+                    const provider = providers.find((item) => item.provider_id === providerId);
+                    setSelectedProvider(providerId);
+                    setSelectedModel(provider?.default_model_id ?? provider?.supported_model_ids[0] ?? "");
+                  }}
                   className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
                 >
                   {providers.map((provider) => (
@@ -319,6 +334,23 @@ export function SpecStudio() {
                   ))}
                 </select>
               </label>
+
+              {modelOptions.length > 0 ? (
+                <label className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Model</span>
+                  <select
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value)}
+                    className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
+                  >
+                    {modelOptions.map((modelId) => (
+                      <option key={modelId} value={modelId}>
+                        {modelId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
 
               <ActionButton
                 onClick={() => runGeneration("idea")}

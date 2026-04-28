@@ -302,6 +302,8 @@ class AIProviderRead(BaseModel):
     supports_codegen: bool
     supports_review: bool
     supports_idea_to_spec: bool
+    supported_model_ids: list[str] = Field(default_factory=list)
+    default_model_id: str | None = None
 
 
 class GenerationJobStatus(str, Enum):
@@ -316,6 +318,7 @@ class GenerationJobStatus(str, Enum):
 
 class GenerationJobCreateRequest(BaseModel):
     provider_id: str | None = None
+    model_id: str | None = None
     fallback_provider_ids: list[str] = Field(default_factory=list)
     stage_id: str | None = None
     idea: str | None = None

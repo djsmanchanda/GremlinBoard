@@ -68,6 +68,8 @@ class GenerationPipelineService:
                     supports_codegen=provider.supports_codegen,
                     supports_review=provider.supports_review,
                     supports_idea_to_spec=provider.supports_idea_to_spec,
+                    supported_model_ids=list(provider.supported_model_ids),
+                    default_model_id=provider.default_model_id,
                 )
             )
         return items
@@ -119,7 +121,7 @@ class GenerationPipelineService:
                 level="info",
                 step="spec",
                 message="Generation job created.",
-                context={"stage_id": stage_id, "provider_id": provider.provider_id},
+                context={"stage_id": stage_id, "provider_id": provider.provider_id, "model_id": payload.model_id},
             )
 
         try:
@@ -127,6 +129,7 @@ class GenerationPipelineService:
                 job_id=job.id,
                 spec=spec,
                 provider=provider,
+                model_id=payload.model_id,
                 idea_prompt=idea_prompt,
             )
         except Exception as exc:
@@ -260,6 +263,7 @@ class GenerationPipelineService:
         job_id: str,
         spec: WidgetSpecDraft,
         provider: AIProvider,
+        model_id: str | None,
         idea_prompt: str | None,
     ) -> GenerationJobRead:
         async with self.session_factory() as session:
@@ -325,6 +329,7 @@ class GenerationPipelineService:
             provider_codegen = await provider.prepare_codegen(
                 widget_spec=spec_payload,
                 scaffold_files=scaffold["preview"]["files"],
+                model_id=model_id,
             )
             await repository.update_job(job, current_step="codegen")
             await repository.add_artifact(
@@ -347,7 +352,7 @@ class GenerationPipelineService:
                 context={"artifact_version": job.artifact_version},
             )
 
-            review = await provider.review_package(widget_spec=spec_payload, package=scaffold["package"])
+            review = await provider.review_package(widget_spec=spec_payload, package=scaffold["package"], model_id=model_id)
             await repository.update_job(
                 job,
                 status=GenerationJobStatus.REVIEW_REQUIRED,
@@ -379,7 +384,7 @@ class GenerationPipelineService:
         provider: AIProvider,
     ) -> tuple[WidgetSpecDraft, str | None, str | None]:
         if payload.idea:
-            idea_result = await provider.draft_spec(idea=payload.idea)
+            idea_result = await provider.draft_spec(idea=payload.idea, model_id=payload.model_id)
             idea_prompt = str(idea_result.pop("idea_prompt", "")) or None
             spec = WidgetSpecDraft.model_validate(idea_result)
             async with self.session_factory() as session:

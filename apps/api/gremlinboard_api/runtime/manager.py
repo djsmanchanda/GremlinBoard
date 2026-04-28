@@ -335,6 +335,7 @@ class RuntimeManager:
         )
 
         await self._refresh_runner(runner, force=False)
+        await self.publish_board_snapshot()
         while not runner.stop_event.is_set():
             directive = self._resolve_refresh_directive(runner)
             interval = (
@@ -350,6 +351,7 @@ class RuntimeManager:
                 break
             if directive.mode != "manual":
                 await self._refresh_runner(runner, force=False)
+                await self.publish_board_snapshot()
 
     async def _refresh_runner(self, runner: WidgetRunner, *, force: bool) -> None:
         if runner.service is None:

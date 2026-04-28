@@ -14,6 +14,8 @@ from gremlinboard_api.specs.widget_ids import sanitize_widget_id
 class AIProvider(ABC):
     provider_id: str
     label: str
+    supported_model_ids: tuple[str, ...] = ()
+    default_model_id: str | None = None
 
     @property
     def supports_idea_to_spec(self) -> bool:
@@ -32,7 +34,7 @@ class AIProvider(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def draft_spec(self, *, idea: str) -> dict[str, Any]:
+    async def draft_spec(self, *, idea: str, model_id: str | None = None) -> dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod
@@ -45,6 +47,7 @@ class AIProvider(ABC):
         *,
         widget_spec: dict[str, Any],
         scaffold_files: list[str],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -54,6 +57,7 @@ class AIProvider(ABC):
         *,
         widget_spec: dict[str, Any],
         package: dict[str, Any],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
         raise NotImplementedError
 
@@ -61,11 +65,13 @@ class AIProvider(ABC):
 class CodexProvider(AIProvider):
     provider_id = "codex"
     label = "Codex"
+    supported_model_ids = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex")
+    default_model_id = "gpt-5.3-codex"
 
     async def health(self) -> dict[str, Any]:
         return {"status": "shell", "provider_id": self.provider_id, "mode": "deterministic-placeholder"}
 
-    async def draft_spec(self, *, idea: str) -> dict[str, Any]:
+    async def draft_spec(self, *, idea: str, model_id: str | None = None) -> dict[str, Any]:
         return _draft_spec_payload(idea=idea, provider_label=self.label)
 
     async def build_generation_plan(self, *, widget_spec: dict[str, Any], stage_id: str) -> dict[str, Any]:
@@ -87,12 +93,15 @@ class CodexProvider(AIProvider):
         *,
         widget_spec: dict[str, Any],
         scaffold_files: list[str],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
+        selected_model = self._resolve_model(model_id)
         return {
             "provider_id": self.provider_id,
+            "model_id": selected_model,
             "prompt": render_codegen_prompt(spec=widget_spec, scaffold_files=scaffold_files),
             "notes": [
-                "Codex shell prepared deterministic scaffold-backed generation guidance.",
+                f"Codex scaffold handoff prepared with requested model '{selected_model}'.",
                 "No direct model execution occurred; install remains blocked pending review.",
             ],
         }
@@ -102,9 +111,12 @@ class CodexProvider(AIProvider):
         *,
         widget_spec: dict[str, Any],
         package: dict[str, Any],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
+        selected_model = self._resolve_model(model_id)
         return {
             "provider_id": self.provider_id,
+            "model_id": selected_model,
             "prompt": render_review_prompt(spec=widget_spec, package=package),
             "summary": "Contract-focused review shell completed. Human approval is still required.",
             "issues": [],
@@ -116,15 +128,22 @@ class CodexProvider(AIProvider):
             "requires_human_review": True,
         }
 
+    def _resolve_model(self, model_id: str | None) -> str:
+        if model_id and model_id in self.supported_model_ids:
+            return model_id
+        return self.default_model_id or self.supported_model_ids[0]
+
 
 class ClaudeProvider(AIProvider):
     provider_id = "claude"
     label = "Claude"
+    supported_model_ids = ("claude-sonnet-4.5", "claude-haiku-4.5")
+    default_model_id = "claude-sonnet-4.5"
 
     async def health(self) -> dict[str, Any]:
         return {"status": "shell", "provider_id": self.provider_id, "mode": "deterministic-placeholder"}
 
-    async def draft_spec(self, *, idea: str) -> dict[str, Any]:
+    async def draft_spec(self, *, idea: str, model_id: str | None = None) -> dict[str, Any]:
         payload = _draft_spec_payload(idea=idea, provider_label=self.label)
         payload["description"] = f"{payload['description']} Generated through the staged spec shell."
         return payload
@@ -148,9 +167,12 @@ class ClaudeProvider(AIProvider):
         *,
         widget_spec: dict[str, Any],
         scaffold_files: list[str],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
+        selected_model = model_id if model_id in self.supported_model_ids else self.default_model_id
         return {
             "provider_id": self.provider_id,
+            "model_id": selected_model,
             "prompt": render_codegen_prompt(spec=widget_spec, scaffold_files=scaffold_files),
             "notes": [
                 "Claude shell prepared a regeneration-oriented codegen prompt.",
@@ -163,9 +185,12 @@ class ClaudeProvider(AIProvider):
         *,
         widget_spec: dict[str, Any],
         package: dict[str, Any],
+        model_id: str | None = None,
     ) -> dict[str, Any]:
+        selected_model = model_id if model_id in self.supported_model_ids else self.default_model_id
         return {
             "provider_id": self.provider_id,
+            "model_id": selected_model,
             "prompt": render_review_prompt(spec=widget_spec, package=package),
             "summary": "Readability and contract review shell completed. Human approval is still required.",
             "issues": [],

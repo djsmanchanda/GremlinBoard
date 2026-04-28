@@ -19,6 +19,7 @@ interface WidgetSettingsPanelProps {
 interface SchemaProperty {
   type?: string;
   title?: string;
+  format?: string;
   enum?: string[];
   default?: JsonValue;
   minimum?: number;
@@ -44,6 +45,26 @@ function stringArrayValue(value: JsonValue | undefined) {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function toDatetimeLocalValue(value: JsonValue | undefined) {
+  if (typeof value !== "string" || !value.trim()) {
+    return "";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocalValue(value: string) {
+  if (!value.trim()) {
+    return "";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
 export function WidgetSettingsPanel({
@@ -214,6 +235,25 @@ export function WidgetSettingsPanel({
             );
           }
 
+          if (property.type === "string" && property.format === "date-time") {
+            return (
+              <label key={key} className="grid gap-2">
+                <span className="text-sm text-slate-200">{label}</span>
+                <input
+                  type="datetime-local"
+                  value={toDatetimeLocalValue(currentValue)}
+                  onChange={(event) =>
+                    setDraft((current) => ({
+                      ...current,
+                      [key]: fromDatetimeLocalValue(event.target.value),
+                    }))
+                  }
+                  className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                />
+              </label>
+            );
+          }
+
           return (
             <label key={key} className="grid gap-2">
               <span className="text-sm text-slate-200">{label}</span>
@@ -221,7 +261,7 @@ export function WidgetSettingsPanel({
                 type="text"
                 value={typeof currentValue === "string" ? currentValue : String(property.default ?? "")}
                 onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
               />
             </label>
           );

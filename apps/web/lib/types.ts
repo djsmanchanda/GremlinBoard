@@ -132,6 +132,8 @@ export interface AIProvider {
   supports_codegen: boolean;
   supports_review: boolean;
   supports_idea_to_spec: boolean;
+  supported_model_ids: string[];
+  default_model_id?: string | null;
 }
 
 export interface GenerationPipelinePreview {

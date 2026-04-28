@@ -81,7 +81,8 @@ export function BoardGrid({
   const cellWidth =
     containerWidth > 0 ? Math.max((containerWidth - (BOARD_COLUMNS - 1) * BOARD_GAP_PX) / BOARD_COLUMNS, 144) : 176;
   const rowHeight = cellWidth;
-  const boardHeight = Math.max(packedLayout.rows, 1) * rowHeight + Math.max(packedLayout.rows - 1, 0) * BOARD_GAP_PX;
+  const visibleRows = Math.max(packedLayout.rows, 4);
+  const boardHeight = visibleRows * rowHeight + Math.max(visibleRows - 1, 0) * BOARD_GAP_PX;
   const occupiedCellKeys = new Set(packedLayout.occupiedCells.map((cell) => `${cell.col}-${cell.row}`));
   const previewCellKeys = new Set(
     (selectedId ? packedLayout.occupiedCells.filter((cell) => cell.widgetId === selectedId) : []).map(
@@ -218,7 +219,7 @@ export function BoardGrid({
   ]);
 
   return (
-    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-[34px] p-4 md:p-5">
+    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-4 md:p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Live grid</p>
@@ -237,18 +238,18 @@ export function BoardGrid({
       </div>
       <div
         ref={containerRef}
-        className="relative min-w-[920px] overflow-hidden rounded-[24px] border border-white/8 bg-[#06080b] p-2"
-        style={{ height: boardHeight + 16 }}
+        className="relative min-w-[920px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
+        style={{ height: boardHeight }}
       >
-        {Array.from({ length: Math.max(packedLayout.rows, 4) }).map((_, row) =>
+        {Array.from({ length: visibleRows }).map((_, row) =>
           Array.from({ length: BOARD_COLUMNS }).map((__, col) => {
             const key = `${col}-${row}`;
-            const x = col * (cellWidth + BOARD_GAP_PX) + 8;
-            const y = row * (rowHeight + BOARD_GAP_PX) + 8;
+            const x = col * (cellWidth + BOARD_GAP_PX);
+            const y = row * (rowHeight + BOARD_GAP_PX);
             return (
               <div
                 key={key}
-                className={`absolute rounded-[28px] border transition duration-300 ${
+                className={`absolute rounded-none border transition duration-300 ${
                   previewCellKeys.has(key)
                     ? "border-cyan-300/35 bg-cyan-300/12 shadow-[0_0_0_1px_rgba(103,232,249,0.14)]"
                     : occupiedCellKeys.has(key)
@@ -276,8 +277,8 @@ export function BoardGrid({
           if (!placement) {
             return null;
           }
-          const left = placement.x * (cellWidth + BOARD_GAP_PX) + 8;
-          const top = placement.y * (rowHeight + BOARD_GAP_PX) + 8;
+          const left = placement.x * (cellWidth + BOARD_GAP_PX);
+          const top = placement.y * (rowHeight + BOARD_GAP_PX);
           const width = placement.width * cellWidth + (placement.width - 1) * BOARD_GAP_PX;
           const height = placement.height * rowHeight + (placement.height - 1) * BOARD_GAP_PX;
           const isDragged = dragState?.widgetId === widget.id;
@@ -331,7 +332,7 @@ export function BoardGrid({
               height:
                 committedLayout.placements[dragState.widgetId].height * rowHeight +
                 (committedLayout.placements[dragState.widgetId].height - 1) * BOARD_GAP_PX,
-              transform: `translate3d(${dragState.ghostX + 8}px, ${dragState.ghostY + 8}px, 0) rotate(1.2deg) scale(1.015)`,
+              transform: `translate3d(${dragState.ghostX}px, ${dragState.ghostY}px, 0) rotate(1.2deg) scale(1.015)`,
               filter: "drop-shadow(0 24px 70px rgba(8,145,178,0.34))",
             }}
           >

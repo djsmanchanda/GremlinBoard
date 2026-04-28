@@ -5,6 +5,14 @@ from datetime import datetime, timezone
 from gremlinboard_api.runtime.base import BaseWidgetService
 
 
+def _parse_target_time(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    target = datetime.fromisoformat(normalized)
+    if target.tzinfo is None:
+        target = target.replace(tzinfo=timezone.utc)
+    return target.astimezone(timezone.utc)
+
+
 class CountdownWidgetService(BaseWidgetService):
     async def start(self) -> None:
         self.state = await self.get_state()
@@ -13,7 +21,7 @@ class CountdownWidgetService(BaseWidgetService):
         return None
 
     async def health(self) -> dict[str, object]:
-        target = datetime.fromisoformat(self.config["target_time"])
+        target = _parse_target_time(self.config["target_time"])
         expired = datetime.now(timezone.utc) >= target
         return {
             "status": "expired" if expired else "running",
@@ -22,7 +30,7 @@ class CountdownWidgetService(BaseWidgetService):
         }
 
     async def get_state(self) -> dict[str, object]:
-        target = datetime.fromisoformat(self.config["target_time"])
+        target = _parse_target_time(self.config["target_time"])
         remaining = max(int((target - datetime.now(timezone.utc)).total_seconds()), 0)
         hours, remainder = divmod(remaining, 3600)
         minutes, seconds = divmod(remainder, 60)

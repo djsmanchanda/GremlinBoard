@@ -145,6 +145,7 @@ export function fetchGenerationJob(jobId: string) {
 
 export function createGenerationJob(payload: {
   provider_id?: string;
+  model_id?: string;
   fallback_provider_ids?: string[];
   stage_id?: string;
   idea?: string;

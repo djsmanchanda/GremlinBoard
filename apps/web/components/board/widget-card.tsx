@@ -100,7 +100,7 @@ export function WidgetCard({
   return (
     <div
       className={[
-        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-[18px] border bg-[#0a0d11] transition-[border-color,background-color,box-shadow,transform] duration-150",
+        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border bg-[#0a0d11] transition-[border-color,background-color,box-shadow,transform] duration-150",
         compact ? "p-3" : "p-4",
         ghost
           ? "border-white/18 bg-[#0d1116] shadow-[0_18px_50px_rgba(2,6,23,0.45)]"
@@ -139,7 +139,7 @@ export function WidgetCard({
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "gap-2" : "gap-3"}`}>
         <header className={`min-w-0 ${compact ? "pr-24" : "pr-28"}`}>
           <div className="flex min-w-0 items-center gap-2">
-            <span className={`h-2 w-2 shrink-0 rounded-full ${lifecycleTone(widget.lifecycle_state)}`} />
+            <span className={`h-2 w-2 shrink-0 rounded-none ${lifecycleTone(widget.lifecycle_state)}`} />
             <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
               {compact ? widget.size : manifest.category}
             </span>
@@ -188,7 +188,7 @@ export function WidgetCard({
           </div>
         ) : null}
 
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-[16px] border border-white/8 bg-[#05070a]">
+          <div className="relative min-h-0 flex-1 overflow-hidden rounded-none border border-white/8 bg-[#05070a]">
           <div className={`h-full ${compact ? "p-2.5" : "p-3"}`}>
             <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
           </div>
@@ -236,7 +236,7 @@ export function WidgetCard({
 
 function MetricPill({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2">
+    <div className="rounded-none border border-white/10 bg-black/20 px-3 py-2">
       <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
     </div>

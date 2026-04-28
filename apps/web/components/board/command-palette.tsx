@@ -13,10 +13,14 @@ interface CommandPaletteProps {
   onSelect: (preset: WidgetPreset) => void;
 }
 
+function isAddableRegistryEntry(entry: WidgetRegistryEntry) {
+  return entry.plugin == null || (entry.plugin.installed && entry.plugin.enabled);
+}
+
 function buildRegistryPresets(registry: Record<string, WidgetRegistryEntry>) {
   const presetWidgetIds = new Set(WIDGET_PRESETS.map((preset) => preset.widget_id));
   return Object.values(registry)
-    .filter((entry) => !presetWidgetIds.has(entry.manifest.id))
+    .filter((entry) => isAddableRegistryEntry(entry) && !presetWidgetIds.has(entry.manifest.id))
     .map((entry) => ({
       key: `${entry.manifest.id}-default`,
       label: entry.manifest.name,
@@ -30,7 +34,15 @@ function buildRegistryPresets(registry: Record<string, WidgetRegistryEntry>) {
 export function CommandPalette({ open, registry, onClose, onSelect }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
 
-  const availableWidgetIds = useMemo(() => new Set(Object.keys(registry)), [registry]);
+  const availableWidgetIds = useMemo(
+    () =>
+      new Set(
+        Object.values(registry)
+          .filter(isAddableRegistryEntry)
+          .map((entry) => entry.manifest.id),
+      ),
+    [registry],
+  );
   const catalog = useMemo(
     () => [
       ...WIDGET_PRESETS.filter((preset) => availableWidgetIds.has(preset.widget_id)),
