@@ -81,7 +81,7 @@ def build_widget_package(
                 "export_name": renderer_export_name,
             },
             "service": {
-                "module": f"{package_name}.{widget_id}.backend",
+                "module": f"widgets.{widget_id}.backend",
                 "class_name": class_name,
             },
             "config_schema": "config.schema.json",
@@ -242,7 +242,7 @@ class RuntimeTestHarness:
         monitor_interval_seconds: int = 60,
     ) -> RuntimeTestHarness:
         root = Path("data") / f"runtime-integration-{uuid4().hex}"
-        package_name = f"test_widgets_{uuid4().hex}"
+        package_name = "widgets"
         widgets_dir = root / package_name
         root.mkdir(parents=True, exist_ok=True)
         widgets_dir.mkdir(parents=True, exist_ok=True)

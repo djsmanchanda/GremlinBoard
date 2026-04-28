@@ -185,6 +185,7 @@ class GenerationJobRecord(Base):
     provider_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     current_step: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     idea_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     install_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     artifact_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

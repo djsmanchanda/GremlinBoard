@@ -1,3 +1,4 @@
+import asyncio
 import shutil
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +18,22 @@ from gremlinboard_api.services.system_settings import SystemSettingsService
 from gremlinboard_api.specs.pipeline import scaffold_preview
 
 
+async def wait_for_generation(
+    generation_service: GenerationPipelineService,
+    job_id: str,
+    *,
+    timeout_seconds: float = 5,
+):
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while True:
+        job = await generation_service.get_job(job_id=job_id)
+        if job.status in {"review_required", "failed"}:
+            return job
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"generation job {job_id} did not finish; last status={job.status}")
+        await asyncio.sleep(0.05)
+
+
 @pytest.mark.asyncio
 async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
     root = Path("data") / f"generation-test-{uuid4().hex}"
@@ -26,74 +43,80 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
     widgets_dir.mkdir(parents=True, exist_ok=True)
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
 
-    registry = load_registry(widgets_dir)
-    auth_service = AuthService(session_factory=session_factory)
-    await auth_service.ensure_default_user()
-    settings_service = SystemSettingsService(session_factory=session_factory)
-    await settings_service.ensure_defaults(user_id=settings.default_user_id)
-    plugin_manager = PluginManagerService(
-        session_factory=session_factory,
-        widgets_dir=widgets_dir,
-        registry=registry,
-    )
-    generation_service = GenerationPipelineService(
-        session_factory=session_factory,
-        plugin_manager=plugin_manager,
-        settings_service=settings_service,
-    )
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        await generation_service.start()
 
-    spec = WidgetSpecDraft.model_validate(
-        {
-            "id": "ops_status",
-            "name": "Ops Status",
-            "category": "custom",
-            "description": "Operational status snapshot",
-            "min_size": "2x2",
-            "preferred_size": "4x2",
-            "refresh_policy": {"mode": "interval", "interval_seconds": 300},
-            "source_type": "generated",
-            "permissions": ["network"],
-            "output_schema": {"summary": "string", "status": "string"},
-            "renderer_type": "card",
-            "lifecycle_policy": {"expires": False, "stateful": True},
-        }
-    )
-
-    async with session_factory() as session:
-        board_repository = BoardRepository(session)
-        stage = await board_repository.create_staged_spec(
-            widget_id=spec.id,
-            stage="validated",
-            spec=spec.model_dump(mode="json"),
-            scaffold_preview=scaffold_preview(spec),
-            notes=[],
+        spec = WidgetSpecDraft.model_validate(
+            {
+                "id": "ops_status",
+                "name": "Ops Status",
+                "category": "custom",
+                "description": "Operational status snapshot",
+                "min_size": "2x2",
+                "preferred_size": "4x2",
+                "refresh_policy": {"mode": "interval", "interval_seconds": 300},
+                "source_type": "generated",
+                "permissions": ["network"],
+                "output_schema": {"summary": "string", "status": "string"},
+                "renderer_type": "card",
+                "lifecycle_policy": {"expires": False, "stateful": True},
+            }
         )
 
-    job = await generation_service.create_job(
-        GenerationJobCreateRequest(stage_id=stage.id, provider_id="codex")
-    )
-    assert job.status == "review_required"
-    assert any(artifact.stage == "codegen" for artifact in job.artifacts)
-    assert job.install_target is not None
-    assert job.install_target["action"] == "install"
+        async with session_factory() as session:
+            board_repository = BoardRepository(session)
+            stage = await board_repository.create_staged_spec(
+                widget_id=spec.id,
+                stage="validated",
+                spec=spec.model_dump(mode="json"),
+                scaffold_preview=scaffold_preview(spec),
+                notes=[],
+            )
 
-    approved = await generation_service.approve_job(job_id=job.id)
-    assert approved.status == "approved"
+        queued = await generation_service.create_job(
+            GenerationJobCreateRequest(stage_id=stage.id, provider_id="codex")
+        )
+        assert queued.status == "queued"
+        job = await wait_for_generation(generation_service, queued.id)
+        assert job.status == "review_required"
+        assert any(artifact.stage == "codegen" for artifact in job.artifacts)
+        assert job.install_target is not None
+        assert job.install_target["action"] == "install"
 
-    installed = await generation_service.install_job(job_id=job.id, enabled=True)
-    assert installed.status == "installed"
-    plugin = await plugin_manager.get_plugin("ops_status")
-    assert plugin is not None
-    assert plugin.installed is True
-    assert (widgets_dir / "ops_status" / "manifest.json").exists()
+        approved = await generation_service.approve_job(job_id=job.id)
+        assert approved.status == "approved"
 
-    await engine.dispose()
-    if root.exists():
-        shutil.rmtree(root)
+        installed = await generation_service.install_job(job_id=job.id, enabled=True)
+        assert installed.status == "installed"
+        plugin = await plugin_manager.get_plugin("ops_status")
+        assert plugin is not None
+        assert plugin.installed is True
+        assert (widgets_dir / "ops_status" / "manifest.json").exists()
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root)
 
 
 @pytest.mark.asyncio
@@ -105,47 +128,52 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
     widgets_dir.mkdir(parents=True, exist_ok=True)
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
-    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
 
-    registry = load_registry(widgets_dir)
-    auth_service = AuthService(session_factory=session_factory)
-    await auth_service.ensure_default_user()
-    settings_service = SystemSettingsService(session_factory=session_factory)
-    await settings_service.ensure_defaults(user_id=settings.default_user_id)
-    plugin_manager = PluginManagerService(
-        session_factory=session_factory,
-        widgets_dir=widgets_dir,
-        registry=registry,
-    )
-    generation_service = GenerationPipelineService(
-        session_factory=session_factory,
-        plugin_manager=plugin_manager,
-        settings_service=settings_service,
-    )
-
-    first_job = await generation_service.create_job(
-        GenerationJobCreateRequest(
-            idea="Build a wide operations widget with a short health summary and refresh details.",
-            provider_id="claude",
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
         )
-    )
-    await generation_service.approve_job(job_id=first_job.id)
-    await generation_service.install_job(job_id=first_job.id, enabled=True)
-
-    regenerated = await generation_service.create_job(
-        GenerationJobCreateRequest(
-            regenerate_from_job_id=first_job.id,
-            provider_id="codex",
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
         )
-    )
+        await generation_service.start()
 
-    assert regenerated.selected_version == "0.1.1"
-    assert regenerated.artifact_version == 2
-    assert regenerated.install_target is not None
-    assert regenerated.install_target["action"] == "update"
+        first_queued = await generation_service.create_job(
+            GenerationJobCreateRequest(
+                idea="Build a wide operations widget with a short health summary and refresh details.",
+                provider_id="claude",
+            )
+        )
+        first_job = await wait_for_generation(generation_service, first_queued.id)
+        await generation_service.approve_job(job_id=first_job.id)
+        await generation_service.install_job(job_id=first_job.id, enabled=True)
 
-    await engine.dispose()
-    if root.exists():
-        shutil.rmtree(root)
+        regenerated = await generation_service.create_job(
+            GenerationJobCreateRequest(
+                regenerate_from_job_id=first_job.id,
+                provider_id="codex",
+            )
+        )
+
+        assert regenerated.selected_version == "0.1.1"
+        assert regenerated.artifact_version == 2
+        assert regenerated.install_target is not None
+        assert regenerated.install_target["action"] == "update"
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root)

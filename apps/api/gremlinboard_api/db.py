@@ -56,6 +56,13 @@ async def _run_migrations(connection) -> None:
             "consecutive_failures": "ALTER TABLE widget_instances ADD COLUMN consecutive_failures INTEGER NOT NULL DEFAULT 0",
         },
     )
+    await _ensure_columns(
+        connection,
+        "generation_jobs",
+        {
+            "progress": "ALTER TABLE generation_jobs ADD COLUMN progress INTEGER NOT NULL DEFAULT 0",
+        },
+    )
 
 
 async def _ensure_columns(connection, table_name: str, ddl_by_column: dict[str, str]) -> None:

@@ -171,10 +171,12 @@ async def lifespan(app: FastAPI):
     app.state.observability = observability_service
     app.state.session_factory = SessionLocal
 
+    await generation_pipeline.start()
     await seed_default_widgets(SessionLocal)
     await runtime_manager.bootstrap()
     await observability_service.capture_runtime_snapshot()
     yield
+    await generation_pipeline.shutdown()
     await runtime_manager.shutdown()
     await provider_runtime.close()
 

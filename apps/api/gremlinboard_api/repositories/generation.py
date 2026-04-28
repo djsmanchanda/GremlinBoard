@@ -43,6 +43,8 @@ class GenerationRepository:
         artifact_version: int,
         selected_version: str,
         status: GenerationJobStatus = GenerationJobStatus.QUEUED,
+        current_step: str | None = "queued",
+        progress: int = 0,
         install_blocked: bool = True,
     ) -> GenerationJobRecord:
         record = GenerationJobRecord(
@@ -54,6 +56,8 @@ class GenerationRepository:
             artifact_version=artifact_version,
             selected_version=selected_version,
             status=status.value,
+            current_step=current_step,
+            progress=progress,
             install_blocked=install_blocked,
         )
         self.session.add(record)
@@ -71,12 +75,21 @@ class GenerationRepository:
         result = await self.session.execute(query)
         return list(result.scalars())
 
+    async def list_jobs_by_status(self, statuses: set[GenerationJobStatus]) -> list[GenerationJobRecord]:
+        result = await self.session.execute(
+            select(GenerationJobRecord).where(
+                GenerationJobRecord.status.in_([status.value for status in statuses])
+            )
+        )
+        return list(result.scalars())
+
     async def update_job(
         self,
         record: GenerationJobRecord,
         *,
         status: GenerationJobStatus | None = None,
         current_step: str | None = None,
+        progress: int | None = None,
         stage_id: str | None = None,
         provider_id: str | None = None,
         install_blocked: bool | None = None,
@@ -88,6 +101,8 @@ class GenerationRepository:
             record.status = status.value
         if current_step is not None:
             record.current_step = current_step
+        if progress is not None:
+            record.progress = max(0, min(100, progress))
         if stage_id is not None:
             record.stage_id = stage_id
         if provider_id is not None:
@@ -262,6 +277,7 @@ def serialize_job(
         provider_id=record.provider_id,
         status=GenerationJobStatus(record.status),
         current_step=record.current_step,
+        progress=record.progress,
         idea=record.idea_text,
         install_blocked=record.install_blocked,
         artifact_version=record.artifact_version,

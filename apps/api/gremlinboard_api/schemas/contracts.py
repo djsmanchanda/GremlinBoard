@@ -494,6 +494,7 @@ class GenerationJobRead(BaseModel):
     provider_id: str
     status: GenerationJobStatus
     current_step: str | None = None
+    progress: int = Field(default=0, ge=0, le=100)
     idea: str | None = None
     install_blocked: bool
     artifact_version: int

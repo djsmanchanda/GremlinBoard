@@ -5,7 +5,7 @@ import importlib
 import json
 import sys
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -42,6 +42,7 @@ class WidgetRunner:
     last_refresh_at: datetime | None = None
     pending_stop_reason: str | None = None
     refresh_directive: RefreshDirective | None = None
+    operation_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class RuntimeManager:
@@ -65,6 +66,7 @@ class RuntimeManager:
         self.service_context = service_context
         self.capture_metrics = capture_metrics
         self._runners: dict[str, WidgetRunner] = {}
+        self._widget_locks: dict[str, asyncio.Lock] = {}
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
         self._monitor_interval_seconds = monitor_interval_seconds
@@ -104,8 +106,14 @@ class RuntimeManager:
             await self.stop_widget(instance_id, persist_state=False)
 
     async def start_widget(self, instance_id: str, *, force: bool = False) -> None:
+        async with self._widget_lock(instance_id):
+            await self._start_widget_unlocked(instance_id, force=force)
+
+    async def _start_widget_unlocked(self, instance_id: str, *, force: bool = False) -> None:
         if not force and instance_id in self._runners:
             return
+        if force and instance_id in self._runners:
+            await self._stop_widget_unlocked(instance_id, persist_state=False, reason="replaced")
         async with self.session_factory() as session:
             repository = BoardRepository(session)
             record = await repository.get_widget(instance_id)
@@ -151,6 +159,24 @@ class RuntimeManager:
         persist_state: bool = True,
         reason: str | None = None,
     ) -> None:
+        async with self._widget_lock(instance_id):
+            await self._stop_widget_unlocked(
+                instance_id,
+                removed=removed,
+                final_state=final_state,
+                persist_state=persist_state,
+                reason=reason,
+            )
+
+    async def _stop_widget_unlocked(
+        self,
+        instance_id: str,
+        *,
+        removed: bool = False,
+        final_state: LifecycleState | None = None,
+        persist_state: bool = True,
+        reason: str | None = None,
+    ) -> None:
         runner = self._runners.pop(instance_id, None)
         if runner is not None:
             runner.pending_stop_reason = reason
@@ -173,13 +199,14 @@ class RuntimeManager:
             await self.publish_board_snapshot()
 
     async def restart_widget(self, instance_id: str, *, reason: str) -> None:
-        async with self.session_factory() as session:
-            repository = BoardRepository(session)
-            record = await repository.get_widget(instance_id)
-            if record is None or record.is_removed:
-                return
-            await self.stop_widget(instance_id, persist_state=False, reason=reason)
-            await self.start_widget(instance_id, force=True)
+        async with self._widget_lock(instance_id):
+            async with self.session_factory() as session:
+                repository = BoardRepository(session)
+                record = await repository.get_widget(instance_id)
+                if record is None or record.is_removed:
+                    return
+            await self._stop_widget_unlocked(instance_id, persist_state=False, reason=reason)
+            await self._start_widget_unlocked(instance_id, force=True)
             await self.log(
                 level="warning",
                 event="runner.restarted",
@@ -190,25 +217,39 @@ class RuntimeManager:
             )
 
     async def refresh_widget(self, instance_id: str) -> None:
-        runner = self._runners.get(instance_id)
-        if runner is None:
-            return
-        await self._refresh_runner(runner, force=True)
+        expired = False
+        async with self._widget_lock(instance_id):
+            runner = self._runners.get(instance_id)
+            if runner is None:
+                return
+            lifecycle_state = await self._refresh_runner(runner, force=True, stop_on_expired=False)
+            expired = lifecycle_state == LifecycleState.EXPIRED
         await self.publish_board_snapshot()
+        if expired:
+            await self.stop_widget(instance_id, final_state=LifecycleState.EXPIRED, reason="expired")
 
     async def update_widget_config(self, instance_id: str, config: dict[str, Any]) -> None:
-        runner = self._runners.get(instance_id)
-        if runner is not None:
-            runner.config = config
-            if runner.service is not None:
-                await runner.service.invalidate_cache()
-                await runner.service.set_config(config)
-        async with self.session_factory() as session:
-            repository = BoardRepository(session)
-            record = await repository.get_widget(instance_id)
-            if record is not None:
-                await repository.update_widget(record, config=config)
-        await self.refresh_widget(instance_id)
+        expired = False
+        async with self._widget_lock(instance_id):
+            runner = self._runners.get(instance_id)
+            if runner is not None:
+                async with runner.operation_lock:
+                    runner.config = config
+                    if runner.service is not None:
+                        await runner.service.invalidate_cache()
+                        await runner.service.set_config(config)
+            async with self.session_factory() as session:
+                repository = BoardRepository(session)
+                record = await repository.get_widget(instance_id)
+                if record is not None:
+                    await repository.update_widget(record, config=config)
+            runner = self._runners.get(instance_id)
+            if runner is not None:
+                lifecycle_state = await self._refresh_runner(runner, force=True, stop_on_expired=False)
+                expired = lifecycle_state == LifecycleState.EXPIRED
+        await self.publish_board_snapshot()
+        if expired:
+            await self.stop_widget(instance_id, final_state=LifecycleState.EXPIRED, reason="expired")
 
     async def pause_widgets_by_widget_id(self, widget_id: str, *, reason: str) -> None:
         async with self.session_factory() as session:
@@ -295,35 +336,42 @@ class RuntimeManager:
                     pass
         finally:
             await self._safe_stop_service(runner)
+            if runner.stop_event.is_set() and self._runners.get(runner.instance_id) is runner:
+                self._runners.pop(runner.instance_id, None)
             await self.publish_board_snapshot()
 
     async def _run_single_attempt(self, runner: WidgetRunner) -> None:
-        runner.service = self._build_service(
-            manifest=runner.manifest,
-            instance_id=runner.instance_id,
-            config=runner.config,
-        )
-        try:
-            await asyncio.wait_for(
-                runner.service.start(),
-                timeout=runner.manifest.runtime_policy.start_timeout_seconds,
+        async with runner.operation_lock:
+            if runner.stop_event.is_set():
+                return
+            runner.service = self._build_service(
+                manifest=runner.manifest,
+                instance_id=runner.instance_id,
+                config=runner.config,
             )
-        except TimeoutError as exc:
-            raise RuntimeFailure(
-                event="runner.start_timeout",
-                message="service start timed out",
-                context={"timeout_seconds": runner.manifest.runtime_policy.start_timeout_seconds},
-            ) from exc
-        except Exception as exc:
-            raise RuntimeFailure(
-                event="runner.start_failed",
-                message=str(exc),
-                context={"error_type": type(exc).__name__},
-            ) from exc
+            try:
+                await asyncio.wait_for(
+                    runner.service.start(),
+                    timeout=runner.manifest.runtime_policy.start_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise RuntimeFailure(
+                    event="runner.start_timeout",
+                    message="service start timed out",
+                    context={"timeout_seconds": runner.manifest.runtime_policy.start_timeout_seconds},
+                ) from exc
+            except Exception as exc:
+                raise RuntimeFailure(
+                    event="runner.start_failed",
+                    message=str(exc),
+                    context={"error_type": type(exc).__name__},
+                ) from exc
 
-        runner.service.mark_started()
-        runner.last_started_at = datetime.now(timezone.utc)
-        runner.last_heartbeat_at = runner.last_started_at
+            if runner.stop_event.is_set():
+                return
+            runner.service.mark_started()
+            runner.last_started_at = datetime.now(timezone.utc)
+            runner.last_heartbeat_at = runner.last_started_at
         await self._persist_running_state(runner, status_message="running")
         await self.log(
             level="info",
@@ -334,6 +382,8 @@ class RuntimeManager:
             context={"widget_id": runner.widget_id, "version": runner.manifest.version},
         )
 
+        if runner.stop_event.is_set():
+            return
         await self._refresh_runner(runner, force=False)
         await self.publish_board_snapshot()
         while not runner.stop_event.is_set():
@@ -353,64 +403,77 @@ class RuntimeManager:
                 await self._refresh_runner(runner, force=False)
                 await self.publish_board_snapshot()
 
-    async def _refresh_runner(self, runner: WidgetRunner, *, force: bool) -> None:
-        if runner.service is None:
-            raise RuntimeFailure(event="runner.missing_service", message="service is not available for refresh")
-        now = datetime.now(timezone.utc)
-        try:
-            state = await asyncio.wait_for(
-                runner.service.refresh(force=force),
-                timeout=runner.manifest.runtime_policy.refresh_timeout_seconds,
-            )
-            health = await asyncio.wait_for(
-                runner.service.health(),
-                timeout=runner.manifest.runtime_policy.refresh_timeout_seconds,
-            )
-        except TimeoutError as exc:
-            raise RuntimeFailure(
-                event="runner.refresh_timeout",
-                message="service refresh timed out",
-                context={"timeout_seconds": runner.manifest.runtime_policy.refresh_timeout_seconds},
-            ) from exc
-        except Exception as exc:
-            raise RuntimeFailure(
-                event="runner.refresh_failed",
-                message=str(exc),
-                context={"error_type": type(exc).__name__},
-            ) from exc
+    async def _refresh_runner(
+        self,
+        runner: WidgetRunner,
+        *,
+        force: bool,
+        stop_on_expired: bool = True,
+    ) -> LifecycleState | None:
+        async with runner.operation_lock:
+            if runner.stop_event.is_set() or self._runners.get(runner.instance_id) is not runner:
+                return None
+            if runner.service is None:
+                raise RuntimeFailure(event="runner.missing_service", message="service is not available for refresh")
+            now = datetime.now(timezone.utc)
+            try:
+                state = await asyncio.wait_for(
+                    runner.service.refresh(force=force),
+                    timeout=runner.manifest.runtime_policy.refresh_timeout_seconds,
+                )
+                if runner.stop_event.is_set() or self._runners.get(runner.instance_id) is not runner:
+                    return None
+                health = await asyncio.wait_for(
+                    runner.service.health(),
+                    timeout=runner.manifest.runtime_policy.refresh_timeout_seconds,
+                )
+            except TimeoutError as exc:
+                raise RuntimeFailure(
+                    event="runner.refresh_timeout",
+                    message="service refresh timed out",
+                    context={"timeout_seconds": runner.manifest.runtime_policy.refresh_timeout_seconds},
+                ) from exc
+            except Exception as exc:
+                raise RuntimeFailure(
+                    event="runner.refresh_failed",
+                    message=str(exc),
+                    context={"error_type": type(exc).__name__},
+                ) from exc
 
-        runner.last_heartbeat_at = now
-        runner.last_refresh_at = now
-        runner.refresh_directive = runner.service.get_refresh_directive()
-        runner.consecutive_failures = 0
-        lifecycle_state = LifecycleState.RUNNING
-        expires_at = False
-        status_message = str(health.get("status", "running"))
-        if health.get("expired"):
-            lifecycle_state = LifecycleState.EXPIRED
-            expires_value = health.get("expires_at")
-            if isinstance(expires_value, str):
-                expires_at = datetime.fromisoformat(expires_value)
+            if runner.stop_event.is_set() or self._runners.get(runner.instance_id) is not runner:
+                return None
+            runner.last_heartbeat_at = now
+            runner.last_refresh_at = now
+            runner.refresh_directive = runner.service.get_refresh_directive()
+            runner.consecutive_failures = 0
+            lifecycle_state = LifecycleState.RUNNING
+            expires_at = False
+            status_message = str(health.get("status", "running"))
+            if health.get("expired"):
+                lifecycle_state = LifecycleState.EXPIRED
+                expires_value = health.get("expires_at")
+                if isinstance(expires_value, str):
+                    expires_at = datetime.fromisoformat(expires_value)
 
-        async with self.session_factory() as session:
-            repository = BoardRepository(session)
-            record = await repository.get_widget(runner.instance_id)
-            if record is None:
-                return
-            await repository.update_widget(
-                record,
-                state=state,
-                lifecycle_state=lifecycle_state,
-                freshness_at=now,
-                last_heartbeat=now,
-                status_message=status_message,
-                expires_at=expires_at,
-                clear_error=True,
-                service_started_at=runner.last_started_at,
-                service_uptime_seconds=self._uptime_seconds(runner),
-                restart_count=runner.restart_count,
-                consecutive_failures=runner.consecutive_failures,
-            )
+            async with self.session_factory() as session:
+                repository = BoardRepository(session)
+                record = await repository.get_widget(runner.instance_id)
+                if record is None:
+                    return None
+                await repository.update_widget(
+                    record,
+                    state=state,
+                    lifecycle_state=lifecycle_state,
+                    freshness_at=now,
+                    last_heartbeat=now,
+                    status_message=status_message,
+                    expires_at=expires_at,
+                    clear_error=True,
+                    service_started_at=runner.last_started_at,
+                    service_uptime_seconds=self._uptime_seconds(runner),
+                    restart_count=runner.restart_count,
+                    consecutive_failures=runner.consecutive_failures,
+                )
 
         if lifecycle_state == LifecycleState.EXPIRED:
             await self.log(
@@ -421,11 +484,9 @@ class RuntimeManager:
                 message="widget expired and was stopped",
                 context={"widget_id": runner.widget_id},
             )
-            await self.stop_widget(
-                runner.instance_id,
-                final_state=LifecycleState.EXPIRED,
-                reason="expired",
-            )
+            if stop_on_expired:
+                runner.stop_event.set()
+        return lifecycle_state
 
     async def _persist_running_state(self, runner: WidgetRunner, *, status_message: str) -> None:
         async with self.session_factory() as session:
@@ -528,25 +589,29 @@ class RuntimeManager:
                     await self.stop_widget(record.id, final_state=LifecycleState.PAUSED, reason="stale cleanup")
 
     async def _safe_stop_service(self, runner: WidgetRunner) -> None:
-        if runner.service is None:
-            return
-        try:
-            await runner.service.stop()
-        except Exception as exc:  # pragma: no cover
-            await self.log(
-                level="error",
-                event="runner.stop_error",
-                widget_instance_id=runner.instance_id,
-                widget_id=runner.widget_id,
-                message=str(exc),
-                context={"widget_id": runner.widget_id},
-            )
-        finally:
-            runner.service = None
+        async with runner.operation_lock:
+            if runner.service is None:
+                return
+            try:
+                await runner.service.stop()
+            except Exception as exc:  # pragma: no cover
+                await self.log(
+                    level="error",
+                    event="runner.stop_error",
+                    widget_instance_id=runner.instance_id,
+                    widget_id=runner.widget_id,
+                    message=str(exc),
+                    context={"widget_id": runner.widget_id},
+                )
+            finally:
+                runner.service = None
 
     def _build_service(
         self, *, manifest: WidgetManifest, instance_id: str, config: dict[str, Any]
     ) -> BaseWidgetService:
+        expected_module = f"widgets.{manifest.id}.backend"
+        if manifest.service.module != expected_module:
+            raise TypeError(f"widget service module for {manifest.id} must be '{expected_module}'")
         widgets_parent = str(self.registry.widgets_dir.parent)
         if widgets_parent not in sys.path:
             sys.path.insert(0, widgets_parent)
@@ -599,3 +664,10 @@ class RuntimeManager:
             interval_seconds=interval_override or manifest_interval,
             reason="manifest refresh policy",
         )
+
+    def _widget_lock(self, instance_id: str) -> asyncio.Lock:
+        lock = self._widget_locks.get(instance_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._widget_locks[instance_id] = lock
+        return lock

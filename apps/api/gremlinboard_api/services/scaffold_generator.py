@@ -92,6 +92,7 @@ class WidgetScaffoldGenerator:
                 for index, key in enumerate(_flatten_output_schema_keys(spec.output_schema) or ["primary"])
             },
         }
+        output_json = json.dumps(state_template["output"], sort_keys=True)
         return dedent(
             f"""
             from __future__ import annotations
@@ -120,7 +121,7 @@ class WidgetScaffoldGenerator:
                         "title": title,
                         "category": {json.dumps(spec.category)},
                         "description": {json.dumps(spec.description)},
-                        "output": {json.dumps(state_template["output"], indent=2)},
+                        "output": {output_json},
                     }}
             """
         ).strip() + "\n"

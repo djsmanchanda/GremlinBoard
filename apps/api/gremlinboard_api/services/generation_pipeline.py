@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import unified_diff
 from typing import Any
@@ -37,6 +39,15 @@ from gremlinboard_api.specs.pipeline import (
 )
 
 
+@dataclass(frozen=True)
+class QueuedGenerationInput:
+    job_id: str
+    spec: WidgetSpecDraft
+    provider_id: str
+    model_id: str | None
+    idea_prompt: str | None
+
+
 class GenerationPipelineService:
     def __init__(
         self,
@@ -53,6 +64,31 @@ class GenerationPipelineService:
             "codex": CodexProvider(),
             "claude": ClaudeProvider(),
         }
+        self._queue: asyncio.Queue[str] | None = None
+        self._worker_task: asyncio.Task[None] | None = None
+        self._queued_inputs: dict[str, QueuedGenerationInput] = {}
+        self._creation_locks: dict[str, asyncio.Lock] = {}
+
+    async def start(self) -> None:
+        await self._fail_interrupted_jobs()
+        self._ensure_worker_started()
+
+    async def shutdown(self) -> None:
+        if self._worker_task is None:
+            return
+        self._worker_task.cancel()
+        try:
+            await self._worker_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._worker_task = None
+
+    def _ensure_worker_started(self) -> None:
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(self._run_worker())
 
     async def list_providers(self) -> list[AIProviderRead]:
         settings = await self.settings_service.read()
@@ -100,58 +136,127 @@ class GenerationPipelineService:
             return await self._serialize_job(session, job_id)
 
     async def create_job(self, payload: GenerationJobCreateRequest) -> GenerationJobRead:
+        self._ensure_worker_started()
         provider = await self._select_provider(payload.provider_id, payload.fallback_provider_ids)
         spec, stage_id, idea_prompt = await self._resolve_spec_source(payload=payload, provider=provider)
-        artifact_version = await self._next_artifact_version(spec.id)
-        selected_version = await self._resolve_version(widget_id=spec.id, requested_version=payload.version)
+        async with self._creation_lock(spec.id):
+            artifact_version = await self._next_artifact_version(spec.id)
+            selected_version = await self._resolve_version(widget_id=spec.id, requested_version=payload.version)
 
-        async with self.session_factory() as session:
-            repository = GenerationRepository(session)
-            job = await repository.create_job(
-                widget_id=spec.id,
-                provider_id=provider.provider_id,
-                requested_provider_id=payload.provider_id,
-                stage_id=stage_id,
-                idea=payload.idea,
-                artifact_version=artifact_version,
-                selected_version=selected_version,
-            )
-            await repository.add_log(
-                job_id=job.id,
-                level="info",
-                step="spec",
-                message="Generation job created.",
-                context={"stage_id": stage_id, "provider_id": provider.provider_id, "model_id": payload.model_id},
-            )
-
-        try:
-            return await self._execute_job(
-                job_id=job.id,
-                spec=spec,
-                provider=provider,
-                model_id=payload.model_id,
-                idea_prompt=idea_prompt,
-            )
-        except Exception as exc:
             async with self.session_factory() as session:
                 repository = GenerationRepository(session)
-                record = await repository.get_job(job.id)
-                if record is not None:
-                    await repository.update_job(
-                        record,
-                        status=GenerationJobStatus.FAILED,
-                        current_step="failed",
-                        error_message=str(exc),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                    await repository.add_log(
-                        job_id=record.id,
-                        level="error",
-                        step="failed",
-                        message="Generation job failed.",
-                        context={"error": str(exc)},
-                    )
-            raise
+                job = await repository.create_job(
+                    widget_id=spec.id,
+                    provider_id=provider.provider_id,
+                    requested_provider_id=payload.provider_id,
+                    stage_id=stage_id,
+                    idea=payload.idea,
+                    artifact_version=artifact_version,
+                    selected_version=selected_version,
+                    current_step="queued",
+                    progress=0,
+                )
+                await repository.add_log(
+                    job_id=job.id,
+                    level="info",
+                    step="queued",
+                    message="Generation job queued.",
+                    context={
+                        "stage_id": stage_id,
+                        "provider_id": provider.provider_id,
+                        "model_id": payload.model_id,
+                        "progress": 0,
+                    },
+                )
+
+        self._queued_inputs[job.id] = QueuedGenerationInput(
+            job_id=job.id,
+            spec=spec,
+            provider_id=provider.provider_id,
+            model_id=payload.model_id,
+            idea_prompt=idea_prompt,
+        )
+        queued_job = await self.get_job(job_id=job.id)
+        await self._queue_job(job.id)
+        return queued_job
+
+    async def _queue_job(self, job_id: str) -> None:
+        self._ensure_worker_started()
+        if self._queue is None:
+            raise RuntimeError("generation queue is not available")
+        await self._queue.put(job_id)
+
+    async def _run_worker(self) -> None:
+        if self._queue is None:
+            return
+        queue = self._queue
+        while True:
+            job_id = await queue.get()
+            try:
+                queued_input = self._queued_inputs.pop(job_id, None)
+                if queued_input is None:
+                    raise ValueError("queued generation input is no longer available")
+                provider = provider_from_id(queued_input.provider_id, self.providers)
+                await self._execute_job(
+                    job_id=queued_input.job_id,
+                    spec=queued_input.spec,
+                    provider=provider,
+                    model_id=queued_input.model_id,
+                    idea_prompt=queued_input.idea_prompt,
+                )
+            except asyncio.CancelledError:
+                await self._mark_job_failed(
+                    job_id=job_id,
+                    exc=RuntimeError("generation worker stopped before the job completed"),
+                )
+                raise
+            except Exception as exc:
+                await self._mark_job_failed(job_id=job_id, exc=exc)
+            finally:
+                queue.task_done()
+
+    async def _mark_job_failed(self, *, job_id: str, exc: Exception) -> None:
+        async with self.session_factory() as session:
+            repository = GenerationRepository(session)
+            record = await repository.get_job(job_id)
+            if record is None:
+                return
+            await repository.update_job(
+                record,
+                status=GenerationJobStatus.FAILED,
+                current_step="failed",
+                error_message=str(exc),
+                completed_at=datetime.now(timezone.utc),
+            )
+            await repository.add_log(
+                job_id=record.id,
+                level="error",
+                step="failed",
+                message="Generation job failed.",
+                context={"error": str(exc), "progress": record.progress},
+            )
+
+    async def _fail_interrupted_jobs(self) -> None:
+        async with self.session_factory() as session:
+            repository = GenerationRepository(session)
+            records = await repository.list_jobs_by_status(
+                {GenerationJobStatus.QUEUED, GenerationJobStatus.RUNNING}
+            )
+            for record in records:
+                await repository.update_job(
+                    record,
+                    status=GenerationJobStatus.FAILED,
+                    current_step="failed",
+                    error_message="generation worker restarted before the job completed",
+                    completed_at=datetime.now(timezone.utc),
+                )
+                await repository.add_log(
+                    job_id=record.id,
+                    level="error",
+                    step="failed",
+                    message="Generation job failed after worker restart.",
+                    context={"progress": record.progress},
+                )
 
     async def approve_job(self, *, job_id: str) -> GenerationJobRead:
         async with self.session_factory() as session:
@@ -165,6 +270,7 @@ class GenerationPipelineService:
                 job,
                 status=GenerationJobStatus.APPROVED,
                 current_step="approved",
+                progress=100,
                 install_blocked=False,
                 clear_error=True,
             )
@@ -173,7 +279,7 @@ class GenerationPipelineService:
                 level="info",
                 step="review",
                 message="Generation job approved for install.",
-                context={},
+                context={"progress": 100},
             )
         return await self.get_job(job_id=job_id)
 
@@ -189,6 +295,7 @@ class GenerationPipelineService:
                 job,
                 status=GenerationJobStatus.REJECTED,
                 current_step="rejected",
+                progress=100,
                 install_blocked=True,
                 error_message=reason,
             )
@@ -197,7 +304,7 @@ class GenerationPipelineService:
                 level="warning",
                 step="review",
                 message="Generation job rejected.",
-                context={"reason": reason},
+                context={"reason": reason, "progress": 100},
             )
         return await self.get_job(job_id=job_id)
 
@@ -244,6 +351,7 @@ class GenerationPipelineService:
                 record,
                 status=GenerationJobStatus.INSTALLED,
                 current_step="install",
+                progress=100,
                 install_blocked=False,
                 clear_error=True,
                 completed_at=datetime.now(timezone.utc),
@@ -253,7 +361,7 @@ class GenerationPipelineService:
                 level="info",
                 step="install",
                 message="Generated widget package installed through the registry.",
-                context={"widget_id": record.widget_id, "version": record.selected_version},
+                context={"widget_id": record.widget_id, "version": record.selected_version, "progress": 100},
             )
         return await self.get_job(job_id=job_id)
 
@@ -272,7 +380,13 @@ class GenerationPipelineService:
             if job is None:
                 raise ValueError(f"unknown generation job '{job_id}'")
 
-            await repository.update_job(job, status=GenerationJobStatus.RUNNING, current_step="spec", clear_error=True)
+            await repository.update_job(
+                job,
+                status=GenerationJobStatus.RUNNING,
+                current_step="spec",
+                progress=10,
+                clear_error=True,
+            )
             notes = validate_widget_spec(spec)
             if notes:
                 raise ValueError("; ".join(notes))
@@ -295,15 +409,16 @@ class GenerationPipelineService:
                 level="info",
                 step="spec",
                 message="Validated spec attached to generation job.",
-                context={"stage_id": job.stage_id},
+                context={"stage_id": job.stage_id, "progress": 25},
             )
+            await repository.update_job(job, progress=25)
 
             scaffold = self.scaffold_generator.generate(
                 spec=spec,
                 version=job.selected_version,
                 artifact_version=job.artifact_version,
             )
-            await repository.update_job(job, current_step="scaffold")
+            await repository.update_job(job, current_step="scaffold", progress=40)
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -323,15 +438,16 @@ class GenerationPipelineService:
                 level="info",
                 step="scaffold",
                 message="Widget scaffold prepared.",
-                context={"file_count": len(scaffold["files"])},
+                context={"file_count": len(scaffold["files"]), "progress": 50},
             )
+            await repository.update_job(job, progress=50)
 
             provider_codegen = await provider.prepare_codegen(
                 widget_spec=spec_payload,
                 scaffold_files=scaffold["preview"]["files"],
                 model_id=model_id,
             )
-            await repository.update_job(job, current_step="codegen")
+            await repository.update_job(job, current_step="codegen", progress=70)
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -349,14 +465,16 @@ class GenerationPipelineService:
                 level="info",
                 step="codegen",
                 message="Generated package artifact version created.",
-                context={"artifact_version": job.artifact_version},
+                context={"artifact_version": job.artifact_version, "progress": 80},
             )
+            await repository.update_job(job, progress=80)
 
             review = await provider.review_package(widget_spec=spec_payload, package=scaffold["package"], model_id=model_id)
             await repository.update_job(
                 job,
                 status=GenerationJobStatus.REVIEW_REQUIRED,
                 current_step="review",
+                progress=100,
                 install_blocked=True,
                 completed_at=datetime.now(timezone.utc),
             )
@@ -373,7 +491,7 @@ class GenerationPipelineService:
                 level="info",
                 step="review",
                 message="Review artifact created. Install remains blocked pending approval.",
-                context={"provider_id": provider.provider_id},
+                context={"provider_id": provider.provider_id, "progress": 100},
             )
         return await self.get_job(job_id=job_id)
 
@@ -507,6 +625,13 @@ class GenerationPipelineService:
         if plugin and plugin.installed:
             return _bump_patch_version(plugin.version)
         return "0.1.0"
+
+    def _creation_lock(self, widget_id: str) -> asyncio.Lock:
+        lock = self._creation_locks.get(widget_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._creation_locks[widget_id] = lock
+        return lock
 
 
 def _bump_patch_version(version: str) -> str:

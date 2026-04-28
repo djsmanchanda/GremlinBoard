@@ -8,7 +8,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from gremlinboard_api.registry.loader import WidgetRegistry
+from gremlinboard_api.registry.loader import (
+    WidgetRegistry,
+    validate_widget_manifest_paths,
+    validate_widget_package_source,
+)
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.repositories.plugins import (
     PluginRepository,
@@ -286,7 +290,13 @@ class PluginManagerService:
 
     @staticmethod
     def _validate_package(package: dict[str, Any]) -> WidgetManifest:
+        validate_widget_manifest_paths(package["manifest"])
         manifest = WidgetManifest.model_validate(package["manifest"])
+        validate_widget_package_source(
+            backend_source=str(package["backend_source"]),
+            renderer_source=str(package["renderer_source"]),
+            widget_id=manifest.id,
+        )
         PluginManagerService._validate_renderer_contract(
             renderer_source=str(package["renderer_source"]),
             export_name=manifest.renderer.export_name,
