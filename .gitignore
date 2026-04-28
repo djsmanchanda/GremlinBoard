@@ -20,3 +20,8 @@ apps/web/.next/
 apps/web/node_modules/
 apps/api/.venv/
 data/runtime/
+*.egg-info/
+__pycache__/
+.pytest_cache/
+node_modules/
+.next/

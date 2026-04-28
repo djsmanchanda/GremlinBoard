@@ -1,9 +1,0 @@
-data
-gremlinboard_api
-pytest-cache-files-8xqj9l7q
-pytest-cache-files-axzcsbfq
-pytest-cache-files-fophf7pw
-pytest-cache-files-gp6upgrm
-pytest-cache-files-jbbnhdzo
-pytest-cache-files-qxivyyq9
-tests
