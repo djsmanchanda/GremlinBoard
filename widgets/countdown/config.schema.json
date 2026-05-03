@@ -1,14 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["label", "target_time"],
   "properties": {
+    "timers": {
+      "type": "array",
+      "title": "Timers",
+      "minItems": 0,
+      "maxItems": 4,
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["label", "target_time"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "ID"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "minLength": 1
+          },
+          "target_time": {
+            "type": "string",
+            "title": "Target time",
+            "format": "date-time"
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "title": "Restart duration",
+            "minimum": 1,
+            "default": 3600
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "label": {
       "type": "string",
+      "title": "Legacy label",
       "minLength": 1
     },
     "target_time": {
       "type": "string",
+      "title": "Legacy target time",
       "format": "date-time"
     }
   },

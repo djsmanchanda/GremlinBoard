@@ -11,6 +11,7 @@ GremlinBoard is a modular widget runtime board for OpenClaw.
 ## MVP Scope
 
 - Fixed grid sizes only: `1x1`, `1x2`, `2x2`, `4x2`, `2x4`, `4x4`
+- Responsive board density: the board packs from 4 to 8 columns as horizontal space increases
 - Persistent board layout and widget state
 - Registry-driven widget installation and rendering
 - Widget lifecycle controls: `created`, `running`, `paused`, `expired`, `removed`, `error`
@@ -53,5 +54,8 @@ The frontend expects the API at `http://127.0.0.1:8000/api` by default.
 
 - Widgets never bypass the registry.
 - Services are loaded from widget manifests and run as disposable async runners.
-- The board persists instance order and size; the UI packs those widgets onto a strict four-column grid.
+- The board persists instance order and size; the UI packs those widgets onto a strict responsive grid with 4 to 8 columns.
+- Widgets drag from the top interaction band and resize from the bottom-right corner only.
+- Resize previews use dashed outlines for every allowed size, with the nearest target highlighted while resizing.
+- Freshness, uptime, refresh mode, and restart count are board-level stats overlays, not permanent widget chrome.
 - Widget creation is staged through spec validation and scaffold preview before any install step.

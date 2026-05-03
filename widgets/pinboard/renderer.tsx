@@ -12,22 +12,17 @@ export function PinboardRenderer({ widget, onUpdateConfig }: WidgetRendererProps
   const [draft, setDraft] = useState("");
   const tier = getWidgetDisplayTier(widget.size);
   const compact = tier === "compact";
-  const visibleNotes = notes.slice(0, compact ? 1 : tier === "expanded" ? 6 : 3);
+  const visibleNotes = notes.slice(0, compact ? 1 : tier === "expanded" ? 8 : 4);
 
   return (
-    <div className="flex h-full flex-col gap-3">
-      <div className="min-w-0">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-amber-300/70">Pinboard</p>
-        <h3 className={`mt-1 truncate font-semibold text-white ${compact ? "text-sm" : "text-base"}`}>{widget.title}</h3>
-      </div>
-
+    <div className="flex h-full flex-col gap-2">
       {!compact ? (
         <div className="flex gap-2">
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Add a note"
-            className="min-w-0 flex-1 rounded-[12px] border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500"
+            placeholder="Pin a note"
+            className="min-w-0 flex-1 rounded-none border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500"
           />
           <button
             type="button"
@@ -39,13 +34,13 @@ export function PinboardRenderer({ widget, onUpdateConfig }: WidgetRendererProps
               void onUpdateConfig?.({ ...widget.config, notes: nextNotes });
               setDraft("");
             }}
-            className="rounded-[12px] border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-300/16"
+            className="rounded-none border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-300/16"
           >
             Pin
           </button>
         </div>
       ) : (
-        <div className="rounded-[14px] border border-white/10 bg-white/[0.04] px-3 py-2">
+        <div className="rounded-none border border-white/10 bg-white/[0.04] px-3 py-2">
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Pinned</p>
           <p className="mt-1 text-lg font-semibold text-white">{notes.length}</p>
         </div>
@@ -53,12 +48,12 @@ export function PinboardRenderer({ widget, onUpdateConfig }: WidgetRendererProps
 
       <div className="grid gap-2">
         {visibleNotes.length === 0 ? (
-          <div className="rounded-[14px] border border-dashed border-white/12 bg-white/[0.03] p-3 text-xs text-slate-400">
-            No pinned notes yet.
+          <div className="rounded-none border border-dashed border-white/12 bg-white/[0.03] p-3 text-xs text-slate-400">
+            Nothing pinned.
           </div>
         ) : (
           visibleNotes.map((note) => (
-            <div key={note.id} className="rounded-[14px] border border-white/10 bg-white/[0.04] p-3 text-sm leading-5 text-slate-100">
+            <div key={note.id} className="rounded-none border border-white/10 bg-white/[0.04] p-2.5 text-sm leading-5 text-slate-100">
               <p className={compact ? "line-clamp-4 text-xs leading-5" : "line-clamp-3"}>{note.text}</p>
             </div>
           ))

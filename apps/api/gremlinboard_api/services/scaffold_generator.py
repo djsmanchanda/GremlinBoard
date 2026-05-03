@@ -65,17 +65,44 @@ class WidgetScaffoldGenerator:
         }
 
     def _build_config_schema(self, spec: WidgetSpecDraft) -> dict[str, Any]:
+        properties: dict[str, Any] = {
+            "title_override": {
+                "type": "string",
+                "title": "Title Override",
+                "description": "Optional display title shown by the renderer.",
+            }
+        }
+        if spec.category in {"news", "trending", "sports"} or "network" in spec.permissions:
+            properties["query"] = {
+                "type": "string",
+                "title": "Query",
+                "description": "Topic, team, source, or search query used by the generated widget.",
+            }
+        if spec.category == "sports":
+            properties["team"] = {
+                "type": "string",
+                "title": "Team",
+                "description": "Preferred team or league focus.",
+            }
+        if spec.category == "countdown":
+            properties["target"] = {
+                "type": "string",
+                "title": "Target",
+                "description": "Countdown target date or label.",
+            }
+        if spec.renderer_type in {"list", "table"}:
+            properties["limit"] = {
+                "type": "integer",
+                "title": "Limit",
+                "minimum": 1,
+                "maximum": 20,
+                "default": 5,
+            }
         return {
             "title": f"{spec.name} Config",
             "type": "object",
             "additionalProperties": False,
-            "properties": {
-                "title_override": {
-                    "type": "string",
-                    "title": "Title Override",
-                    "description": "Optional display title shown by the renderer.",
-                }
-            },
+            "properties": properties,
             "required": [],
         }
 

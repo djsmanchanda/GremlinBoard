@@ -309,6 +309,7 @@ class AIProviderRead(BaseModel):
 class GenerationJobStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
+    COMPLETED = "completed"
     REVIEW_REQUIRED = "review_required"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -335,6 +336,31 @@ class GenerationJobCreateRequest(BaseModel):
 
 class GenerationJobRejectRequest(BaseModel):
     reason: str = Field(min_length=1)
+
+
+class GenerationJobFeedbackRequest(BaseModel):
+    feedback: str = Field(min_length=1)
+    provider_id: str | None = None
+    model_id: str | None = None
+    fallback_provider_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("feedback")
+    @classmethod
+    def trim_feedback(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
+class EasyGenerationCreateRequest(BaseModel):
+    idea: str = Field(min_length=1)
+    provider_id: str | None = None
+    model_id: str | None = None
+    fallback_provider_ids: list[str] = Field(default_factory=list)
+    version: str | None = None
+
+    @field_validator("idea")
+    @classmethod
+    def trim_idea(cls, value: str) -> str:
+        return " ".join(value.split())
 
 
 class GenerationJobInstallRequest(BaseModel):
@@ -507,6 +533,42 @@ class GenerationJobRead(BaseModel):
     logs: list[GenerationJobLogRead] = Field(default_factory=list)
     install_target: dict[str, Any] | None = None
     diff_preview: list[GenerationArtifactDiffRead] = Field(default_factory=list)
+
+
+FeedbackCategory = Literal["name", "sizing", "ui", "feature"]
+
+
+class GenerationTestBoxRead(BaseModel):
+    job_id: str
+    widget_id: str
+    stage_id: str | None = None
+    name: str
+    description: str
+    category: str
+    size: TileSize
+    allowed_sizes: list[TileSize]
+    manifest: dict[str, Any]
+    config_schema: dict[str, Any]
+    renderer: dict[str, Any]
+    service: dict[str, Any]
+    initial_config: dict[str, Any] = Field(default_factory=dict)
+    initial_state: dict[str, Any] = Field(default_factory=dict)
+    files: list[GenerationArtifactFileRead] = Field(default_factory=list)
+    install_blocked: bool = True
+    review_required: bool = True
+
+
+class EasyGenerationJobRead(BaseModel):
+    job: GenerationJobRead
+    test_box: GenerationTestBoxRead | None = None
+    feedback_categories: list[FeedbackCategory] = Field(default_factory=lambda: ["name", "sizing", "ui", "feature"])
+
+
+class GenerationJobFeedbackRead(BaseModel):
+    category: FeedbackCategory
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    job: GenerationJobRead
+    test_box: GenerationTestBoxRead | None = None
 
 
 class GenerationPipelinePreviewRead(BaseModel):

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { BoardGrid } from "@/components/board/board-grid";
 import { CommandPalette } from "@/components/board/command-palette";
@@ -18,7 +18,7 @@ import {
   stopWidget,
   updateWidget,
 } from "@/lib/api";
-import { API_BASE_URL } from "@/lib/constants";
+import { apiWebSocketUrl } from "@/lib/constants";
 import type { BoardState, JsonObject, WidgetPreset } from "@/lib/types";
 import { useBoardStore } from "@/store/board-store";
 
@@ -30,6 +30,13 @@ export function BoardShell() {
   const { board, registry, commandOpen, error, setBoard, setRegistry, setCommandOpen, setError } = useBoardStore();
   const [loading, setLoading] = useState(true);
   const [removedWidget, setRemovedWidget] = useState<RemovedWidgetState | null>(null);
+  const hasBoardSnapshot = useRef(false);
+  const hasRegistrySnapshot = useRef(false);
+  const pendingSnapshotTimers = useRef<number[]>([]);
+
+  useEffect(() => {
+    hasRegistrySnapshot.current = Object.keys(registry).length > 0;
+  }, [registry]);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +48,8 @@ export function BoardShell() {
         }
         setBoard(boardResponse);
         setRegistry(registryResponse);
+        hasBoardSnapshot.current = true;
+        setError(null);
       } catch (loadError) {
         if (!cancelled) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load board");
@@ -58,26 +67,53 @@ export function BoardShell() {
   }, [setBoard, setError, setRegistry]);
 
   useEffect(() => {
-    const socketUrl = `${API_BASE_URL.replace(/^http/, "ws")}/board/stream`;
+    const socketUrl = apiWebSocketUrl("/board/stream");
     const socket = new WebSocket(socketUrl);
+    const refreshRegistrySnapshot = () => {
+      void fetchRegistry()
+        .then((registryResponse) => {
+          setRegistry(registryResponse);
+          hasRegistrySnapshot.current = Object.keys(registryResponse).length > 0;
+          setError(null);
+        })
+        .catch((loadError) => {
+          setError(loadError instanceof Error ? loadError.message : "Failed to refresh widget registry");
+        });
+    };
+    const applyBoardSnapshot = (snapshot: BoardState) => {
+      const timer = window.setTimeout(() => {
+        pendingSnapshotTimers.current = pendingSnapshotTimers.current.filter((id) => id !== timer);
+        setBoard(snapshot);
+        hasBoardSnapshot.current = true;
+        setError(null);
+        if (!hasRegistrySnapshot.current) {
+          refreshRegistrySnapshot();
+        }
+      }, 0);
+      pendingSnapshotTimers.current.push(timer);
+    };
     socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
       if (payload.type === "board.snapshot") {
-        setBoard(payload.payload);
+        applyBoardSnapshot(payload.payload);
         return;
       }
       if (payload.type === "registry.updated") {
-        void fetchRegistry()
-          .then((registryResponse) => {
-            setRegistry(registryResponse);
-          })
-          .catch((loadError) => {
-            setError(loadError instanceof Error ? loadError.message : "Failed to refresh widget registry");
-          });
+        refreshRegistrySnapshot();
       }
     };
-    socket.onerror = () => setError("Realtime board stream disconnected");
-    return () => socket.close();
+    socket.onerror = () => {
+      if (!hasBoardSnapshot.current) {
+        setError("Realtime board stream disconnected");
+      }
+    };
+    return () => {
+      socket.close();
+      for (const timer of pendingSnapshotTimers.current) {
+        window.clearTimeout(timer);
+      }
+      pendingSnapshotTimers.current = [];
+    };
   }, [setBoard, setError, setRegistry]);
 
   useEffect(() => {
@@ -208,8 +244,8 @@ export function BoardShell() {
   const boardCount = board?.widgets.length ?? 0;
 
   return (
-    <main className="min-h-screen bg-[#05070a] px-4 py-5 md:px-6 md:py-6">
-      <section className="mx-auto max-w-7xl">
+    <main className="min-h-screen bg-[#05070a] px-2.5 py-4 md:px-4 md:py-5 2xl:px-5">
+      <section className="mx-auto w-full max-w-[2520px]">
         <header className="mb-5 rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
@@ -223,7 +259,7 @@ export function BoardShell() {
               </div>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">GremlinBoard</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                Compact runtime board for registered widgets only. Drag, resize, refresh, and inspect service state on a fixed square grid.
+                Compact runtime board for registered widgets only. Drag from tile tops, resize from corners, and scale the grid for high-density data.
               </p>
             </div>
 

@@ -1,9 +1,12 @@
-import { API_BASE_URL } from "@/lib/constants";
+import { apiUrl } from "@/lib/constants";
 import type {
   AIProvider,
   ApiCredential,
   AuthContext,
   BoardState,
+  EasyGenerationJob,
+  GenerationFeedbackRequest,
+  GenerationFeedbackResponse,
   GenerationJob,
   GenerationPipelinePreview,
   JsonObject,
@@ -16,27 +19,42 @@ import type {
   WidgetRegistryEntry,
 } from "@/lib/types";
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  if (!response.ok) {
-    const body = await response.text();
-    try {
-      const parsed = JSON.parse(body) as { detail?: string };
-      throw new Error(parsed.detail || `Request failed for ${path}`);
-    } catch {
-      throw new Error(body || `Request failed for ${path}`);
+  try {
+    const response = await fetch(apiUrl(path), {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+      signal: init?.signal ?? controller.signal,
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      try {
+        const parsed = JSON.parse(body) as { detail?: string };
+        throw new Error(parsed.detail || `Request failed for ${path}`);
+      } catch {
+        throw new Error(body || `Request failed for ${path}`);
+      }
     }
-  }
 
-  return response.json() as Promise<T>;
+    return response.json() as Promise<T>;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timed out for ${path}`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
 }
 
 export function fetchBoard() {
@@ -153,6 +171,30 @@ export function createGenerationJob(payload: {
   version?: string;
 }) {
   return request<GenerationJob>("/ai/generation/jobs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function createEasyGenerationJob(payload: {
+  idea: string;
+  provider_id?: string;
+  model_id?: string;
+  fallback_provider_ids?: string[];
+  version?: string;
+}) {
+  return request<EasyGenerationJob>("/ai/easy-generation/jobs", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function fetchEasyGenerationJob(jobId: string) {
+  return request<EasyGenerationJob>(`/ai/easy-generation/jobs/${jobId}`);
+}
+
+export function submitGenerationFeedback(jobId: string, payload: GenerationFeedbackRequest) {
+  return request<GenerationFeedbackResponse>(`/ai/generation/jobs/${jobId}/feedback`, {
     method: "POST",
     body: JSON.stringify(payload),
   });

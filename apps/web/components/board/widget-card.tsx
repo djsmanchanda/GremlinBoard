@@ -15,12 +15,12 @@ interface WidgetCardProps {
   plugin?: WidgetPlugin | null;
   selected: boolean;
   hovered: boolean;
+  showStats: boolean;
   ghost?: boolean;
   onSelect: () => void;
   onHoverChange: (hovered: boolean) => void;
-  onDragHandlePointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onResize: (size: WidgetInstance["size"]) => void;
-  onPreviewResize: (size: WidgetInstance["size"] | null) => void;
+  onDragHandlePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onResizeHandlePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onRefresh: () => void;
   onToggleRun: () => void;
   onRemove: () => void;
@@ -60,12 +60,12 @@ export function WidgetCard({
   plugin,
   selected,
   hovered,
+  showStats,
   ghost = false,
   onSelect,
   onHoverChange,
   onDragHandlePointerDown,
-  onResize,
-  onPreviewResize,
+  onResizeHandlePointerDown,
   onRefresh,
   onToggleRun,
   onRemove,
@@ -113,12 +113,34 @@ export function WidgetCard({
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => {
         onHoverChange(false);
-        onPreviewResize(null);
       }}
       onClick={onSelect}
     >
+      {!ghost ? (
+        <>
+          <div
+            className="absolute inset-x-10 top-0 z-10 h-[10%] min-h-8 max-h-12 cursor-grab active:cursor-grabbing"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onDragHandlePointerDown(event);
+            }}
+          />
+          <div
+            className="absolute bottom-0 right-0 z-30 h-10 w-10 cursor-nwse-resize"
+            aria-label="Resize widget"
+            title="Resize"
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              onResizeHandlePointerDown(event);
+            }}
+          >
+            <span className="absolute bottom-2 right-2 h-4 w-4 border-b-2 border-r-2 border-white/28 transition group-hover:border-cyan-200/80" />
+          </div>
+        </>
+      ) : null}
+
       <div
-        className={`pointer-events-none absolute right-3 top-3 z-10 flex items-center gap-1 transition-opacity duration-150 ${
+        className={`pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 transition-opacity duration-150 ${
           showControls ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
         }`}
       >
@@ -128,13 +150,20 @@ export function WidgetCard({
         <IconButton label={isRunning ? "Pause" : "Start"} onClick={onToggleRun}>
           {isRunning ? <PauseIcon /> : <PlayIcon />}
         </IconButton>
-        <IconButton label="Move" onPointerDown={onDragHandlePointerDown}>
-          <GripIcon />
-        </IconButton>
         <IconButton label="Remove" tone="danger" onClick={onRemove}>
           <CloseIcon />
         </IconButton>
       </div>
+
+      {showStats ? (
+        <WidgetStatsOverlay
+          compact={compact}
+          freshness={formatFreshness(widget.freshness_at)}
+          uptime={formatUptime(widget.service_uptime_seconds)}
+          mode={manifest.refresh_policy.mode}
+          restarts={String(widget.restart_count)}
+        />
+      ) : null}
 
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "gap-2" : "gap-3"}`}>
         <header className={`min-w-0 ${compact ? "pr-24" : "pr-28"}`}>
@@ -163,15 +192,6 @@ export function WidgetCard({
           )}
         </header>
 
-        {!compact ? (
-          <div className={`grid gap-2 ${small ? "grid-cols-2" : "grid-cols-4"}`}>
-            <MetricPill label="Fresh" value={formatFreshness(widget.freshness_at)} />
-            <MetricPill label="Uptime" value={formatUptime(widget.service_uptime_seconds)} />
-            <MetricPill label="Mode" value={manifest.refresh_policy.mode} />
-            <MetricPill label="Restarts" value={String(widget.restart_count)} />
-          </div>
-        ) : null}
-
         {issues.length > 0 ? (
           <div className={`rounded-[14px] border border-rose-300/18 bg-rose-300/8 ${compact ? "px-2.5 py-2" : "px-3 py-2.5"}`}>
             <p className="text-[10px] uppercase tracking-[0.18em] text-rose-100/80">Runtime issue</p>
@@ -193,30 +213,6 @@ export function WidgetCard({
             <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
           </div>
 
-          {selected && !compact ? (
-            <div className="pointer-events-none absolute inset-x-3 bottom-3 flex justify-start">
-              <div className="pointer-events-auto flex flex-wrap gap-1.5 rounded-[12px] border border-white/10 bg-[#0a0d11]/95 p-1 shadow-[0_12px_32px_rgba(2,6,23,0.35)]">
-                {manifest.allowed_sizes.map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    onMouseEnter={() => onPreviewResize(size)}
-                    onFocus={() => onPreviewResize(size)}
-                    onMouseLeave={() => onPreviewResize(null)}
-                    onBlur={() => onPreviewResize(null)}
-                    onClick={() => onResize(size)}
-                    className={`rounded px-2 py-1 text-[11px] transition-colors ${
-                      widget.size === size
-                        ? "bg-cyan-300/14 text-cyan-50"
-                        : "text-slate-300 hover:bg-white/8 hover:text-white"
-                    }`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
         </div>
 
         {widget.status_message && !compact ? <p className="text-xs leading-5 text-slate-400">{widget.status_message}</p> : null}
@@ -234,11 +230,38 @@ export function WidgetCard({
   );
 }
 
-function MetricPill({ label, value }: { label: string; value: string }) {
+function WidgetStatsOverlay({
+  compact,
+  freshness,
+  uptime,
+  mode,
+  restarts,
+}: {
+  compact: boolean;
+  freshness: string;
+  uptime: string;
+  mode: string;
+  restarts: string;
+}) {
   return (
-    <div className="rounded-none border border-white/10 bg-black/20 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
+    <div
+      className={`pointer-events-none absolute inset-x-3 z-20 grid gap-1.5 rounded-none border border-cyan-200/18 bg-[#05070a]/88 p-2 shadow-[0_16px_40px_rgba(2,6,23,0.38)] backdrop-blur ${
+        compact ? "top-9 grid-cols-2" : "top-12 grid-cols-2 xl:grid-cols-4"
+      }`}
+    >
+      <MetricPill compact={compact} label="Fresh" value={freshness} />
+      <MetricPill compact={compact} label="Uptime" value={uptime} />
+      <MetricPill compact={compact} label="Mode" value={mode} />
+      <MetricPill compact={compact} label="Restarts" value={restarts} />
+    </div>
+  );
+}
+
+function MetricPill({ label, value, compact }: { label: string; value: string; compact: boolean }) {
+  return (
+    <div className={`rounded-none border border-white/10 bg-black/24 ${compact ? "px-2 py-1" : "px-3 py-2"}`}>
+      <p className={`${compact ? "text-[8px]" : "text-[10px]"} uppercase tracking-[0.16em] text-slate-500`}>{label}</p>
+      <p className={`mt-1 truncate font-medium text-white ${compact ? "text-[10px]" : "text-sm"}`}>{value}</p>
     </div>
   );
 }
@@ -312,25 +335,6 @@ function PlayIcon() {
     <IconFrame>
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
         <path d="M5 3.2v9.6l7-4.8-7-4.8Z" />
-      </svg>
-    </IconFrame>
-  );
-}
-
-function GripIcon() {
-  return (
-    <IconFrame>
-      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
-        {[
-          [5, 4],
-          [11, 4],
-          [5, 8],
-          [11, 8],
-          [5, 12],
-          [11, 12],
-        ].map(([cx, cy]) => (
-          <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="1.1" />
-        ))}
       </svg>
     </IconFrame>
   );

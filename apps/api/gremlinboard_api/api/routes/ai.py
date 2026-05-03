@@ -4,7 +4,11 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from gremlinboard_api.schemas.contracts import (
     AIProviderRead,
+    EasyGenerationCreateRequest,
+    EasyGenerationJobRead,
     GenerationJobCreateRequest,
+    GenerationJobFeedbackRead,
+    GenerationJobFeedbackRequest,
     GenerationJobInstallRequest,
     GenerationJobRead,
     GenerationJobRejectRequest,
@@ -64,6 +68,25 @@ async def create_generation_job(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/easy-generation/jobs", response_model=EasyGenerationJobRead)
+async def create_easy_generation_job(
+    payload: EasyGenerationCreateRequest,
+    request: Request,
+) -> EasyGenerationJobRead:
+    try:
+        return await request.app.state.generation_pipeline.create_easy_job(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/easy-generation/jobs/{job_id}", response_model=EasyGenerationJobRead)
+async def get_easy_generation_job(job_id: str, request: Request) -> EasyGenerationJobRead:
+    try:
+        return await request.app.state.generation_pipeline.get_easy_job(job_id=job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/generation/jobs/{job_id}/approve", response_model=GenerationJobRead)
 async def approve_generation_job(job_id: str, request: Request) -> GenerationJobRead:
     try:
@@ -80,6 +103,18 @@ async def reject_generation_job(
 ) -> GenerationJobRead:
     try:
         return await request.app.state.generation_pipeline.reject_job(job_id=job_id, reason=payload.reason)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/generation/jobs/{job_id}/feedback", response_model=GenerationJobFeedbackRead)
+async def submit_generation_feedback(
+    job_id: str,
+    payload: GenerationJobFeedbackRequest,
+    request: Request,
+) -> GenerationJobFeedbackRead:
+    try:
+        return await request.app.state.generation_pipeline.submit_feedback(job_id=job_id, payload=payload)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

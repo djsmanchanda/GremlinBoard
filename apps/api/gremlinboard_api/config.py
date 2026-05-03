@@ -32,7 +32,14 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3000"
     session_cookie_name: str = "gremlinboard_session"
     session_ttl_hours: int = 168
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3100",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3100",
+    ]
     provider_user_agent: str = "GremlinBoard/1.0"
     reddit_user_agent: str = "GremlinBoard/1.0 (reddit integration)"
     external_http_timeout_seconds: int = 8

@@ -10,7 +10,12 @@ from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base
 from gremlinboard_api.registry.loader import load_registry
 from gremlinboard_api.repositories.board import BoardRepository
-from gremlinboard_api.schemas.contracts import GenerationJobCreateRequest, WidgetSpecDraft
+from gremlinboard_api.schemas.contracts import (
+    EasyGenerationCreateRequest,
+    GenerationJobCreateRequest,
+    GenerationJobFeedbackRequest,
+    WidgetSpecDraft,
+)
 from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
@@ -27,10 +32,10 @@ async def wait_for_generation(
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while True:
         job = await generation_service.get_job(job_id=job_id)
-        if job.status in {"review_required", "failed"}:
+        if job.status in {"completed", "failed"}:
             return job
         if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError(f"generation job {job_id} did not finish; last status={job.status}")
+            raise AssertionError(f"generation job {job_id} did not complete; last status={job.status}")
         await asyncio.sleep(0.05)
 
 
@@ -64,6 +69,9 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
             settings_service=settings_service,
         )
         await generation_service.start()
+        worker_task = generation_service._worker_task
+        await generation_service.start()
+        assert generation_service._worker_task is worker_task
 
         spec = WidgetSpecDraft.model_validate(
             {
@@ -97,13 +105,17 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
         )
         assert queued.status == "queued"
         job = await wait_for_generation(generation_service, queued.id)
-        assert job.status == "review_required"
+        assert job.status == "completed"
+        assert job.progress == 100
+        assert job.error_message is None
         assert any(artifact.stage == "codegen" for artifact in job.artifacts)
+        assert any(log.step == "completed" for log in job.logs)
         assert job.install_target is not None
         assert job.install_target["action"] == "install"
 
         approved = await generation_service.approve_job(job_id=job.id)
-        assert approved.status == "approved"
+        assert approved.status == "review_required"
+        assert approved.install_blocked is False
 
         installed = await generation_service.install_job(job_id=job.id, enabled=True)
         assert installed.status == "installed"
@@ -171,6 +183,87 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
         assert regenerated.artifact_version == 2
         assert regenerated.install_target is not None
         assert regenerated.install_target["action"] == "update"
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root)
+
+
+@pytest.mark.asyncio
+async def test_easy_generation_returns_test_box_and_feedback_refinement_metadata() -> None:
+    root = Path("data") / f"easy-generation-test-{uuid4().hex}"
+    database_path = root / "easy-generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        await generation_service.start()
+
+        easy = await generation_service.create_easy_job(
+            EasyGenerationCreateRequest(
+                idea='Build a wide "Sprint Risk" dashboard with alert, trend chart, and blockers every 5 minutes.',
+                provider_id="codex",
+            )
+        )
+        assert easy.job.status == "queued"
+        assert easy.test_box is None
+
+        job = await wait_for_generation(generation_service, easy.job.id)
+        easy_done = await generation_service.get_easy_job(job_id=job.id)
+        assert easy_done.job.status == "completed"
+        assert easy_done.job.install_blocked is True
+        assert easy_done.feedback_categories == ["name", "sizing", "ui", "feature"]
+        assert easy_done.test_box is not None
+        assert easy_done.test_box.name == "Sprint Risk"
+        assert easy_done.test_box.size == "4x2"
+        assert easy_done.test_box.install_blocked is True
+        assert easy_done.test_box.review_required is True
+        assert easy_done.test_box.renderer["module"] == "@widgets/sprint_risk/renderer"
+        assert "query" in easy_done.test_box.config_schema["properties"]
+        assert {"alert", "trend"}.issubset(easy_done.test_box.initial_state["output"])
+
+        feedback = await generation_service.submit_feedback(
+            job_id=job.id,
+            payload=GenerationJobFeedbackRequest(feedback='Rename to "Risk Pulse" and make it compact 1x1.'),
+        )
+        assert feedback.category == "name"
+        assert feedback.metadata["source_job_id"] == job.id
+        assert feedback.metadata["refined_spec"]["name"] == "Risk Pulse"
+        assert feedback.metadata["refined_spec"]["preferred_size"] == "1x1"
+        assert any(
+            artifact.stage == "feedback" and artifact.artifact_type == "refinement"
+            for artifact in feedback.job.artifacts
+        )
+
+        refined = await wait_for_generation(generation_service, feedback.job.id)
+        refined_easy = await generation_service.get_easy_job(job_id=refined.id)
+        assert refined_easy.test_box is not None
+        assert refined_easy.test_box.name == "Risk Pulse"
+        assert refined_easy.test_box.size == "1x1"
+        assert refined_easy.job.install_blocked is True
 
         await generation_service.shutdown()
     finally:

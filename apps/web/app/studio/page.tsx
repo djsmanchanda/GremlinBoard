@@ -12,17 +12,17 @@ export default function StudioPage() {
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-cyan-100">
-                  Spec Studio
+                  Easy Generator
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-slate-300">
-                  Staged install path
+                  Review gated install
                 </span>
               </div>
               <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
-                <span className="text-gradient">Widget Creation Pipeline</span>
+                <span className="text-gradient">Idea to Widget Test Box</span>
               </h1>
               <p className="mt-3 text-sm leading-6 text-slate-300">
-                Draft specs, validate manifests, inspect generated artifacts, review diffs, and install through the registry with a clear staged handoff.
+                Start with a plain-language idea, let the agent propose name, parameters, strict grid size, and renderer output, then test and refine before the staged review/install gate.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -43,10 +43,10 @@ export default function StudioPage() {
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              "1. Draft the spec",
-              "2. Validate and scaffold",
-              "3. Review generated output",
-              "4. Install through registry",
+              "1. Enter the idea",
+              "2. Test the generated draft",
+              "3. Refine by feedback category",
+              "4. Review and install through registry",
             ].map((step) => (
               <div key={step} className="rounded-[24px] border border-white/10 bg-black/20 px-4 py-4 text-sm text-slate-200">
                 {step}

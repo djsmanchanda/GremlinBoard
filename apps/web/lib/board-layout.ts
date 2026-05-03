@@ -1,10 +1,12 @@
 import type { TileSize, WidgetInstance } from "@/lib/types";
 
-export const BOARD_COLUMNS = 4;
+export const MIN_BOARD_COLUMNS = 4;
+export const MAX_BOARD_COLUMNS = 8;
+export const BOARD_COLUMNS = MIN_BOARD_COLUMNS;
 export const BOARD_GAP_PX = 12;
 export const BOARD_ROW_HEIGHT_PX = 176;
 
-const TILE_DIMENSIONS: Record<TileSize, { width: number; height: number }> = {
+export const TILE_DIMENSIONS: Record<TileSize, { width: number; height: number }> = {
   "1x1": { width: 1, height: 1 },
   "1x2": { width: 1, height: 2 },
   "2x2": { width: 2, height: 2 },
@@ -32,9 +34,11 @@ export interface PackedBoardLayout {
 export function packBoardLayout(
   widgets: WidgetInstance[],
   options?: {
+    columns?: number;
     sizeOverrides?: Record<string, TileSize>;
   },
 ): PackedBoardLayout {
+  const columns = options?.columns ?? BOARD_COLUMNS;
   const occupancy: boolean[][] = [];
   const placements: Record<string, PackedPlacement> = {};
   const orderedPlacements: PackedPlacement[] = [];
@@ -43,7 +47,7 @@ export function packBoardLayout(
   for (const widget of widgets) {
     const size = options?.sizeOverrides?.[widget.id] ?? widget.size;
     const dimensions = TILE_DIMENSIONS[size];
-    const { col, row } = findSlot(occupancy, dimensions.width, dimensions.height);
+    const { col, row } = findSlot(occupancy, dimensions.width, dimensions.height, columns);
     markOccupied(occupancy, col, row, dimensions.width, dimensions.height);
     const placement: PackedPlacement = {
       widgetId: widget.id,
@@ -116,12 +120,13 @@ export function findClosestWidgetId(
   return bestId;
 }
 
-function findSlot(occupancy: boolean[][], width: number, height: number) {
+function findSlot(occupancy: boolean[][], width: number, height: number, columns: number) {
   let row = 0;
+  const clampedWidth = Math.min(width, columns);
   while (true) {
-    ensureRows(occupancy, row + height);
-    for (let col = 0; col <= BOARD_COLUMNS - width; col += 1) {
-      if (canPlace(occupancy, col, row, width, height)) {
+    ensureRows(occupancy, row + height, columns);
+    for (let col = 0; col <= columns - clampedWidth; col += 1) {
+      if (canPlace(occupancy, col, row, clampedWidth, height)) {
         return { col, row };
       }
     }
@@ -129,9 +134,9 @@ function findSlot(occupancy: boolean[][], width: number, height: number) {
   }
 }
 
-function ensureRows(occupancy: boolean[][], rowCount: number) {
+function ensureRows(occupancy: boolean[][], rowCount: number, columns: number) {
   while (occupancy.length < rowCount) {
-    occupancy.push(Array.from({ length: BOARD_COLUMNS }, () => false));
+    occupancy.push(Array.from({ length: columns }, () => false));
   }
 }
 

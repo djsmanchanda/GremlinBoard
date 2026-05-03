@@ -150,6 +150,7 @@ export interface GenerationPipelinePreview {
 export type GenerationJobStatus =
   | "queued"
   | "running"
+  | "completed"
   | "review_required"
   | "approved"
   | "rejected"
@@ -212,6 +213,46 @@ export interface GenerationJob {
     next_version: string;
   } | null;
   diff_preview: GenerationArtifactDiff[];
+}
+
+export interface GenerationFeedbackRequest {
+  feedback: string;
+  provider_id?: string;
+  model_id?: string;
+  fallback_provider_ids?: string[];
+}
+
+export interface GenerationFeedbackResponse {
+  category: string;
+  metadata?: JsonObject;
+  job: GenerationJob;
+  test_box?: GenerationTestBox | null;
+}
+
+export interface GenerationTestBox {
+  job_id: string;
+  widget_id: string;
+  stage_id?: string | null;
+  name: string;
+  description: string;
+  category: string;
+  size: TileSize;
+  allowed_sizes: TileSize[];
+  manifest: JsonObject;
+  config_schema: JsonObject;
+  renderer: JsonObject;
+  service: JsonObject;
+  initial_config: JsonObject;
+  initial_state: JsonObject;
+  files: GenerationArtifactFile[];
+  install_blocked: boolean;
+  review_required: boolean;
+}
+
+export interface EasyGenerationJob {
+  job: GenerationJob;
+  test_box?: GenerationTestBox | null;
+  feedback_categories: Array<"name" | "sizing" | "ui" | "feature">;
 }
 
 export interface User {

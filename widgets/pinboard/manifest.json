@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Personal Pinboard",
   "category": "personal",
-  "description": "Structured personal notes and pinned reminders that persist until removed.",
+  "description": "Compact personal notes and pinned reminders that persist until removed.",
   "min_size": "2x2",
   "preferred_size": "2x4",
   "allowed_sizes": ["2x2", "2x4", "4x4"],

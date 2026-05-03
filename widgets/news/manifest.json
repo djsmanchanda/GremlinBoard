@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "News Radar",
   "category": "news",
-  "description": "Refreshes curated news headlines every 10 minutes.",
+  "description": "Dense headline feed that refreshes curated news every 10 minutes.",
   "min_size": "1x2",
   "preferred_size": "2x2",
   "allowed_sizes": ["1x2", "2x2", "4x2"],

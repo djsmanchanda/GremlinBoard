@@ -47,3 +47,14 @@ lifecycle_policy:
 - Specs must be validated before scaffolding.
 - Specs must not contain arbitrary executable code.
 - Specs must map cleanly to one widget runtime and one renderer.
+- Widget renderers should be data-first and avoid repeating board chrome such as title, freshness, uptime, mode, or restart count.
+- Widgets must support only approved sizes: `1x1`, `1x2`, `2x2`, `4x2`, `2x4`, and `4x4`.
+- Widget descriptions should fit the live control-surface language: compact, observable, and useful at high board density.
+
+## Board Interaction Language
+
+- The board scales from 4 to 8 columns as resolution increases.
+- Widgets move from the top interaction band, excluding resize corners.
+- Widgets resize from the bottom-right corner only.
+- Resize feedback is shown with dashed outlines for allowed sizes; the nearest size is highlighted while dragging.
+- Runtime stats are exposed through the board-level Stats overlay, not permanent widget body content.

@@ -33,6 +33,7 @@ Desktop wrapper:
 ## Core Rules
 
 - Use a strict grid.
+- The board may scale from 4 to 8 columns based on available width.
 - Allowed widget sizes only:
 	- 1x1
 	- 1x2
@@ -104,11 +105,13 @@ The runtime must manage:
 The board should feel like a live control surface.
 
 Required behaviors:
-- drag
-- resize by allowed ratios only
+- drag from the top 5-10% interaction band, excluding corners
+- resize from the bottom-right corner by allowed ratios only
+- show dashed resize previews for all allowed sizes, with the nearest target highlighted
 - snap to grid
 - persist layout
-- show freshness / running status
+- show freshness, uptime, mode, and restart stats through a board-level overlay toggle
+- keep permanent widget chrome minimal so widgets can show more data
 - support quick add via command box
 
 ## Quality Rules

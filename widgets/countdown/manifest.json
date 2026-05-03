@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Countdown Timer",
   "category": "utility",
-  "description": "Persistent countdown widget for release windows, sessions, and deadlines.",
+  "description": "Dense countdown tile for release windows, sessions, and deadlines.",
   "min_size": "1x1",
   "preferred_size": "1x2",
   "allowed_sizes": ["1x1", "1x2", "2x2"],

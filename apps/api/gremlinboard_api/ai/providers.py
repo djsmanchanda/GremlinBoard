@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+import re
 from typing import Any
 
 from gremlinboard_api.ai.prompts import (
@@ -212,12 +213,14 @@ def provider_from_id(provider_id: str, providers: dict[str, AIProvider]) -> AIPr
 
 def _draft_spec_payload(*, idea: str, provider_label: str) -> dict[str, Any]:
     normalized = " ".join(idea.split())
-    widget_id = _slugify(normalized)
+    title = _detect_title(normalized)
+    widget_id = _slugify(title)
     category = _detect_category(normalized)
     min_size, preferred_size = _detect_sizes(normalized)
     refresh_policy = _detect_refresh_policy(normalized, category)
     permissions = _detect_permissions(normalized, category)
-    title = _titleize(widget_id)
+    renderer_type = _detect_renderer_type(normalized)
+    output_schema = _detect_output_schema(normalized, category)
     description = f"{title} widget drafted from idea using the {provider_label} adapter shell."
     prompt = render_idea_to_spec_prompt(idea=idea)
     return WidgetSpecDraft(
@@ -230,8 +233,8 @@ def _draft_spec_payload(*, idea: str, provider_label: str) -> dict[str, Any]:
         refresh_policy=refresh_policy,
         source_type="generated",
         permissions=permissions,
-        output_schema={"primary": "string", "secondary": "string", "status": "string"},
-        renderer_type="card",
+        output_schema=output_schema,
+        renderer_type=renderer_type,
         lifecycle_policy={"expires": False, "stateful": True},
     ).model_dump(mode="json") | {"idea_prompt": prompt}
 
@@ -242,6 +245,35 @@ def _slugify(value: str) -> str:
 
 def _titleize(widget_id: str) -> str:
     return " ".join(part.capitalize() for part in widget_id.split("_")) or "Generated Widget"
+
+
+def _detect_title(idea: str) -> str:
+    quoted = _quoted_text(idea)
+    if quoted:
+        return quoted
+    lowered = idea.lower()
+    for suffix in (" widget", " dashboard", " board", " panel", " tracker", " monitor", " feed", " card"):
+        index = lowered.find(suffix)
+        if index > 0:
+            start = max(0, lowered.rfind(" ", 0, index - 1))
+            candidate = idea[start:index + len(suffix)].strip(" .,:;-")
+            words = candidate.split()
+            if len(words) >= 2:
+                return _human_title(" ".join(words[-4:]))
+    compact = re.sub(r"\b(build|make|create|show|a|an|the|with|for|that|and|using|from)\b", " ", lowered)
+    words = [word for word in re.sub(r"[^a-z0-9]+", " ", compact).split() if len(word) > 1]
+    return _human_title(" ".join(words[:4]) or "Generated Widget")
+
+
+def _quoted_text(value: str) -> str | None:
+    match = re.search(r"[\"']([^\"']{2,80})[\"']", value)
+    if match is None:
+        return None
+    return _human_title(match.group(1))
+
+
+def _human_title(value: str) -> str:
+    return " ".join(part.capitalize() for part in re.sub(r"[^A-Za-z0-9]+", " ", value).split())
 
 
 def _detect_category(idea: str) -> str:
@@ -257,6 +289,45 @@ def _detect_category(idea: str) -> str:
     if any(token in lowered for token in ("pin", "note", "todo", "personal")):
         return "pinboard"
     return "custom"
+
+
+def _detect_renderer_type(idea: str) -> str:
+    lowered = idea.lower()
+    if any(token in lowered for token in ("chart", "graph", "sparkline")):
+        return "chart"
+    if "table" in lowered:
+        return "table"
+    if any(token in lowered for token in ("list", "feed", "timeline")):
+        return "list"
+    return "card"
+
+
+def _detect_output_schema(idea: str, category: str) -> dict[str, Any]:
+    lowered = idea.lower()
+    fields: dict[str, Any] = {"summary": "string", "status": "string"}
+    for token, field in (
+        ("score", "score"),
+        ("headline", "headline"),
+        ("alert", "alert"),
+        ("risk", "risk"),
+        ("deadline", "deadline"),
+        ("trend", "trend"),
+        ("metric", "metric"),
+        ("temperature", "temperature"),
+        ("count", "count"),
+        ("rank", "rank"),
+    ):
+        if token in lowered:
+            fields[field] = "string"
+    if category == "sports":
+        fields |= {"score": "string", "next_game": "string"}
+    if category == "news":
+        fields |= {"headline": "string", "source": "string"}
+    if category == "trending":
+        fields |= {"trend": "string", "rank": "string"}
+    if category == "countdown":
+        fields |= {"deadline": "string", "remaining": "string"}
+    return fields
 
 
 def _detect_sizes(idea: str) -> tuple[str, str]:

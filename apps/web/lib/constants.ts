@@ -11,3 +11,19 @@ export const TILE_SIZE_STYLES: Record<TileSize, { colSpan: string; rowSpan: stri
 
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_GREMLINBOARD_API_URL ?? "http://127.0.0.1:8000/api";
+
+export function apiUrl(path: string) {
+  return `${API_BASE_URL}${path}`;
+}
+
+export function apiWebSocketUrl(path: string) {
+  const baseUrl = API_BASE_URL.endsWith("/") ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  if (baseUrl.startsWith("http://")) {
+    return `${baseUrl.replace(/^http:\/\//, "ws://")}${path}`;
+  }
+  if (baseUrl.startsWith("https://")) {
+    return `${baseUrl.replace(/^https:\/\//, "wss://")}${path}`;
+  }
+  const origin = globalThis.location?.origin ?? "http://127.0.0.1:8000";
+  return `${origin.replace(/^http/, "ws")}${baseUrl}${path}`;
+}

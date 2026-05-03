@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Trend Stack",
   "category": "social",
-  "description": "Tracks trending signals from Reddit, X, Hacker News, and extensible future sources.",
+  "description": "Dense trend stack for Reddit, X, Hacker News, and extensible future sources.",
   "min_size": "1x2",
   "preferred_size": "2x4",
   "allowed_sizes": ["1x2", "2x2", "2x4", "4x4"],

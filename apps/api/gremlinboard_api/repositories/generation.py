@@ -21,6 +21,18 @@ from gremlinboard_api.schemas.contracts import (
 )
 
 
+ALLOWED_JOB_STATUS_TRANSITIONS: dict[GenerationJobStatus, set[GenerationJobStatus]] = {
+    GenerationJobStatus.QUEUED: {GenerationJobStatus.RUNNING, GenerationJobStatus.FAILED},
+    GenerationJobStatus.RUNNING: {GenerationJobStatus.COMPLETED, GenerationJobStatus.FAILED},
+    GenerationJobStatus.COMPLETED: {GenerationJobStatus.REVIEW_REQUIRED, GenerationJobStatus.REJECTED},
+    GenerationJobStatus.REVIEW_REQUIRED: {GenerationJobStatus.INSTALLED, GenerationJobStatus.REJECTED},
+    GenerationJobStatus.APPROVED: {GenerationJobStatus.INSTALLED, GenerationJobStatus.REJECTED},
+    GenerationJobStatus.REJECTED: set(),
+    GenerationJobStatus.INSTALLED: set(),
+    GenerationJobStatus.FAILED: set(),
+}
+
+
 class GenerationRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -65,6 +77,51 @@ class GenerationRepository:
         await self.session.refresh(record)
         return record
 
+    async def create_job_with_log(
+        self,
+        *,
+        widget_id: str,
+        provider_id: str,
+        requested_provider_id: str | None,
+        stage_id: str | None,
+        idea: str | None,
+        artifact_version: int,
+        selected_version: str,
+        current_step: str,
+        progress: int,
+        log_level: str,
+        log_step: str,
+        log_message: str,
+        log_context: dict[str, Any] | None = None,
+    ) -> GenerationJobRecord:
+        record = GenerationJobRecord(
+            widget_id=widget_id,
+            provider_id=provider_id,
+            requested_provider_id=requested_provider_id,
+            stage_id=stage_id,
+            idea_text=idea,
+            artifact_version=artifact_version,
+            selected_version=selected_version,
+            status=GenerationJobStatus.QUEUED.value,
+            current_step=current_step,
+            progress=max(0, min(100, progress)),
+            install_blocked=True,
+        )
+        self.session.add(record)
+        await self.session.flush()
+        self.session.add(
+            GenerationJobLogRecord(
+                job_id=record.id,
+                level=log_level,
+                step=log_step,
+                message=log_message,
+                context_json=json.dumps(log_context or {}),
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record
+
     async def get_job(self, job_id: str) -> GenerationJobRecord | None:
         return await self.session.get(GenerationJobRecord, job_id)
 
@@ -98,6 +155,7 @@ class GenerationRepository:
         completed_at=None,
     ) -> GenerationJobRecord:
         if status is not None:
+            self._validate_status_transition(record, status)
             record.status = status.value
         if current_step is not None:
             record.current_step = current_step
@@ -118,6 +176,61 @@ class GenerationRepository:
         await self.session.commit()
         await self.session.refresh(record)
         return record
+
+    async def update_job_with_log(
+        self,
+        record: GenerationJobRecord,
+        *,
+        status: GenerationJobStatus | None = None,
+        current_step: str | None = None,
+        progress: int | None = None,
+        install_blocked: bool | None = None,
+        error_message: str | None = None,
+        clear_error: bool = False,
+        completed_at=None,
+        log_level: str,
+        log_step: str,
+        log_message: str,
+        log_context: dict[str, Any] | None = None,
+    ) -> GenerationJobRecord:
+        if status is not None:
+            self._validate_status_transition(record, status)
+            record.status = status.value
+        if current_step is not None:
+            record.current_step = current_step
+        if progress is not None:
+            record.progress = max(0, min(100, progress))
+        if install_blocked is not None:
+            record.install_blocked = install_blocked
+        if clear_error:
+            record.error_message = None
+        elif error_message is not None:
+            record.error_message = error_message
+        if completed_at is not None:
+            record.completed_at = completed_at
+        self.session.add(
+            GenerationJobLogRecord(
+                job_id=record.id,
+                level=log_level,
+                step=log_step,
+                message=log_message,
+                context_json=json.dumps(log_context or {}),
+            )
+        )
+        await self.session.commit()
+        await self.session.refresh(record)
+        return record
+
+    def _validate_status_transition(
+        self,
+        record: GenerationJobRecord,
+        target_status: GenerationJobStatus,
+    ) -> None:
+        current_status = GenerationJobStatus(record.status)
+        if current_status == target_status:
+            return
+        if target_status not in ALLOWED_JOB_STATUS_TRANSITIONS[current_status]:
+            raise ValueError(f"invalid generation job transition: {current_status.value} -> {target_status.value}")
 
     async def add_log(
         self,

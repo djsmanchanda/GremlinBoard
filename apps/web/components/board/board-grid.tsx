@@ -4,8 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import {
-  BOARD_COLUMNS,
   BOARD_GAP_PX,
+  MAX_BOARD_COLUMNS,
+  MIN_BOARD_COLUMNS,
+  TILE_DIMENSIONS,
   findClosestWidgetId,
   packBoardLayout,
   reorderWidgetCollection,
@@ -59,6 +61,9 @@ export function BoardGrid({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [pendingDrag, setPendingDrag] = useState<PendingDragState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const resizeCandidateRef = useRef<TileSize | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -75,11 +80,18 @@ export function BoardGrid({
     return () => observer.disconnect();
   }, []);
 
+  const columnCount =
+    containerWidth > 0
+      ? Math.min(
+          MAX_BOARD_COLUMNS,
+          Math.max(MIN_BOARD_COLUMNS, Math.floor((containerWidth + BOARD_GAP_PX) / (BOARD_TARGET_CELL_PX + BOARD_GAP_PX))),
+        )
+      : MIN_BOARD_COLUMNS;
   const displayWidgets = dragState?.previewWidgets ?? board.widgets;
-  const packedLayout = useMemo(() => packBoardLayout(displayWidgets), [displayWidgets]);
-  const committedLayout = useMemo(() => packBoardLayout(board.widgets), [board.widgets]);
+  const packedLayout = useMemo(() => packBoardLayout(displayWidgets, { columns: columnCount }), [columnCount, displayWidgets]);
+  const committedLayout = useMemo(() => packBoardLayout(board.widgets, { columns: columnCount }), [board.widgets, columnCount]);
   const cellWidth =
-    containerWidth > 0 ? Math.max((containerWidth - (BOARD_COLUMNS - 1) * BOARD_GAP_PX) / BOARD_COLUMNS, 144) : 176;
+    containerWidth > 0 ? Math.max((containerWidth - (columnCount - 1) * BOARD_GAP_PX) / columnCount, BOARD_MIN_CELL_PX) : 176;
   const rowHeight = cellWidth;
   const visibleRows = Math.max(packedLayout.rows, 4);
   const boardHeight = visibleRows * rowHeight + Math.max(visibleRows - 1, 0) * BOARD_GAP_PX;
@@ -96,7 +108,7 @@ export function BoardGrid({
     }
   }, [board.widgets, selectedId]);
 
-  function beginDrag(widgetId: string, event: ReactPointerEvent<HTMLButtonElement>) {
+  function beginDrag(widgetId: string, event: ReactPointerEvent<HTMLDivElement>) {
     if (!containerRef.current) {
       return;
     }
@@ -116,6 +128,26 @@ export function BoardGrid({
       cardY,
       pointerOffsetX: event.clientX - containerRect.left - cardX,
       pointerOffsetY: event.clientY - containerRect.top - cardY,
+    });
+  }
+
+  function beginResize(widgetId: string, event: ReactPointerEvent<HTMLDivElement>) {
+    const entry = registry[board.widgets.find((widget) => widget.id === widgetId)?.widget_id ?? ""];
+    if (!entry || !containerRef.current) {
+      return;
+    }
+    event.preventDefault();
+    const allowedSizes = entry.manifest.allowed_sizes.filter((size) => TILE_DIMENSIONS[size].width <= columnCount);
+    const widget = board.widgets.find((item) => item.id === widgetId);
+    if (!widget || allowedSizes.length === 0) {
+      return;
+    }
+    resizeCandidateRef.current = widget.size;
+    setSelectedId(widgetId);
+    setResizeState({
+      widgetId,
+      allowedSizes,
+      candidateSize: widget.size,
     });
   }
 
@@ -218,18 +250,78 @@ export function BoardGrid({
     rowHeight,
   ]);
 
+  useEffect(() => {
+    if (!resizeState || !containerRef.current) {
+      return;
+    }
+    const activeWidgetId = resizeState.widgetId;
+    const allowedSizes = resizeState.allowedSizes;
+
+    function handlePointerMove(event: PointerEvent) {
+      if (!containerRef.current) {
+        return;
+      }
+      const placement = committedLayout.placements[activeWidgetId];
+      if (!placement) {
+        return;
+      }
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const localX = event.clientX - containerRect.left;
+      const localY = event.clientY - containerRect.top;
+      const cardX = placement.x * (cellWidth + BOARD_GAP_PX);
+      const cardY = placement.y * (rowHeight + BOARD_GAP_PX);
+      const desiredWidth = Math.max(cellWidth * 0.5, localX - cardX);
+      const desiredHeight = Math.max(rowHeight * 0.5, localY - cardY);
+      const nextSize = findNearestTileSize(allowedSizes, desiredWidth, desiredHeight, cellWidth, rowHeight);
+      resizeCandidateRef.current = nextSize;
+      setResizeState((current) => (current ? { ...current, candidateSize: nextSize } : current));
+    }
+
+    function handlePointerUp() {
+      const nextSize = resizeCandidateRef.current;
+      const widget = board.widgets.find((item) => item.id === activeWidgetId);
+      setResizeState(null);
+      resizeCandidateRef.current = null;
+      if (widget && nextSize && nextSize !== widget.size) {
+        onResize(activeWidgetId, nextSize);
+      }
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [board.widgets, cellWidth, committedLayout.placements, onResize, resizeState, rowHeight]);
+
   return (
-    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-4 md:p-5">
+    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-3 md:p-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Live grid</p>
           <p className="mt-1 text-sm text-slate-300">
-            Drag tiles to reorder, preview approved sizes on hover, and keep every widget snapped to the strict board grid.
+            Drag tiles from the top edge, resize from the corner, and keep every widget snapped to the strict board grid.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <button
+            type="button"
+            aria-pressed={showStats}
+            onClick={() => setShowStats((current) => !current)}
+            className={`rounded-full border px-3 py-1.5 transition ${
+              showStats
+                ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-50"
+                : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
+            }`}
+          >
+            Stats
+          </button>
           <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
             {displayWidgets.length} widgets
+          </span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+            {columnCount} cols
           </span>
           <span className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
             {selectedId ? `Selected ${selectedId}` : "Select a tile"}
@@ -238,11 +330,11 @@ export function BoardGrid({
       </div>
       <div
         ref={containerRef}
-        className="relative min-w-[920px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
+        className="relative min-w-[600px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
         style={{ height: boardHeight }}
       >
         {Array.from({ length: visibleRows }).map((_, row) =>
-          Array.from({ length: BOARD_COLUMNS }).map((__, col) => {
+          Array.from({ length: columnCount }).map((__, col) => {
             const key = `${col}-${row}`;
             const x = col * (cellWidth + BOARD_GAP_PX);
             const y = row * (rowHeight + BOARD_GAP_PX);
@@ -270,9 +362,6 @@ export function BoardGrid({
         {displayWidgets.map((widget) => {
           const entry = registry[widget.widget_id];
           const manifest = entry?.manifest;
-          if (!manifest) {
-            return null;
-          }
           const placement = packedLayout.placements[widget.id];
           if (!placement) {
             return null;
@@ -295,32 +384,76 @@ export function BoardGrid({
                 filter: isDragged ? "saturate(0.85)" : "none",
               }}
             >
-              <WidgetCard
-                widget={widget}
-                manifest={manifest}
-                configSchema={entry.config_schema}
-                plugin={entry.plugin}
-                selected={selectedId === widget.id}
-                hovered={!dragState && !pendingDrag && hoveredId === widget.id}
-                onSelect={() => setSelectedId(widget.id)}
-                onHoverChange={(hovered) =>
-                  setHoveredId((current) =>
-                    dragState || pendingDrag ? current : hovered ? widget.id : current === widget.id ? null : current,
-                  )
-                }
-                onDragHandlePointerDown={(event) => beginDrag(widget.id, event)}
-                onResize={(size) => onResize(widget.id, size)}
-                onPreviewResize={() => undefined}
-                onRefresh={() => onRefresh(widget.id)}
-                onToggleRun={() =>
-                  onToggleRun(widget.id, widget.lifecycle_state === "running" || widget.lifecycle_state === "created")
-                }
-                onRemove={() => onRemove(widget.id)}
-                onUpdateConfig={(config) => onUpdateConfig(widget.id, config)}
-              />
+              {manifest ? (
+                <WidgetCard
+                  widget={widget}
+                  manifest={manifest}
+                  configSchema={entry.config_schema}
+                  plugin={entry.plugin}
+                  selected={selectedId === widget.id}
+                  hovered={!dragState && !pendingDrag && hoveredId === widget.id}
+                  showStats={showStats}
+                  onSelect={() => setSelectedId(widget.id)}
+                  onHoverChange={(hovered) =>
+                    setHoveredId((current) =>
+                      dragState || pendingDrag ? current : hovered ? widget.id : current === widget.id ? null : current,
+                    )
+                  }
+                  onDragHandlePointerDown={(event) => beginDrag(widget.id, event)}
+                  onResizeHandlePointerDown={(event) => beginResize(widget.id, event)}
+                  onRefresh={() => onRefresh(widget.id)}
+                  onToggleRun={() =>
+                    onToggleRun(widget.id, widget.lifecycle_state === "running" || widget.lifecycle_state === "created")
+                  }
+                  onRemove={() => onRemove(widget.id)}
+                  onUpdateConfig={(config) => onUpdateConfig(widget.id, config)}
+                />
+              ) : (
+                <UnavailableWidgetCard
+                  title={widget.title}
+                  widgetId={widget.widget_id}
+                  size={widget.size}
+                  selected={selectedId === widget.id}
+                  error={widget.last_error ?? "Widget manifest is not registered."}
+                  onSelect={() => setSelectedId(widget.id)}
+                  onRemove={() => onRemove(widget.id)}
+                />
+              )}
             </div>
           );
         })}
+
+        {resizeState
+          ? (() => {
+              const placement = committedLayout.placements[resizeState.widgetId];
+              if (!placement) {
+                return null;
+              }
+              const baseLeft = placement.x * (cellWidth + BOARD_GAP_PX);
+              const baseTop = placement.y * (rowHeight + BOARD_GAP_PX);
+              return resizeState.allowedSizes.map((size, index) => {
+                const dimensions = TILE_DIMENSIONS[size];
+                const active = resizeState.candidateSize === size;
+                const offset = index * 4;
+                return (
+                  <div
+                    key={size}
+                    className={`pointer-events-none absolute z-30 border-2 border-dashed transition-[border-color,background-color,opacity,box-shadow] duration-150 ${
+                      active
+                        ? "border-cyan-200 bg-cyan-300/10 opacity-100 shadow-[0_0_0_1px_rgba(103,232,249,0.22)]"
+                        : "border-white/25 bg-white/[0.015] opacity-70"
+                    }`}
+                    style={{
+                      left: baseLeft + offset,
+                      top: baseTop + offset,
+                      width: dimensions.width * cellWidth + (dimensions.width - 1) * BOARD_GAP_PX,
+                      height: dimensions.height * rowHeight + (dimensions.height - 1) * BOARD_GAP_PX,
+                    }}
+                  />
+                );
+              });
+            })()
+          : null}
 
         {dragState ? (
           <div
@@ -354,11 +487,11 @@ export function BoardGrid({
                   selected
                   hovered={false}
                   ghost
+                  showStats={showStats}
                   onSelect={() => undefined}
                   onHoverChange={() => undefined}
                   onDragHandlePointerDown={() => undefined}
-                  onResize={() => undefined}
-                  onPreviewResize={() => undefined}
+                  onResizeHandlePointerDown={() => undefined}
                   onRefresh={() => undefined}
                   onToggleRun={() => undefined}
                   onRemove={() => undefined}
@@ -371,4 +504,93 @@ export function BoardGrid({
       </div>
     </div>
   );
+}
+
+interface ResizeState {
+  widgetId: string;
+  allowedSizes: TileSize[];
+  candidateSize: TileSize;
+}
+
+const BOARD_TARGET_CELL_PX = 288;
+const BOARD_MIN_CELL_PX = 132;
+
+function UnavailableWidgetCard({
+  title,
+  widgetId,
+  size,
+  selected,
+  error,
+  onSelect,
+  onRemove,
+}: {
+  title: string;
+  widgetId: string;
+  size: TileSize;
+  selected: boolean;
+  error: string;
+  onSelect: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={[
+        "flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-none border bg-[#0a0d11] p-4",
+        selected ? "border-rose-300/35" : "border-rose-300/18",
+      ].join(" ")}
+      onClick={onSelect}
+    >
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="h-2 w-2 shrink-0 rounded-none bg-rose-300" />
+          <span className="truncate text-[10px] uppercase tracking-[0.18em] text-rose-100/70">Unavailable</span>
+          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+            {size}
+          </span>
+        </div>
+        <h2 className="mt-2 truncate text-lg font-semibold leading-6 tracking-tight text-white">{title}</h2>
+        <p className="mt-1 truncate text-xs text-slate-400">{widgetId}</p>
+      </div>
+
+      <div className="my-4 rounded-[14px] border border-rose-300/18 bg-rose-300/8 px-3 py-2.5">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-rose-100/80">Registry issue</p>
+        <p className="mt-1 line-clamp-3 text-xs leading-5 text-rose-50">{error}</p>
+      </div>
+
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onRemove();
+        }}
+        className="w-fit rounded border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+      >
+        Remove tile
+      </button>
+    </div>
+  );
+}
+
+function findNearestTileSize(
+  sizes: TileSize[],
+  desiredWidth: number,
+  desiredHeight: number,
+  cellWidth: number,
+  rowHeight: number,
+) {
+  let bestSize: TileSize = sizes[0] ?? "1x1";
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const size of sizes) {
+    const dimensions = TILE_DIMENSIONS[size];
+    const width = dimensions.width * cellWidth + (dimensions.width - 1) * BOARD_GAP_PX;
+    const height = dimensions.height * rowHeight + (dimensions.height - 1) * BOARD_GAP_PX;
+    const distance = Math.hypot((desiredWidth - width) / cellWidth, (desiredHeight - height) / rowHeight);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestSize = size;
+    }
+  }
+
+  return bestSize;
 }

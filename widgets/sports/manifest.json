@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "name": "Sports Pulse",
   "category": "sports",
-  "description": "Live sports monitor for IPL, F1, football, and other sports feeds.",
+  "description": "Dense live sports monitor for IPL, F1, football, and other sports feeds.",
   "min_size": "2x2",
   "preferred_size": "4x2",
   "allowed_sizes": ["2x2", "4x2", "4x4"],

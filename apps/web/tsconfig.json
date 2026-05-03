@@ -6,7 +6,15 @@
         "name": "next"
       }
     ],
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "paths": {
+      "@/*": [
+        "./*"
+      ],
+      "@widgets/*": [
+        "../../widgets/*"
+      ]
+    }
   },
   "include": [
     "next-env.d.ts",
