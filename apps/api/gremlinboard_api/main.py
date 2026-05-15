@@ -41,7 +41,16 @@ async def seed_default_widgets(session_factory) -> None:
                 "countdown",
                 "Launch Countdown",
                 TileSize.TALL,
-                {"label": "Release window", "target_time": default_countdown_target(120)},
+                {
+                    "timers": [
+                        {
+                            "id": "release-window",
+                            "label": "Release window",
+                            "target_time": default_countdown_target(120),
+                            "duration_seconds": 120 * 60,
+                        }
+                    ]
+                },
             ),
             (
                 "sports",

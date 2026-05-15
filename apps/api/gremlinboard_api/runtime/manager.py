@@ -230,6 +230,7 @@ class RuntimeManager:
 
     async def update_widget_config(self, instance_id: str, config: dict[str, Any]) -> None:
         expired = False
+        should_start = False
         async with self._widget_lock(instance_id):
             runner = self._runners.get(instance_id)
             if runner is not None:
@@ -243,10 +244,17 @@ class RuntimeManager:
                 record = await repository.get_widget(instance_id)
                 if record is not None:
                     await repository.update_widget(record, config=config)
+                    should_start = record.lifecycle_state in {
+                        LifecycleState.CREATED.value,
+                        LifecycleState.ERROR.value,
+                        LifecycleState.EXPIRED.value,
+                    }
             runner = self._runners.get(instance_id)
             if runner is not None:
                 lifecycle_state = await self._refresh_runner(runner, force=True, stop_on_expired=False)
                 expired = lifecycle_state == LifecycleState.EXPIRED
+            elif should_start:
+                await self._start_widget_unlocked(instance_id, force=True)
         await self.publish_board_snapshot()
         if expired:
             await self.stop_widget(instance_id, final_state=LifecycleState.EXPIRED, reason="expired")

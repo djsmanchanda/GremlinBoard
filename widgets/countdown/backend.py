@@ -81,10 +81,10 @@ class CountdownWidgetService(BaseWidgetService):
     async def health(self) -> dict[str, object]:
         now = datetime.now(timezone.utc)
         states = [_timer_state(timer, now) for timer in _normalize_timers(self.config)]
-        expired = bool(states) and all(bool(timer["complete"]) for timer in states)
+        all_complete = bool(states) and all(bool(timer["complete"]) for timer in states)
         return {
-            "status": "expired" if expired else "running",
-            "expired": expired,
+            "status": "complete" if all_complete else "running",
+            "expired": False,
             "expires_at": max((str(timer["target_time"]) for timer in states), default=None),
         }
 

@@ -24,9 +24,14 @@ interface SchemaProperty {
   default?: JsonValue;
   minimum?: number;
   maximum?: number;
+  minItems?: number;
+  maxItems?: number;
+  "x-ui-hidden"?: boolean;
   items?: {
     type?: string;
     enum?: string[];
+    required?: string[];
+    properties?: Record<string, SchemaProperty>;
   };
 }
 
@@ -45,6 +50,10 @@ function stringArrayValue(value: JsonValue | undefined) {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function isHiddenProperty(property: SchemaProperty) {
+  return property["x-ui-hidden"] === true;
 }
 
 function toDatetimeLocalValue(value: JsonValue | undefined) {
@@ -67,6 +76,45 @@ function fromDatetimeLocalValue(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toISOString();
 }
 
+function objectArrayValue(value: JsonValue | undefined) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is JsonObject => typeof item === "object" && item !== null && !Array.isArray(item));
+}
+
+function defaultValueForProperty(property: SchemaProperty): JsonValue {
+  if (property.default !== undefined) {
+    return property.default;
+  }
+  if (property.type === "string" && property.format === "date-time") {
+    return new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  }
+  if (property.type === "integer" || property.type === "number") {
+    return property.minimum ?? 0;
+  }
+  if (property.type === "boolean") {
+    return false;
+  }
+  if (property.type === "array") {
+    return [];
+  }
+  return "";
+}
+
+function defaultObjectItem(properties: Record<string, SchemaProperty> | undefined) {
+  const item: JsonObject = {};
+  for (const [key, property] of Object.entries(properties ?? {})) {
+    item[key] =
+      key === "id"
+        ? `item-${Date.now().toString(36)}`
+        : key === "label"
+          ? "Timer"
+          : defaultValueForProperty(property);
+  }
+  return item;
+}
+
 export function WidgetSettingsPanel({
   configSchema,
   value,
@@ -81,6 +129,9 @@ export function WidgetSettingsPanel({
   }, [value]);
 
   const properties = (configSchema.properties as Record<string, SchemaProperty> | undefined) ?? {};
+  const visibleProperties = Object.fromEntries(
+    Object.entries(properties).filter(([, property]) => !isHiddenProperty(property)),
+  );
 
   async function handleSave() {
     setSaving(true);
@@ -97,7 +148,7 @@ export function WidgetSettingsPanel({
         <span className="flex items-center justify-between gap-3">
           <span>Source settings</span>
           <span className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-            {Object.keys(properties).length} fields
+            {Object.keys(visibleProperties).length} fields
           </span>
         </span>
       </summary>
@@ -121,7 +172,7 @@ export function WidgetSettingsPanel({
           </div>
         ) : null}
 
-        {Object.entries(properties).map(([key, property]) => {
+        {Object.entries(visibleProperties).map(([key, property]) => {
           const currentValue = draft[key];
           const label = fieldLabel(key, property);
           if (property.type === "boolean") {
@@ -140,6 +191,103 @@ export function WidgetSettingsPanel({
 
           if (property.type === "array") {
             const values = stringArrayValue(currentValue);
+            const objectValues = objectArrayValue(currentValue);
+            const itemProperties = property.items?.properties;
+            if (property.items?.type === "object" && itemProperties) {
+              const maxItems = property.maxItems ?? 8;
+              return (
+                <div key={key} className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm text-slate-200">{label}</p>
+                    <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                      {objectValues.length}/{maxItems}
+                    </span>
+                  </div>
+                  <div className="space-y-2">
+                    {objectValues.map((item, index) => (
+                      <div key={`${key}-${index}`} className="border border-white/10 bg-black/16 p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            {label} {index + 1}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDraft((current) => ({
+                                ...current,
+                                [key]: objectValues.filter((_, itemIndex) => itemIndex !== index),
+                              }))
+                            }
+                            className="flex h-6 w-6 items-center justify-center border border-white/10 bg-white/[0.04] text-xs text-slate-300 transition hover:border-rose-300/25 hover:bg-rose-300/12 hover:text-rose-100"
+                          >
+                            x
+                          </button>
+                        </div>
+                        <div className="grid gap-2">
+                          {Object.entries(itemProperties).map(([itemKey, itemProperty]) => {
+                            if (itemKey === "id") {
+                              return null;
+                            }
+                            const itemValue = item[itemKey];
+                            const itemLabel = fieldLabel(itemKey, itemProperty);
+                            const updateItem = (nextValue: JsonValue) =>
+                              setDraft((current) => ({
+                                ...current,
+                                [key]: objectValues.map((candidate, itemIndex) =>
+                                  itemIndex === index ? { ...candidate, [itemKey]: nextValue } : candidate,
+                                ),
+                              }));
+
+                            return (
+                              <label key={itemKey} className="grid gap-1.5">
+                                <span className="text-xs text-slate-300">{itemLabel}</span>
+                                <input
+                                  type={itemProperty.type === "integer" || itemProperty.type === "number" ? "number" : itemProperty.format === "date-time" ? "datetime-local" : "text"}
+                                  min={itemProperty.minimum}
+                                  max={itemProperty.maximum}
+                                  value={
+                                    itemProperty.format === "date-time"
+                                      ? toDatetimeLocalValue(itemValue)
+                                      : typeof itemValue === "number" || typeof itemValue === "string"
+                                        ? String(itemValue)
+                                        : String(defaultValueForProperty(itemProperty))
+                                  }
+                                  onChange={(event) => {
+                                    if (itemProperty.format === "date-time") {
+                                      updateItem(fromDatetimeLocalValue(event.target.value));
+                                      return;
+                                    }
+                                    if (itemProperty.type === "integer" || itemProperty.type === "number") {
+                                      updateItem(Number(event.target.value));
+                                      return;
+                                    }
+                                    updateItem(event.target.value);
+                                  }}
+                                  className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={objectValues.length >= maxItems}
+                    onClick={() =>
+                      setDraft((current) => ({
+                        ...current,
+                        [key]: [...objectValues, defaultObjectItem(itemProperties)],
+                      }))
+                    }
+                    className="border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-45"
+                  >
+                    Add {label.toLowerCase()}
+                  </button>
+                </div>
+              );
+            }
             if (Array.isArray(property.items?.enum)) {
               return (
                 <div key={key} className="space-y-2">

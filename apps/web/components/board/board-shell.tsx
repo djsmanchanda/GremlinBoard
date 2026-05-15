@@ -216,9 +216,19 @@ export function BoardShell() {
   }
 
   async function handleUpdateConfig(widgetId: string, config: JsonObject) {
+    const previousBoard = board;
+    if (board) {
+      setBoard({
+        ...board,
+        widgets: board.widgets.map((widget) => (widget.id === widgetId ? { ...widget, config } : widget)),
+      });
+    }
     try {
       await updateWidget(widgetId, { config });
     } catch (actionError) {
+      if (previousBoard) {
+        setBoard(previousBoard);
+      }
       setError(actionError instanceof Error ? actionError.message : "Failed to update widget config");
     }
   }

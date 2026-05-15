@@ -39,11 +39,13 @@
     "label": {
       "type": "string",
       "title": "Legacy label",
+      "x-ui-hidden": true,
       "minLength": 1
     },
     "target_time": {
       "type": "string",
       "title": "Legacy target time",
+      "x-ui-hidden": true,
       "format": "date-time"
     }
   },
