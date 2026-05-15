@@ -45,6 +45,8 @@ interface PendingDragState {
   pointerOffsetY: number;
 }
 
+type BoardMode = "view" | "edit";
+
 export function BoardGrid({
   board,
   registry,
@@ -63,7 +65,9 @@ export function BoardGrid({
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [boardMode, setBoardMode] = useState<BoardMode>("view");
   const resizeCandidateRef = useRef<TileSize | null>(null);
+  const isEditMode = boardMode === "edit";
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -97,7 +101,7 @@ export function BoardGrid({
   const boardHeight = visibleRows * rowHeight + Math.max(visibleRows - 1, 0) * BOARD_GAP_PX;
   const occupiedCellKeys = new Set(packedLayout.occupiedCells.map((cell) => `${cell.col}-${cell.row}`));
   const previewCellKeys = new Set(
-    (selectedId ? packedLayout.occupiedCells.filter((cell) => cell.widgetId === selectedId) : []).map(
+    (isEditMode && selectedId ? packedLayout.occupiedCells.filter((cell) => cell.widgetId === selectedId) : []).map(
       (cell) => `${cell.col}-${cell.row}`,
     ),
   );
@@ -108,8 +112,19 @@ export function BoardGrid({
     }
   }, [board.widgets, selectedId]);
 
+  useEffect(() => {
+    if (isEditMode) {
+      return;
+    }
+    setPendingDrag(null);
+    setDragState(null);
+    setResizeState(null);
+    setSelectedId(null);
+    resizeCandidateRef.current = null;
+  }, [isEditMode]);
+
   function beginDrag(widgetId: string, event: ReactPointerEvent<HTMLDivElement>) {
-    if (!containerRef.current) {
+    if (!isEditMode || !containerRef.current) {
       return;
     }
     event.preventDefault();
@@ -132,6 +147,9 @@ export function BoardGrid({
   }
 
   function beginResize(widgetId: string, event: ReactPointerEvent<HTMLDivElement>) {
+    if (!isEditMode) {
+      return;
+    }
     const entry = registry[board.widgets.find((widget) => widget.id === widgetId)?.widget_id ?? ""];
     if (!entry || !containerRef.current) {
       return;
@@ -296,20 +314,42 @@ export function BoardGrid({
   }, [board.widgets, cellWidth, committedLayout.placements, onResize, resizeState, rowHeight]);
 
   return (
-    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-3 md:p-4">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
-        <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Live grid</p>
-          <p className="mt-1 text-sm text-slate-300">
-            Drag tiles from the top edge, resize from the corner, and keep every widget snapped to the strict board grid.
+    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
+        <div className="min-w-0">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Monitoring board</p>
+          <p className="mt-1 truncate text-sm text-slate-300">
+            {isEditMode ? "Edit mode active: layout handles are enabled." : "View mode active: layout is locked for monitoring."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
+          <div className="grid grid-cols-2 overflow-hidden rounded border border-white/10 bg-white/[0.04] p-0.5">
+            <button
+              type="button"
+              aria-pressed={!isEditMode}
+              onClick={() => setBoardMode("view")}
+              className={`px-3 py-1.5 transition ${
+                !isEditMode ? "bg-cyan-300/16 text-cyan-50" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
+              }`}
+            >
+              View
+            </button>
+            <button
+              type="button"
+              aria-pressed={isEditMode}
+              onClick={() => setBoardMode("edit")}
+              className={`px-3 py-1.5 transition ${
+                isEditMode ? "bg-amber-300/16 text-amber-50" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
+              }`}
+            >
+              Edit
+            </button>
+          </div>
           <button
             type="button"
             aria-pressed={showStats}
             onClick={() => setShowStats((current) => !current)}
-            className={`rounded-full border px-3 py-1.5 transition ${
+            className={`rounded border px-3 py-1.5 transition ${
               showStats
                 ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-50"
                 : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
@@ -317,20 +357,20 @@ export function BoardGrid({
           >
             Stats
           </button>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1.5">
             {displayWidgets.length} widgets
           </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1.5">
             {columnCount} cols
           </span>
-          <span className="rounded-full border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
-            {selectedId ? `Selected ${selectedId}` : "Select a tile"}
+          <span className="rounded border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+            {isEditMode ? (selectedId ? `Selected ${selectedId}` : "No tile selected") : "Layout locked"}
           </span>
         </div>
       </div>
       <div
         ref={containerRef}
-        className="relative min-w-[600px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
+        className="relative min-w-[760px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
         style={{ height: boardHeight }}
       >
         {Array.from({ length: visibleRows }).map((_, row) =>
@@ -390,10 +430,15 @@ export function BoardGrid({
                   manifest={manifest}
                   configSchema={entry.config_schema}
                   plugin={entry.plugin}
-                  selected={selectedId === widget.id}
-                  hovered={!dragState && !pendingDrag && hoveredId === widget.id}
+                  selected={isEditMode && selectedId === widget.id}
+                  hovered={isEditMode && !dragState && !pendingDrag && hoveredId === widget.id}
+                  editMode={isEditMode}
                   showStats={showStats}
-                  onSelect={() => setSelectedId(widget.id)}
+                  onSelect={() => {
+                    if (isEditMode) {
+                      setSelectedId(widget.id);
+                    }
+                  }}
                   onHoverChange={(hovered) =>
                     setHoveredId((current) =>
                       dragState || pendingDrag ? current : hovered ? widget.id : current === widget.id ? null : current,
@@ -413,9 +458,14 @@ export function BoardGrid({
                   title={widget.title}
                   widgetId={widget.widget_id}
                   size={widget.size}
-                  selected={selectedId === widget.id}
+                  selected={isEditMode && selectedId === widget.id}
+                  editMode={isEditMode}
                   error={widget.last_error ?? "Widget manifest is not registered."}
-                  onSelect={() => setSelectedId(widget.id)}
+                  onSelect={() => {
+                    if (isEditMode) {
+                      setSelectedId(widget.id);
+                    }
+                  }}
                   onRemove={() => onRemove(widget.id)}
                 />
               )}
@@ -486,6 +536,7 @@ export function BoardGrid({
                   plugin={entry.plugin}
                   selected
                   hovered={false}
+                  editMode
                   ghost
                   showStats={showStats}
                   onSelect={() => undefined}
@@ -512,14 +563,15 @@ interface ResizeState {
   candidateSize: TileSize;
 }
 
-const BOARD_TARGET_CELL_PX = 288;
-const BOARD_MIN_CELL_PX = 132;
+const BOARD_TARGET_CELL_PX = 224;
+const BOARD_MIN_CELL_PX = 160;
 
 function UnavailableWidgetCard({
   title,
   widgetId,
   size,
   selected,
+  editMode,
   error,
   onSelect,
   onRemove,
@@ -528,6 +580,7 @@ function UnavailableWidgetCard({
   widgetId: string;
   size: TileSize;
   selected: boolean;
+  editMode: boolean;
   error: string;
   onSelect: () => void;
   onRemove: () => void;
@@ -557,16 +610,18 @@ function UnavailableWidgetCard({
         <p className="mt-1 line-clamp-3 text-xs leading-5 text-rose-50">{error}</p>
       </div>
 
-      <button
-        type="button"
-        onClick={(event) => {
-          event.stopPropagation();
-          onRemove();
-        }}
-        className="w-fit rounded border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
-      >
-        Remove tile
-      </button>
+      {editMode ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onRemove();
+          }}
+          className="w-fit rounded border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+        >
+          Remove tile
+        </button>
+      ) : null}
     </div>
   );
 }

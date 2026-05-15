@@ -171,6 +171,7 @@ export function SystemShell() {
   const selectedProviderId = selectedProviderConfig.provider;
   const selectedProviderKeyLabel = selectedProviderConfig.keyLabel;
   const missingRequiredProviders = setupItems.filter((item) => item.required && !item.configured);
+  const configuredProviderCount = setupItems.filter((item) => item.configured).length;
   const maxMetricValue = Math.max(...(overview?.metrics.map((metric) => metric.metric_value) ?? [1]), 1);
 
   useEffect(() => {
@@ -251,12 +252,12 @@ export function SystemShell() {
                   System panel
                 </span>
                 <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
-                  Provider setup
+                  Deployment setup
                 </span>
               </div>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">Runtime and provider controls</h1>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">Set up providers for monitored deployments</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                Configure provider access, check runtime readiness, and watch board health without leaving the control surface.
+                Add the credentials each widget service needs, choose the AI default for Spec Studio, then watch runtime health and deployment signals in one place.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -276,10 +277,10 @@ export function SystemShell() {
           </div>
 
           <div className="mt-5 grid gap-3 md:grid-cols-4">
-            <SummaryCard label="AI providers" value={String(providers.length)} hint="Available adapters from the runtime." />
+            <SummaryCard label="Setup progress" value={`${configuredProviderCount}/${setupItems.length}`} hint="Providers ready for runtime or AI use." />
             <SummaryCard label="Stored secrets" value={String(credentials.length)} hint="Persisted credentials in secure storage." />
             <SummaryCard label="Missing required" value={String(missingRequiredProviders.length)} hint="Providers still missing required setup." />
-            <SummaryCard label="Metrics cadence" value="8s" hint="Observability overview refresh interval." />
+            <SummaryCard label="Monitor cadence" value="8s" hint="Deployment overview refresh interval." />
           </div>
         </header>
 
@@ -313,19 +314,19 @@ export function SystemShell() {
             <section className="space-y-5">
               <Panel
                 eyebrow="Setup"
-                title="Provider checklist"
-                description="This is the fastest path to a usable board: wire missing providers, confirm defaults, then return to widgets or Spec Studio."
+                title="Deployment provider checklist"
+                description="Work down this list to make generated and data-backed widgets observable: connect secrets, confirm AI defaults, then watch the runtime cards on the right."
               >
                 {missingRequiredProviders.length > 0 ? (
                   <InlineNotice
                     title="Action required"
-                    body={`Missing required setup for ${missingRequiredProviders.map((item) => item.label).join(", ")}.`}
+                    body={`Monitoring can run, but deployments that need ${missingRequiredProviders.map((item) => item.label).join(", ")} will stay incomplete until credentials are stored.`}
                     tone="warning"
                   />
                 ) : (
                   <InlineNotice
-                    title="Provider setup looks healthy"
-                    body="Required runtime providers have at least one stored credential."
+                    title="Required provider setup is ready"
+                    body="Runtime providers that need secrets have at least one stored credential. Keep an eye on the health cards before installing new widgets."
                   />
                 )}
 
@@ -362,12 +363,12 @@ export function SystemShell() {
               </Panel>
 
               <Panel
-                eyebrow="Wizard"
-                title={selectedProviderConfig.label}
-                description={selectedProviderConfig.description}
+                eyebrow="Setup flow"
+                title={`Configure ${selectedProviderConfig.label}`}
+                description={`${selectedProviderConfig.description} This form stores the secret for monitored widget deployments without changing provider contracts.`}
               >
                 <div className="grid gap-3 md:grid-cols-3">
-                  <WizardStep step="01" title="Select provider" body="Choose a missing or incomplete provider from the checklist." active />
+                  <WizardStep step="01" title="Select provider" body="Choose a provider from the deployment checklist." active />
                   <WizardStep
                     step="02"
                     title="Store secret"
@@ -376,40 +377,53 @@ export function SystemShell() {
                   />
                   <WizardStep
                     step="03"
-                    title="Confirm runtime"
-                    body="Verify system health cards stay clear after the credential is stored."
+                    title="Monitor deployment"
+                    body="Watch runtime, widget health, metrics, and timeline cards after the credential is stored."
                     active={selectedProviderConfig.configured}
                   />
                 </div>
 
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  <TextField
-                    label="Provider"
-                    value={credentialDraft.provider}
-                    onChange={(value) => setCredentialDraft({ ...credentialDraft, provider: value })}
-                  />
-                  <TextField
-                    label="Label"
-                    value={credentialDraft.label}
-                    onChange={(value) => setCredentialDraft({ ...credentialDraft, label: value })}
-                  />
-                  <SecretField
-                    label="Secret"
-                    value={credentialDraft.value}
-                    onChange={(value) => setCredentialDraft({ ...credentialDraft, value })}
-                  />
-                </div>
+                <form
+                  className="mt-4 space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveCredential();
+                  }}
+                >
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <TextField
+                      label="Provider"
+                      name="provider"
+                      autoComplete="off"
+                      value={credentialDraft.provider}
+                      onChange={(value) => setCredentialDraft({ ...credentialDraft, provider: value })}
+                    />
+                    <TextField
+                      label="Label"
+                      name="credential-label"
+                      autoComplete="username"
+                      value={credentialDraft.label}
+                      onChange={(value) => setCredentialDraft({ ...credentialDraft, label: value })}
+                    />
+                    <SecretField
+                      label="Secret"
+                      name="credential-secret"
+                      value={credentialDraft.value}
+                      onChange={(value) => setCredentialDraft({ ...credentialDraft, value })}
+                    />
+                  </div>
 
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <ActionButton pending={isPending} onClick={saveCredential} tone="primary">
-                    Store credential
-                  </ActionButton>
-                  {selectedProviderConfig.aiProviderId ? (
-                    <ActionButton pending={isPending} onClick={setDefaultProvider}>
-                      Set as default AI provider
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton pending={isPending} type="submit" tone="primary">
+                      Store credential
                     </ActionButton>
-                  ) : null}
-                </div>
+                    {selectedProviderConfig.aiProviderId ? (
+                      <ActionButton pending={isPending} onClick={setDefaultProvider}>
+                        Set as default AI provider
+                      </ActionButton>
+                    ) : null}
+                  </div>
+                </form>
               </Panel>
 
               <Panel eyebrow="Credentials" title="Stored credentials">
@@ -729,10 +743,14 @@ function WizardStep({
 
 function TextField({
   label,
+  name,
+  autoComplete,
   value,
   onChange,
 }: {
   label: string;
+  name?: string;
+  autoComplete?: string;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -740,6 +758,8 @@ function TextField({
     <label className="grid gap-2">
       <span className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</span>
       <input
+        name={name}
+        autoComplete={autoComplete}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
@@ -750,10 +770,12 @@ function TextField({
 
 function SecretField({
   label,
+  name,
   value,
   onChange,
 }: {
   label: string;
+  name?: string;
   value: string;
   onChange: (value: string) => void;
 }) {
@@ -762,6 +784,8 @@ function SecretField({
       <span className="text-xs uppercase tracking-[0.14em] text-slate-500">{label}</span>
       <input
         type="password"
+        name={name}
+        autoComplete="new-password"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
@@ -849,11 +873,13 @@ function ActionButton({
   onClick,
   pending = false,
   tone = "default",
+  type = "button",
 }: {
   children: ReactNode;
-  onClick: () => void;
+  onClick?: () => void;
   pending?: boolean;
   tone?: "default" | "primary";
+  type?: "button" | "submit";
 }) {
   const toneClass =
     tone === "primary"
@@ -861,7 +887,7 @@ function ActionButton({
       : "border-white/10 bg-white/[0.04] text-slate-100 hover:bg-white/[0.08]";
   return (
     <button
-      type="button"
+      type={type}
       onClick={onClick}
       disabled={pending}
       className={`rounded-[12px] border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}

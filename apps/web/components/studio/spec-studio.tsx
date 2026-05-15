@@ -77,11 +77,16 @@ lifecycle_policy:
 `;
 
 const workflowStages = [
-  { id: "prompt", label: "Prompt" },
-  { id: "generate", label: "Generate" },
-  { id: "review", label: "Review" },
-  { id: "install", label: "Install" },
+  { id: "draft", label: "Spec draft", description: "Idea or edited spec is staged." },
+  { id: "validation", label: "Validation", description: "Contract and strict grid checks pass." },
+  { id: "scaffold", label: "Scaffold", description: "Manifest and file plan are ready." },
+  { id: "codegen", label: "Codegen", description: "Renderer package is generated." },
+  { id: "review", label: "Review", description: "Human gate before install." },
+  { id: "install", label: "Install", description: "Registry install is unlocked." },
 ] as const;
+
+type WorkflowStageId = (typeof workflowStages)[number]["id"];
+type WorkflowCardState = "idle" | "ready" | "active" | "complete" | "error";
 
 export function SpecStudio() {
   const [format, setFormat] = useState<"json" | "yaml">("json");
@@ -210,6 +215,8 @@ export function SpecStudio() {
     () => buildWidgetBrief(currentJob, manifestArtifact, specArtifact, currentTestBox),
     [currentJob, currentTestBox, manifestArtifact, specArtifact],
   );
+  const generationSettled = Boolean(currentJob && !["queued", "running"].includes(currentJob.status));
+  const generatedGridIssue = Boolean(generationSettled && (!widgetBrief.preferredSize || !widgetBrief.sizeAllowed));
   const files = useMemo(() => currentTestBox?.files ?? codeArtifact?.files ?? [], [codeArtifact, currentTestBox]);
   const selectedFile = files.find((file) => file.path === selectedFilePath) ?? files[0] ?? null;
   const normalizedFeedbackCategory = normalizeFeedbackCategory(feedbackCategory);
@@ -223,33 +230,45 @@ export function SpecStudio() {
     }
   }, [files, selectedFile, selectedFilePath]);
 
-  const workflowState = {
-    prompt: idea.trim() || payload.trim() ? "complete" : "idle",
-    generate:
-      validationLoading || currentJob?.status === "queued" || currentJob?.status === "running"
-        ? "active"
-        : currentJob
-          ? "complete"
-          : result?.valid
-            ? "ready"
-            : "idle",
+  const workflowState: Record<WorkflowStageId, WorkflowCardState> = {
+    draft: idea.trim() || payload.trim() ? "complete" : "idle",
+    validation: validationLoading ? "active" : result?.valid ? "complete" : result?.errors.length ? "error" : "idle",
+    scaffold: currentJob ? "complete" : result?.valid ? "ready" : "idle",
+    codegen:
+      currentJob?.status === "failed"
+        ? "error"
+        : currentJob?.status === "queued" || currentJob?.status === "running"
+          ? "active"
+          : codeArtifact || currentJob?.status === "completed" || currentJob?.status === "review_required" || currentJob?.status === "approved" || currentJob?.status === "installed"
+            ? "complete"
+            : result?.valid
+              ? "ready"
+              : "idle",
     review:
       currentJob?.status === "review_required"
-        ? "active"
+        ? generatedGridIssue
+          ? "error"
+          : "active"
         : currentJob && ["approved", "installed"].includes(currentJob.status)
           ? "complete"
           : currentJob && ["failed", "rejected"].includes(currentJob.status)
             ? "error"
-            : "idle",
+            : currentJob?.status === "completed"
+              ? generatedGridIssue
+                ? "error"
+                : "ready"
+              : "idle",
     install:
       currentJob?.status === "installed"
         ? "complete"
         : currentJob?.status === "approved"
-          ? "ready"
+          ? generatedGridIssue || currentJob.install_blocked
+            ? "error"
+            : "ready"
           : currentJob?.status === "failed"
             ? "error"
             : "idle",
-  } as const;
+  };
 
   const providerUnavailable = providers.length === 0;
   const generationBlocked = providerUnavailable || !selectedProviderDetails;
@@ -369,21 +388,27 @@ export function SpecStudio() {
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
             <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Spec studio</p>
-            <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">Prompt, generate, review, install</h2>
+            <h2 className="mt-2 text-2xl font-semibold text-white md:text-3xl">Draft, validate, scaffold, review, install</h2>
             <p className="mt-3 text-sm leading-6 text-slate-400">
-              Keep the main path short. Raw spec editing, scaffold detail, diffs, and logs stay available, but they do not lead the screen anymore.
+              Follow the approved staged path from idea to registry install. Advanced spec edits, full diffs, and provider logs stay secondary until they are needed.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <MetricSummary label="Provider" value={selectedProviderDetails?.label ?? "None"} />
-            <MetricSummary label="Validation" value={validationLoading ? "Running" : result?.valid ? "Ready" : "Draft"} />
+            <MetricSummary label="Validation" value={validationLoading ? "Running" : result?.valid ? "Valid" : "Needs checks"} />
             <MetricSummary label="Current job" value={currentJob?.status ?? "Idle"} />
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-4">
+        <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           {workflowStages.map((stage, index) => (
-            <WorkflowCard key={stage.id} index={index + 1} label={stage.label} state={workflowState[stage.id]} />
+            <WorkflowCard
+              key={stage.id}
+              index={index + 1}
+              label={stage.label}
+              description={stage.description}
+              state={workflowState[stage.id]}
+            />
           ))}
         </div>
       </section>
@@ -716,6 +741,20 @@ export function SpecStudio() {
                   <StatusBadge status={currentJob.status} />
                 </div>
 
+                {generatedGridIssue ? (
+                  <InlineNotice
+                    title="Size needs review before approval"
+                    body="The job may be complete, but the generated draft is missing a strict preferred size or uses a size outside 1x1, 1x2, 2x2, 4x2, 2x4, and 4x4. Refine the sizing before approving."
+                    tone="warning"
+                  />
+                ) : currentJob.install_blocked ? (
+                  <InlineNotice
+                    title="Install is blocked"
+                    body="The staged job reports an install block. Review the generated files, logs, or feedback path before continuing."
+                    tone="warning"
+                  />
+                ) : null}
+
                 <div className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
                   <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Install target</p>
                   <p className="mt-2 text-sm text-white">
@@ -730,7 +769,7 @@ export function SpecStudio() {
                 <div className="grid gap-2 sm:grid-cols-3">
                   <ActionButton
                     onClick={() => runReviewAction("approve")}
-                    disabled={isPending || currentJob.status !== "review_required"}
+                    disabled={isPending || currentJob.status !== "review_required" || generatedGridIssue}
                     tone="success"
                   >
                     Approve
@@ -744,7 +783,7 @@ export function SpecStudio() {
                   </ActionButton>
                   <ActionButton
                     onClick={() => runReviewAction("install")}
-                    disabled={isPending || currentJob.status !== "approved"}
+                    disabled={isPending || currentJob.status !== "approved" || generatedGridIssue || currentJob.install_blocked}
                     tone="primary"
                   >
                     Install
@@ -990,11 +1029,13 @@ function MetricSummary({ label, value }: { label: string; value: string }) {
 function WorkflowCard({
   index,
   label,
+  description,
   state,
 }: {
   index: number;
   label: string;
-  state: "idle" | "ready" | "active" | "complete" | "error";
+  description: string;
+  state: WorkflowCardState;
 }) {
   const styles =
     state === "complete"
@@ -1016,6 +1057,7 @@ function WorkflowCard({
         </span>
       </div>
       <p className="mt-3 text-sm font-medium text-white">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p>
     </div>
   );
 }
@@ -1211,6 +1253,14 @@ function GeneratedTestBox({
 
   const stateEntries = Object.entries(sampleState).slice(0, 4);
   const packageFileCount = testBox?.files.length ?? packageArtifact?.files.length ?? 0;
+  const sizeState = getWidgetSizeState(widgetBrief.preferredSize);
+  const sizeNeedsAttention = !["queued", "running"].includes(job.status) && sizeState !== "valid";
+  const sizeStyles =
+    sizeState === "valid"
+      ? "border-emerald-300/18 bg-emerald-300/8"
+      : sizeState === "unset"
+        ? "border-amber-300/18 bg-amber-300/8"
+        : "border-rose-300/18 bg-rose-300/8";
 
   return (
     <div className="rounded-[18px] border border-white/10 bg-[#07090d] p-4">
@@ -1220,13 +1270,19 @@ function GeneratedTestBox({
           <h3 className="mt-2 truncate text-lg font-semibold text-white">{widgetBrief.name}</h3>
           <p className="mt-1 text-sm leading-6 text-slate-400">{widgetBrief.description}</p>
         </div>
-        <StatusBadge status={job.status} />
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <DraftReadinessBadge jobStatus={job.status} sizeState={sizeState} />
+          <StatusBadge status={job.status} />
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-4">
-        <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2">
+        <div className={`rounded-[14px] border px-3 py-2 ${sizeStyles}`}>
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Size</p>
-          <p className="mt-1 text-sm font-medium text-white">{widgetBrief.preferredSize ?? "Unset"}</p>
+          <p className="mt-1 text-sm font-medium text-white">
+            {widgetBrief.preferredSize ?? "Unset"}
+            {sizeState === "invalid" ? " (not allowed)" : sizeState === "unset" ? " (required)" : ""}
+          </p>
         </div>
         <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2">
           <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">Category</p>
@@ -1250,14 +1306,23 @@ function GeneratedTestBox({
           </div>
           <span
             className={`rounded-[10px] border px-3 py-1 text-xs uppercase tracking-[0.14em] ${
-              widgetBrief.sizeAllowed
+              sizeState === "valid"
                 ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-50"
-                : "border-rose-300/20 bg-rose-300/10 text-rose-50"
+                : sizeState === "unset"
+                  ? "border-amber-300/20 bg-amber-300/10 text-amber-50"
+                  : "border-rose-300/20 bg-rose-300/10 text-rose-50"
             }`}
           >
-            {widgetBrief.sizeAllowed ? "Grid valid" : "Invalid size"}
+            {sizeState === "valid" ? "Grid valid" : sizeState === "unset" ? "Size unset" : "Invalid size"}
           </span>
         </div>
+        {sizeNeedsAttention ? (
+          <InlineNotice
+            title={sizeState === "unset" ? "Strict size is unset" : "Strict size is not allowed"}
+            body="Generation can finish before the draft is install-ready. Use sizing feedback or the advanced spec editor to set one allowed preferred size: 1x1, 1x2, 2x2, 4x2, 2x4, or 4x4."
+            tone="warning"
+          />
+        ) : null}
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {widgetBrief.parameters.length ? (
             widgetBrief.parameters.map((parameter) => (
@@ -1405,6 +1470,37 @@ function pickString(...values: unknown[]) {
 
 function isAllowedWidgetSize(value: string | null): value is TileSize {
   return Boolean(value) && allowedWidgetSizes.includes(value as TileSize);
+}
+
+function getWidgetSizeState(value: string | null) {
+  if (!value) {
+    return "unset";
+  }
+  return isAllowedWidgetSize(value) ? "valid" : "invalid";
+}
+
+function DraftReadinessBadge({
+  jobStatus,
+  sizeState,
+}: {
+  jobStatus: GenerationJob["status"];
+  sizeState: ReturnType<typeof getWidgetSizeState>;
+}) {
+  if (jobStatus === "queued" || jobStatus === "running") {
+    return (
+      <span className="rounded-[10px] border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs uppercase tracking-[0.14em] text-cyan-50">
+        Generating
+      </span>
+    );
+  }
+
+  const needsSizing = sizeState !== "valid";
+  const label = needsSizing ? "Needs sizing" : jobStatus === "completed" ? "Ready for review" : "Draft ready";
+  const styles = needsSizing
+    ? "border-amber-300/20 bg-amber-300/10 text-amber-50"
+    : "border-emerald-300/20 bg-emerald-300/10 text-emerald-50";
+
+  return <span className={`rounded-[10px] border px-3 py-1 text-xs uppercase tracking-[0.14em] ${styles}`}>{label}</span>;
 }
 
 function normalizeFeedbackCategory(category: string | null): FeedbackCategoryId | null {

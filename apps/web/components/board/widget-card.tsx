@@ -15,6 +15,7 @@ interface WidgetCardProps {
   plugin?: WidgetPlugin | null;
   selected: boolean;
   hovered: boolean;
+  editMode: boolean;
   showStats: boolean;
   ghost?: boolean;
   onSelect: () => void;
@@ -60,6 +61,7 @@ export function WidgetCard({
   plugin,
   selected,
   hovered,
+  editMode,
   showStats,
   ghost = false,
   onSelect,
@@ -87,7 +89,10 @@ export function WidgetCard({
   const primaryProvider =
     typeof meta.primary_provider === "string" ? meta.primary_provider : providerStates[0]?.provider_id;
   const issues = [plugin?.last_error, widget.last_error].filter((value): value is string => Boolean(value));
-  const showControls = selected || hovered || ghost;
+  const showControls = editMode && !ghost && (selected || hovered);
+  const freshness = formatFreshness(widget.freshness_at);
+  const uptime = formatUptime(widget.service_uptime_seconds);
+  const mode = manifest.refresh_policy.mode;
   const titleClass =
     tier === "compact"
       ? "text-[13px] leading-5"
@@ -116,17 +121,20 @@ export function WidgetCard({
       }}
       onClick={onSelect}
     >
-      {!ghost ? (
+      {editMode && !ghost ? (
         <>
           <div
-            className="absolute inset-x-10 top-0 z-10 h-[10%] min-h-8 max-h-12 cursor-grab active:cursor-grabbing"
+            className="absolute inset-x-10 top-0 z-10 h-[10%] min-h-8 max-h-12 cursor-grab border-t border-cyan-200/35 bg-cyan-200/[0.035] opacity-90 transition active:cursor-grabbing"
             onPointerDown={(event) => {
               event.stopPropagation();
               onDragHandlePointerDown(event);
             }}
-          />
+          >
+            <span className="pointer-events-none absolute left-1/2 top-2 h-1 w-12 -translate-x-1/2 border-y border-cyan-100/35" />
+            <span className="pointer-events-none absolute left-1/2 top-4 h-1 w-8 -translate-x-1/2 border-y border-cyan-100/25" />
+          </div>
           <div
-            className="absolute bottom-0 right-0 z-30 h-10 w-10 cursor-nwse-resize"
+            className="absolute bottom-0 right-0 z-30 h-12 w-12 cursor-nwse-resize bg-gradient-to-tl from-cyan-300/12 via-cyan-300/[0.025] to-transparent"
             aria-label="Resize widget"
             title="Resize"
             onPointerDown={(event) => {
@@ -134,39 +142,32 @@ export function WidgetCard({
               onResizeHandlePointerDown(event);
             }}
           >
-            <span className="absolute bottom-2 right-2 h-4 w-4 border-b-2 border-r-2 border-white/28 transition group-hover:border-cyan-200/80" />
+            <span className="absolute bottom-2 right-2 h-5 w-5 border-b-2 border-r-2 border-cyan-100/70 transition group-hover:border-cyan-50" />
+            <span className="absolute bottom-4 right-4 h-3 w-3 border-b border-r border-cyan-100/35 transition group-hover:border-cyan-100/70" />
           </div>
         </>
       ) : null}
 
-      <div
-        className={`pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 transition-opacity duration-150 ${
-          showControls ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
-        }`}
-      >
-        <IconButton label="Refresh" onClick={onRefresh}>
-          <RefreshIcon />
-        </IconButton>
-        <IconButton label={isRunning ? "Pause" : "Start"} onClick={onToggleRun}>
-          {isRunning ? <PauseIcon /> : <PlayIcon />}
-        </IconButton>
-        <IconButton label="Remove" tone="danger" onClick={onRemove}>
-          <CloseIcon />
-        </IconButton>
-      </div>
-
-      {showStats ? (
-        <WidgetStatsOverlay
-          compact={compact}
-          freshness={formatFreshness(widget.freshness_at)}
-          uptime={formatUptime(widget.service_uptime_seconds)}
-          mode={manifest.refresh_policy.mode}
-          restarts={String(widget.restart_count)}
-        />
+      {editMode && !ghost ? (
+        <div
+          className={`pointer-events-none absolute right-3 top-3 z-30 flex items-center gap-1 transition-opacity duration-150 ${
+            showControls ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
+          }`}
+        >
+          <IconButton label="Refresh" onClick={onRefresh}>
+            <RefreshIcon />
+          </IconButton>
+          <IconButton label={isRunning ? "Pause" : "Start"} onClick={onToggleRun}>
+            {isRunning ? <PauseIcon /> : <PlayIcon />}
+          </IconButton>
+          <IconButton label="Remove" tone="danger" onClick={onRemove}>
+            <CloseIcon />
+          </IconButton>
+        </div>
       ) : null}
 
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "gap-2" : "gap-3"}`}>
-        <header className={`min-w-0 ${compact ? "pr-24" : "pr-28"}`}>
+        <header className={`min-w-0 ${editMode ? (compact ? "pr-24" : "pr-28") : ""}`}>
           <div className="flex min-w-0 items-center gap-2">
             <span className={`h-2 w-2 shrink-0 rounded-none ${lifecycleTone(widget.lifecycle_state)}`} />
             <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
@@ -183,14 +184,28 @@ export function WidgetCard({
 
           {compact ? (
             <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="truncate">{formatFreshness(widget.freshness_at)}</span>
+              <span className="truncate">{freshness}</span>
               <span className="text-slate-600">/</span>
-              <span className="truncate">{manifest.refresh_policy.mode}</span>
+              <span className="truncate">{mode}</span>
             </div>
           ) : (
-            <p className="mt-1 line-clamp-1 text-xs text-slate-400">{manifest.description}</p>
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-slate-400">
+              <StatusChip label="Fresh" value={freshness} />
+              <StatusChip label="Up" value={uptime} />
+              <StatusChip label="Mode" value={mode} />
+            </div>
           )}
         </header>
+
+        {showStats ? (
+          <WidgetStatsRail
+            compact={compact}
+            freshness={freshness}
+            uptime={uptime}
+            mode={mode}
+            restarts={String(widget.restart_count)}
+          />
+        ) : null}
 
         {issues.length > 0 ? (
           <div className={`rounded-[14px] border border-rose-300/18 bg-rose-300/8 ${compact ? "px-2.5 py-2" : "px-3 py-2.5"}`}>
@@ -201,14 +216,14 @@ export function WidgetCard({
           </div>
         ) : null}
 
-        {primaryProvider && !compact ? (
+        {primaryProvider && !compact && tier !== "standard" ? (
           <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-slate-300">
             <span className="text-slate-500">Source</span>
             <span className="ml-2 text-white">{primaryProvider}</span>
           </div>
         ) : null}
 
-          <div className="relative min-h-0 flex-1 overflow-hidden rounded-none border border-white/8 bg-[#05070a]">
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-none border border-white/8 bg-[#05070a]">
           <div className={`h-full ${compact ? "p-2.5" : "p-3"}`}>
             <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
           </div>
@@ -218,7 +233,7 @@ export function WidgetCard({
         {widget.status_message && !compact ? <p className="text-xs leading-5 text-slate-400">{widget.status_message}</p> : null}
       </div>
 
-      {!compact && selected ? (
+      {editMode && !compact && selected ? (
         <WidgetSettingsPanel
           configSchema={configSchema}
           value={widget.config}
@@ -230,7 +245,7 @@ export function WidgetCard({
   );
 }
 
-function WidgetStatsOverlay({
+function WidgetStatsRail({
   compact,
   freshness,
   uptime,
@@ -245,8 +260,8 @@ function WidgetStatsOverlay({
 }) {
   return (
     <div
-      className={`pointer-events-none absolute inset-x-3 z-20 grid gap-1.5 rounded-none border border-cyan-200/18 bg-[#05070a]/88 p-2 shadow-[0_16px_40px_rgba(2,6,23,0.38)] backdrop-blur ${
-        compact ? "top-9 grid-cols-2" : "top-12 grid-cols-2 xl:grid-cols-4"
+      className={`grid gap-1.5 rounded-none border border-cyan-200/18 bg-[#05070a] p-2 ${
+        compact ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-4"
       }`}
     >
       <MetricPill compact={compact} label="Fresh" value={freshness} />
@@ -254,6 +269,15 @@ function WidgetStatsOverlay({
       <MetricPill compact={compact} label="Mode" value={mode} />
       <MetricPill compact={compact} label="Restarts" value={restarts} />
     </div>
+  );
+}
+
+function StatusChip({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="min-w-0 rounded border border-white/10 bg-white/[0.035] px-1.5 py-0.5">
+      <span className="text-slate-500">{label}</span>
+      <span className="ml-1 text-slate-200">{value}</span>
+    </span>
   );
 }
 

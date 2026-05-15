@@ -269,7 +269,7 @@ export function BoardShell() {
               </div>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">GremlinBoard</h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                Compact runtime board for registered widgets only. Drag from tile tops, resize from corners, and scale the grid for high-density data.
+                Monitoring-station board for registered widgets only. Keep the layout locked for live watch duty, then switch to Edit when the surface needs tuning.
               </p>
             </div>
 
@@ -389,7 +389,7 @@ export function BoardShell() {
                 <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Onboarding</p>
                 <div className="mt-4 space-y-3">
                   <StepCard index="01" title="Add a core widget" body="Use the command box to place a registered tile on the grid." />
-                  <StepCard index="02" title="Arrange the surface" body="Drag to reorder and resize only to approved board ratios." />
+                  <StepCard index="02" title="Arrange the surface" body="Switch to Edit mode, then drag and resize only to approved board ratios." />
                   <StepCard index="03" title="Wire providers" body="Open System Panel if data-backed widgets need API credentials or provider checks." />
                 </div>
               </div>
