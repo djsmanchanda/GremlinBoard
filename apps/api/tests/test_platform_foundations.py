@@ -1,4 +1,5 @@
 import shutil
+import asyncio
 from pathlib import Path
 from uuid import uuid4
 
@@ -14,6 +15,7 @@ from gremlinboard_api.runtime.manager import RuntimeManager
 from gremlinboard_api.schemas.contracts import (
     ApiCredentialUpsertRequest,
     LifecycleState,
+    RuntimeEventPersistence,
     SystemSettingsUpdateRequest,
     TileSize,
 )
@@ -141,3 +143,73 @@ async def test_observability_snapshot_builds_health_overview() -> None:
     await engine.dispose()
     if root.exists():
         shutil.rmtree(root)
+
+
+@pytest.mark.asyncio
+async def test_observability_event_sink_persists_timeline_events_only() -> None:
+    root = Path("data") / f"platform-event-sink-{uuid4().hex}"
+    database_path = root / "platform.db"
+    root.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+
+    auth_service = AuthService(session_factory=session_factory)
+    await auth_service.ensure_default_user()
+    system_settings = SystemSettingsService(session_factory=session_factory)
+    await system_settings.ensure_defaults(user_id=settings.default_user_id)
+
+    registry = load_registry(settings.widgets_dir)
+    event_bus = EventBus()
+    runtime_manager = RuntimeManager(
+        session_factory=session_factory,
+        registry=registry,
+        event_bus=event_bus,
+        board_id=settings.default_board_id,
+    )
+    observability = ObservabilityService(
+        session_factory=session_factory,
+        board_id=settings.default_board_id,
+        registry=registry,
+        event_bus=event_bus,
+        runtime_manager=runtime_manager,
+        settings_service=system_settings,
+    )
+    await observability.start_event_sink()
+
+    try:
+        await event_bus.publish_event(
+            "board.snapshot",
+            category="board",
+            source={"component": "test"},
+            payload={"id": settings.default_board_id, "widgets": []},
+            persistence=RuntimeEventPersistence.EPHEMERAL,
+        )
+        await event_bus.publish_event(
+            "provider.backoff_started",
+            category="provider",
+            level="warning",
+            message="provider entered backoff",
+            source={"component": "provider_runtime", "provider_id": "newsapi"},
+            payload={"backoff_seconds": 30},
+            persistence=RuntimeEventPersistence.TIMELINE,
+        )
+
+        records = []
+        for _ in range(20):
+            async with session_factory() as session:
+                records = await BoardRepository(session).list_runtime_logs(limit=10)
+            if records:
+                break
+            await asyncio.sleep(0.05)
+
+        assert len(records) == 1
+        assert records[0].event == "provider.backoff_started"
+        assert records[0].level == "warning"
+    finally:
+        await observability.shutdown_event_sink()
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root)

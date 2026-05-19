@@ -167,6 +167,52 @@ async def test_runtime_failure_retries_with_backoff_and_emits_terminal_observabi
 
 
 @pytest.mark.asyncio
+async def test_runtime_status_reports_control_plane_snapshot() -> None:
+    harness = await RuntimeTestHarness.create()
+    try:
+        package = build_persistent_widget_package(
+            package_name=harness.package_name,
+            widget_id="status_widget",
+            version="1.0.0",
+        )
+        await _write_and_sync_package(harness, package)
+
+        create_response = await harness.client.post(
+            "/api/board/widgets",
+            json={
+                "widget_id": "status_widget",
+                "title": "Status Widget",
+                "size": "2x2",
+                "config": {"notes": [{"id": "1", "text": "visible runtime"}]},
+            },
+        )
+        assert create_response.status_code == 200
+        widget_id = create_response.json()["id"]
+        await harness.wait_for_widget(
+            widget_id,
+            predicate=lambda widget: widget.lifecycle_state == LifecycleState.RUNNING,
+        )
+
+        status_response = await harness.client.get("/api/runtime/status")
+        assert status_response.status_code == 200
+        payload = status_response.json()
+
+        assert payload["state"] == "active"
+        assert payload["active_runners"] == 1
+        assert payload["websocket_subscribers"] == 0
+        assert payload["monitor_cadence_seconds"] == 60
+        assert payload["queue_depth"] == 0
+        assert payload["registry_size"] == 1
+        assert payload["widgets_total"] == 1
+        assert payload["startup_recovery"]["registry_size"] == 0
+        assert payload["runners"][0]["instance_id"] == widget_id
+        assert payload["runners"][0]["widget_id"] == "status_widget"
+        assert payload["runners"][0]["refresh_mode"] == "manual"
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
 async def test_plugin_rollback_restores_registry_plugin_and_runtime_state() -> None:
     harness = await RuntimeTestHarness.create()
     try:

@@ -203,7 +203,7 @@ function Start-ManagedProcess {
     $stdout = Join-Path $StateDir "$timestamp-$Name.log"
     $stderr = Join-Path $StateDir "$timestamp-$Name.err.log"
 
-    return Start-Process `
+    $process = Start-Process `
         -FilePath "powershell.exe" `
         -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $Command) `
         -WorkingDirectory $WorkingDirectory `
@@ -211,6 +211,65 @@ function Start-ManagedProcess {
         -RedirectStandardError $stderr `
         -WindowStyle Hidden `
         -PassThru
+
+    return [pscustomobject]@{
+        Process = $process
+        Stdout = $stdout
+        Stderr = $stderr
+    }
+}
+
+function Test-HttpEndpoint {
+    param([string]$Url)
+
+    try {
+        $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        return ($response.StatusCode -ge 200 -and $response.StatusCode -lt 500)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-RuntimeStatusSnapshot {
+    param([object]$Instance)
+
+    $snapshot = [ordered]@{
+        powerState = "unknown"
+        activeWidgetCount = 0
+        recentErrorCount = 0
+        websocketSubscribers = 0
+        monitorCadenceSeconds = 0
+    }
+
+    try {
+        $status = Invoke-RestMethod -Uri "$($Instance.apiUrl)/runtime/status" -TimeoutSec 2 -ErrorAction Stop
+        $snapshot.powerState = [string]$status.state
+        $snapshot.activeWidgetCount = [int]$status.active_runners
+        $snapshot.websocketSubscribers = [int]$status.websocket_subscribers
+        $snapshot.monitorCadenceSeconds = [int]$status.monitor_cadence_seconds
+        $snapshot.recentErrorCount = @($status.provider_degradation).Count
+    }
+    catch {
+        $snapshot.powerState = "unreachable"
+    }
+
+    return $snapshot
+}
+
+function Update-LauncherInstanceStatus {
+    param([object]$Instance)
+
+    $Instance.apiLive = (Test-ProcessAlive $Instance.apiPid) -and (Test-HttpEndpoint "$($Instance.apiUrl)/health")
+    $Instance.webLive = (Test-ProcessAlive $Instance.webPid) -and (Test-HttpEndpoint $Instance.boardUrl)
+    $snapshot = Get-RuntimeStatusSnapshot $Instance
+    $Instance.powerState = $snapshot.powerState
+    $Instance.activeWidgetCount = $snapshot.activeWidgetCount
+    $Instance.recentErrorCount = $snapshot.recentErrorCount
+    $Instance.websocketSubscribers = $snapshot.websocketSubscribers
+    $Instance.monitorCadenceSeconds = $snapshot.monitorCadenceSeconds
+    $Instance.updatedAt = (Get-Date).ToString("o")
+    return $Instance
 }
 
 function Start-GremlinBoardStack {
@@ -255,28 +314,72 @@ function Start-GremlinBoardStack {
     $webProcess = Start-ManagedProcess -Name "$SelectedMode-web" -Command $webCommand -WorkingDirectory (Join-Path $RepoRoot "apps\web")
     Start-Sleep -Seconds 2
 
-    if (-not (Test-ProcessAlive $apiProcess.Id) -or -not (Test-ProcessAlive $webProcess.Id)) {
-        foreach ($startedPid in @($apiProcess.Id, $webProcess.Id)) {
+    if (-not (Test-ProcessAlive $apiProcess.Process.Id) -or -not (Test-ProcessAlive $webProcess.Process.Id)) {
+        foreach ($startedPid in @($apiProcess.Process.Id, $webProcess.Process.Id)) {
             if (Test-ProcessAlive $startedPid) {
                 Stop-Process -Id $startedPid -Force -ErrorAction SilentlyContinue
             }
         }
 
-        throw "GremlinBoard startup failed because API or web exited immediately. Check logs in $StateDir."
+        $startupError = "GremlinBoard startup failed because API or web exited immediately. Check logs in $StateDir."
+        $failedInstance = [pscustomobject]@{
+            id = [guid]::NewGuid().ToString()
+            mode = $SelectedMode
+            apiPid = $apiProcess.Process.Id
+            webPid = $webProcess.Process.Id
+            apiPort = $apiPort
+            webPort = $webPort
+            apiUrl = "http://127.0.0.1:$apiPort/api"
+            boardUrl = "http://127.0.0.1:$webPort"
+            systemUrl = "http://127.0.0.1:$webPort/system"
+            apiLog = $apiProcess.Stdout
+            apiErrorLog = $apiProcess.Stderr
+            webLog = $webProcess.Stdout
+            webErrorLog = $webProcess.Stderr
+            apiLive = $false
+            webLive = $false
+            powerState = "failed"
+            activeWidgetCount = 0
+            recentErrorCount = 0
+            websocketSubscribers = 0
+            monitorCadenceSeconds = 0
+            lastStartupError = $startupError
+            repoRoot = $RepoRoot
+            startedAt = (Get-Date).ToString("o")
+            updatedAt = (Get-Date).ToString("o")
+        }
+        Save-LauncherInstances @((Get-LauncherInstances) + $failedInstance)
+        throw $startupError
     }
 
     $instance = [pscustomobject]@{
         id = [guid]::NewGuid().ToString()
         mode = $SelectedMode
-        apiPid = $apiProcess.Id
-        webPid = $webProcess.Id
+        apiPid = $apiProcess.Process.Id
+        webPid = $webProcess.Process.Id
         apiPort = $apiPort
         webPort = $webPort
+        apiUrl = "http://127.0.0.1:$apiPort/api"
         boardUrl = "http://127.0.0.1:$webPort"
         systemUrl = "http://127.0.0.1:$webPort/system"
+        apiLog = $apiProcess.Stdout
+        apiErrorLog = $apiProcess.Stderr
+        webLog = $webProcess.Stdout
+        webErrorLog = $webProcess.Stderr
+        apiLive = $false
+        webLive = $false
+        powerState = "starting"
+        activeWidgetCount = 0
+        recentErrorCount = 0
+        websocketSubscribers = 0
+        monitorCadenceSeconds = 0
+        lastStartupError = $null
         repoRoot = $RepoRoot
         startedAt = (Get-Date).ToString("o")
+        updatedAt = (Get-Date).ToString("o")
     }
+
+    $instance = Update-LauncherInstanceStatus $instance
 
     $instances = @(Get-CleanLauncherInstances)
     Save-LauncherInstances @($instances + $instance)
@@ -346,11 +449,22 @@ function Start-Tray {
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
     $openBoard = New-Object System.Windows.Forms.ToolStripMenuItem("Open Board")
     $openSystem = New-Object System.Windows.Forms.ToolStripMenuItem("Open System Panel")
+    $statusItem = New-Object System.Windows.Forms.ToolStripMenuItem("Status: starting")
+    $statusItem.Enabled = $false
+    $openLogs = New-Object System.Windows.Forms.ToolStripMenuItem("Open Launcher Logs")
+    $refreshStatus = New-Object System.Windows.Forms.ToolStripMenuItem("Refresh Status")
     $separator = New-Object System.Windows.Forms.ToolStripSeparator
     $stopExit = New-Object System.Windows.Forms.ToolStripMenuItem("Stop Services and Exit")
 
     $openBoard.add_Click({ Start-Process $Instance.boardUrl })
     $openSystem.add_Click({ Start-Process $Instance.systemUrl })
+    $openLogs.add_Click({ Start-Process explorer.exe $StateDir })
+    $refreshStatus.add_Click({
+        Update-LauncherInstanceStatus $Instance | Out-Null
+        Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
+        $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
+        $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
+    })
     $stopExit.add_Click({
         Stop-LauncherInstance $Instance
         Remove-LauncherInstance $Instance.id
@@ -361,16 +475,32 @@ function Start-Tray {
 
     [void]$menu.Items.Add($openBoard)
     [void]$menu.Items.Add($openSystem)
+    [void]$menu.Items.Add($statusItem)
+    [void]$menu.Items.Add($refreshStatus)
+    [void]$menu.Items.Add($openLogs)
     [void]$menu.Items.Add($separator)
     [void]$menu.Items.Add($stopExit)
     $notify.ContextMenuStrip = $menu
     $notify.add_DoubleClick({ Start-Process $Instance.boardUrl })
     $notify.ShowBalloonTip(2000, "GremlinBoard", "Running $($Instance.mode) on $($Instance.boardUrl)", [System.Windows.Forms.ToolTipIcon]::Info)
 
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 15000
+    $timer.add_Tick({
+        Update-LauncherInstanceStatus $Instance | Out-Null
+        Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
+        $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
+        $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
+    })
+    $timer.Start()
+    $refreshStatus.PerformClick()
+
     try {
         [System.Windows.Forms.Application]::Run()
     }
     finally {
+        $timer.Stop()
+        $timer.Dispose()
         $notify.Visible = $false
         $notify.Dispose()
     }

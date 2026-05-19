@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from gremlinboard_api.api.routes import board, observability, plugins
+from gremlinboard_api.api.routes import board, observability, plugins, runtime
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base, get_session
 from gremlinboard_api.registry.loader import WidgetRegistry, load_registry
@@ -288,6 +288,7 @@ class RuntimeTestHarness:
             settings_service=settings_service,
         )
         runtime_manager.capture_metrics = observability_service.capture_runtime_snapshot
+        await observability_service.start_event_sink()
 
         app = FastAPI()
 
@@ -326,6 +327,7 @@ class RuntimeTestHarness:
 
         app.include_router(board.router, prefix="/api")
         app.include_router(plugins.router, prefix="/api")
+        app.include_router(runtime.router, prefix="/api")
         app.include_router(observability.router, prefix="/api")
 
         await runtime_manager.bootstrap()
@@ -353,6 +355,7 @@ class RuntimeTestHarness:
             await self.client.aclose()
         finally:
             await self.runtime_manager.shutdown()
+            await self.observability.shutdown_event_sink()
             await self.engine.dispose()
             if str(self.root.resolve()) in sys.path:
                 sys.path.remove(str(self.root.resolve()))

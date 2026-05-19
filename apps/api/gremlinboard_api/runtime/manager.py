@@ -15,7 +15,15 @@ from gremlinboard_api.registry.loader import WidgetRegistry
 from gremlinboard_api.repositories.board import BoardRepository, serialize_board, serialize_runtime_log
 from gremlinboard_api.runtime.base import BaseWidgetService, RefreshDirective, ServiceContext
 from gremlinboard_api.runtime.events import EventBus
-from gremlinboard_api.schemas.contracts import LifecycleState, WidgetManifest
+from gremlinboard_api.schemas.contracts import (
+    LifecycleState,
+    RuntimeEventCategory,
+    RuntimeEventLevel,
+    RuntimeEventPersistence,
+    RuntimeEventSource,
+    RuntimeEventVisibility,
+    WidgetManifest,
+)
 
 
 class RuntimeFailure(Exception):
@@ -70,6 +78,13 @@ class RuntimeManager:
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
         self._monitor_interval_seconds = self._coerce_monitor_interval(monitor_interval_seconds)
+        self._startup_recovery: dict[str, Any] = {
+            "recovered_widgets": 0,
+            "skipped_widgets": 0,
+            "orphan_widgets": 0,
+            "registry_size": 0,
+            "checked_at": None,
+        }
 
     @property
     def active_count(self) -> int:
@@ -82,19 +97,65 @@ class RuntimeManager:
     def update_monitor_interval(self, seconds: int) -> None:
         self._monitor_interval_seconds = self._coerce_monitor_interval(seconds)
 
+    @property
+    def startup_recovery(self) -> dict[str, Any]:
+        return dict(self._startup_recovery)
+
+    def runner_statuses(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "instance_id": runner.instance_id,
+                "widget_id": runner.widget_id,
+                "manifest_version": runner.manifest.version,
+                "running": runner.task is not None and not runner.task.done(),
+                "refresh_mode": self._resolve_refresh_directive(runner).mode,
+                "refresh_interval_seconds": self._resolve_refresh_directive(runner).interval_seconds,
+                "restart_count": runner.restart_count,
+                "consecutive_failures": runner.consecutive_failures,
+                "last_started_at": runner.last_started_at,
+                "last_heartbeat_at": runner.last_heartbeat_at,
+                "last_refresh_at": runner.last_refresh_at,
+            }
+            for runner in self._runners.values()
+        ]
+
     async def bootstrap(self) -> None:
+        recovered_widgets = 0
+        skipped_widgets = 0
+        orphan_widgets = 0
+        checked_at = datetime.now(timezone.utc)
         async with self.session_factory() as session:
             repository = BoardRepository(session)
             await repository.ensure_board(self.board_id, "GremlinBoard")
             widgets = await repository.list_widgets(self.board_id)
+            registered_widget_ids = {entry.manifest.id for entry in self.registry.all()}
             for widget in widgets:
                 if widget.lifecycle_state in {
                     LifecycleState.PAUSED.value,
                     LifecycleState.REMOVED.value,
                     LifecycleState.EXPIRED.value,
                 }:
+                    skipped_widgets += 1
                     continue
+                if widget.widget_id not in registered_widget_ids:
+                    orphan_widgets += 1
                 await self.start_widget(widget.id)
+                recovered_widgets += 1
+        self._startup_recovery = {
+            "recovered_widgets": recovered_widgets,
+            "skipped_widgets": skipped_widgets,
+            "orphan_widgets": orphan_widgets,
+            "registry_size": self.registry.size,
+            "checked_at": checked_at,
+        }
+        await self.log(
+            level="info" if orphan_widgets == 0 else "warning",
+            event="runtime.startup_recovery.completed",
+            widget_instance_id=None,
+            widget_id=None,
+            message="runtime startup recovery completed",
+            context={**self.startup_recovery, "checked_at": checked_at.isoformat()},
+        )
         self._monitor_task = asyncio.create_task(self._monitor_loop(), name="gremlinboard-runtime-monitor")
         await self.publish_board_snapshot()
 
@@ -279,18 +340,20 @@ class RuntimeManager:
                 await self.restart_widget(record.id, reason=reason)
 
     async def publish_board_snapshot(self) -> None:
-        if self.event_bus.subscriber_count == 0:
+        if self.event_bus.websocket_subscriber_count == 0:
             return
         async with self.session_factory() as session:
             repository = BoardRepository(session)
             board = await repository.ensure_board(self.board_id, "GremlinBoard")
             widgets = await repository.list_widgets(self.board_id)
             snapshot = serialize_board(board, widgets)
-            await self.event_bus.publish(
-                {
-                    "type": "board.snapshot",
-                    "payload": snapshot.model_dump(mode="json"),
-                }
+            await self.event_bus.publish_event(
+                "board.snapshot",
+                category=RuntimeEventCategory.BOARD,
+                source=RuntimeEventSource(component="runtime_manager", board_id=self.board_id),
+                payload=snapshot.model_dump(mode="json"),
+                visibility=RuntimeEventVisibility.WEBSOCKET,
+                persistence=RuntimeEventPersistence.EPHEMERAL,
             )
 
     async def log(
@@ -313,11 +376,20 @@ class RuntimeManager:
                 message=message,
                 context=context,
             )
-        await self.event_bus.publish(
-            {
-                "type": "runtime.log",
-                "payload": serialize_runtime_log(record).model_dump(mode="json"),
-            }
+        await self.event_bus.publish_event(
+            self._normalize_log_event_type(event),
+            category=self._log_event_category(event),
+            level=RuntimeEventLevel(level),
+            message=message,
+            source=RuntimeEventSource(
+                component="runtime_manager",
+                board_id=self.board_id,
+                widget_instance_id=widget_instance_id,
+                widget_id=widget_id,
+            ),
+            payload=serialize_runtime_log(record).model_dump(mode="json"),
+            visibility=RuntimeEventVisibility.BOTH,
+            persistence=RuntimeEventPersistence.EPHEMERAL,
         )
 
     async def _run_widget_loop(self, runner: WidgetRunner) -> None:
@@ -705,3 +777,14 @@ class RuntimeManager:
             lock = asyncio.Lock()
             self._widget_locks[instance_id] = lock
         return lock
+
+    @staticmethod
+    def _normalize_log_event_type(event: str) -> str:
+        if event.startswith("runner."):
+            return f"widget.{event.removeprefix('runner.')}"
+        return event
+
+    @staticmethod
+    def _log_event_category(event: str) -> RuntimeEventCategory:
+        prefix = RuntimeManager._normalize_log_event_type(event).split(".", 1)[0]
+        return RuntimeEventCategory(prefix)

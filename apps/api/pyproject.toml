@@ -13,6 +13,9 @@ dependencies = [
   "uvicorn[standard]>=0.32.0"
 ]
 
+[project.scripts]
+gremlinboard = "gremlinboard_api.cli:main"
+
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",

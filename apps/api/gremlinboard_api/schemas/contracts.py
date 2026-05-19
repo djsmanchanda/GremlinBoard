@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 import re
+from uuid import uuid4
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -207,6 +208,141 @@ class HealthRead(BaseModel):
     status: str
     registry_size: int
     active_runners: int
+
+
+class RuntimeEventCategory(str, Enum):
+    RUNTIME = "runtime"
+    WIDGET = "widget"
+    PROVIDER = "provider"
+    JOB = "job"
+    GENERATION = "generation"
+    PLUGIN = "plugin"
+    OPERATOR = "operator"
+    SYSTEM = "system"
+    BOARD = "board"
+    AGENT = "agent"
+
+
+class RuntimeEventLevel(str, Enum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
+class RuntimeEventPersistence(str, Enum):
+    EPHEMERAL = "ephemeral"
+    TIMELINE = "timeline"
+    STATE = "state"
+
+
+class RuntimeEventVisibility(str, Enum):
+    INTERNAL = "internal"
+    WEBSOCKET = "websocket"
+    BOTH = "both"
+
+
+class RuntimeEventSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    component: str
+    component_id: str | None = None
+    board_id: str | None = None
+    widget_instance_id: str | None = None
+    widget_id: str | None = None
+    provider_id: str | None = None
+    job_id: str | None = None
+    agent_id: str | None = None
+    user_id: str | None = None
+
+
+class RuntimeEventEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    sequence: int = Field(default=0, ge=0)
+    schema_version: int = Field(default=1, ge=1)
+    event_type: str = Field(alias="type")
+    category: RuntimeEventCategory
+    level: RuntimeEventLevel = RuntimeEventLevel.INFO
+    message: str | None = None
+    source: RuntimeEventSource
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    visibility: RuntimeEventVisibility = RuntimeEventVisibility.BOTH
+    persistence: RuntimeEventPersistence = RuntimeEventPersistence.EPHEMERAL
+    replayable: bool = True
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("event_type")
+    @classmethod
+    def validate_event_type(cls, value: str) -> str:
+        value = value.strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*", value):
+            raise ValueError("event type must be dot-delimited lowercase segments")
+        return value
+
+    @model_validator(mode="after")
+    def validate_category_prefix(self) -> "RuntimeEventEnvelope":
+        prefix = self.event_type.split(".", 1)[0]
+        aliases = {"registry": RuntimeEventCategory.PLUGIN, "stream": RuntimeEventCategory.SYSTEM}
+        expected = aliases.get(prefix, RuntimeEventCategory(prefix) if prefix in RuntimeEventCategory._value2member_map_ else None)
+        if expected != self.category:
+            raise ValueError("event category must match the first event type segment")
+        return self
+
+    def to_websocket_message(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", by_alias=True)
+
+
+class RuntimeRunnerStatusRead(BaseModel):
+    instance_id: str
+    widget_id: str
+    manifest_version: str
+    running: bool
+    refresh_mode: str
+    refresh_interval_seconds: int
+    restart_count: int
+    consecutive_failures: int
+    last_started_at: datetime | None = None
+    last_heartbeat_at: datetime | None = None
+    last_refresh_at: datetime | None = None
+
+
+class RuntimeStartupRecoveryRead(BaseModel):
+    recovered_widgets: int = 0
+    skipped_widgets: int = 0
+    orphan_widgets: int = 0
+    registry_size: int = 0
+    checked_at: datetime | None = None
+
+
+class ProviderDegradationRead(BaseModel):
+    provider_id: str
+    label: str | None = None
+    status: str
+    error: str | None = None
+    widget_instance_id: str | None = None
+    widget_id: str | None = None
+    fallback_used: bool = False
+    stale: bool = False
+
+
+class RuntimeStatusRead(BaseModel):
+    state: Literal["active", "idle", "suspended", "degraded"]
+    active_runners: int
+    websocket_subscribers: int
+    monitor_cadence_seconds: int
+    provider_degradation: list[ProviderDegradationRead]
+    queue_depth: int
+    dropped_event_count: int = 0
+    replay_event_count: int = 0
+    registry_size: int
+    widgets_total: int
+    runners: list[RuntimeRunnerStatusRead]
+    startup_recovery: RuntimeStartupRecoveryRead
 
 
 class RuntimeLogRead(BaseModel):

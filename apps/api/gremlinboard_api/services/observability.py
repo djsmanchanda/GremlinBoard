@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -7,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gremlinboard_api.repositories.board import BoardRepository, serialize_runtime_log, serialize_widget
 from gremlinboard_api.repositories.platform import PlatformRepository, serialize_metric
-from gremlinboard_api.schemas.contracts import ObservabilityOverviewRead, RuntimeLogRead, WidgetHealthRead
+from gremlinboard_api.schemas.contracts import (
+    ObservabilityOverviewRead,
+    RuntimeEventEnvelope,
+    RuntimeEventPersistence,
+    RuntimeLogRead,
+    WidgetHealthRead,
+)
 
 if TYPE_CHECKING:
     from gremlinboard_api.registry.loader import WidgetRegistry
@@ -33,6 +40,29 @@ class ObservabilityService:
         self.event_bus = event_bus
         self.runtime_manager = runtime_manager
         self.settings_service = settings_service
+        self._event_queue: asyncio.Queue[RuntimeEventEnvelope] | None = None
+        self._event_task: asyncio.Task[None] | None = None
+        self.last_event_sink_error: str | None = None
+
+    async def start_event_sink(self) -> None:
+        if self._event_task is not None and not self._event_task.done():
+            return
+        self._event_queue = self.event_bus.subscribe(kind="internal", max_queue_size=256)
+        self._event_task = asyncio.create_task(self._run_event_sink(), name="gremlinboard-observability-events")
+
+    async def shutdown_event_sink(self) -> None:
+        if self._event_queue is not None:
+            self.event_bus.unsubscribe(self._event_queue)
+        if self._event_task is None:
+            return
+        self._event_task.cancel()
+        try:
+            await self._event_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self._event_task = None
+            self._event_queue = None
 
     async def capture_runtime_snapshot(self) -> None:
         settings = await self.settings_service.read()
@@ -180,12 +210,60 @@ class ObservabilityService:
                 message=message,
                 context=context,
             )
-        await self.event_bus.publish(
-            {"type": "runtime.log", "payload": serialize_runtime_log(record).model_dump(mode="json")}
+        await self.event_bus.publish_event(
+            _typed_platform_event_type(event),
+            category="system",
+            level=level,
+            message=message,
+            source={"component": "observability", "board_id": self.board_id},
+            payload=serialize_runtime_log(record).model_dump(mode="json"),
+            persistence="ephemeral",
         )
+
+    async def _run_event_sink(self) -> None:
+        if self._event_queue is None:
+            return
+        while True:
+            event = await self._event_queue.get()
+            try:
+                await self._handle_timeline_event(event)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive isolation for background persistence
+                self.last_event_sink_error = str(exc)
+            finally:
+                self._event_queue.task_done()
+
+    async def _handle_timeline_event(self, event: RuntimeEventEnvelope) -> None:
+        if event.persistence not in {RuntimeEventPersistence.TIMELINE, RuntimeEventPersistence.STATE}:
+            return
+        async with self.session_factory() as session:
+            repository = BoardRepository(session)
+            await repository.create_runtime_log(
+                widget_instance_id=event.source.widget_instance_id,
+                widget_id=event.source.widget_id,
+                level=event.level.value,
+                event=event.event_type,
+                message=event.message or event.event_type,
+                context={
+                    "event_id": event.id,
+                    "sequence": event.sequence,
+                    "category": event.category.value,
+                    "source": event.source.model_dump(mode="json"),
+                    "correlation_id": event.correlation_id,
+                    "causation_id": event.causation_id,
+                    "payload": event.payload,
+                },
+            )
 
 
 def _coerce_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _typed_platform_event_type(event: str) -> str:
+    if event.startswith("system."):
+        return event
+    return f"system.{event.replace('.', '_')}"

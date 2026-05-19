@@ -189,16 +189,48 @@ async def remove_widget(
 async def board_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     event_bus = websocket.app.state.event_bus
-    queue = event_bus.subscribe()
+    last_seq = _parse_last_seq(websocket.query_params.get("last_seq"))
+    queue = event_bus.subscribe(kind="websocket")
     try:
-        async with websocket.app.state.session_factory() as session:
-            snapshot = await _read_board(session)
-            await websocket.send_json({"type": "board.snapshot", "payload": snapshot.model_dump(mode="json")})
+        if last_seq is not None and event_bus.can_replay(last_seq):
+            for event in event_bus.replay(after_sequence=last_seq):
+                await websocket.send_json(event.to_websocket_message())
+        else:
+            async with websocket.app.state.session_factory() as session:
+                snapshot = await _read_board(session)
+                await websocket.send_json(
+                    {
+                        "type": "board.snapshot",
+                        "sequence": event_bus.latest_sequence,
+                        "payload": snapshot.model_dump(mode="json"),
+                    }
+                )
 
         while True:
             event = await queue.get()
-            await websocket.send_json(event)
+            if event.event_type == "stream.reset":
+                async with websocket.app.state.session_factory() as session:
+                    snapshot = await _read_board(session)
+                    await websocket.send_json(
+                        {
+                            "type": "board.snapshot",
+                            "sequence": event_bus.latest_sequence,
+                            "payload": snapshot.model_dump(mode="json"),
+                        }
+                    )
+                continue
+            await websocket.send_json(event.to_websocket_message())
     except WebSocketDisconnect:
         pass
     finally:
         event_bus.unsubscribe(queue)
+
+
+def _parse_last_seq(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return None
+    return parsed if parsed >= 0 else None
