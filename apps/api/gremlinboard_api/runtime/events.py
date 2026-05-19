@@ -10,10 +10,18 @@ class EventBus:
 
     async def publish(self, event: dict[str, Any]) -> None:
         for queue in list(self._queues):
-            await queue.put(event)
+            if queue.full():
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
 
     def subscribe(self) -> asyncio.Queue[dict[str, Any]]:
-        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=64)
         self._queues.add(queue)
         return queue
 

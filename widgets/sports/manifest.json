@@ -9,7 +9,7 @@
   "allowed_sizes": ["2x2", "4x2", "4x4"],
   "refresh_policy": {
     "mode": "live",
-    "interval_seconds": 30
+    "interval_seconds": 120
   },
   "lifecycle_policy": {
     "stateful": true,
@@ -19,10 +19,10 @@
   "runtime_policy": {
     "start_timeout_seconds": 8,
     "refresh_timeout_seconds": 8,
-    "heartbeat_timeout_seconds": 120,
+    "heartbeat_timeout_seconds": 240,
     "max_retries": 4,
     "retry_backoff_seconds": 2,
-    "stale_after_seconds": 300
+    "stale_after_seconds": 600
   },
   "permissions": ["network"],
   "renderer": {

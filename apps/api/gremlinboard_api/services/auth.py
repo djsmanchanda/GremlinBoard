@@ -68,7 +68,7 @@ class AuthService:
                     user_id=user.id,
                     expires_at=self._expires_at(),
                 )
-            else:
+            elif self._should_touch_session(resolved_session.last_seen_at):
                 resolved_session = await repository.touch_session(
                     resolved_session,
                     expires_at=self._expires_at(),
@@ -85,6 +85,11 @@ class AuthService:
     @staticmethod
     def _expires_at() -> datetime:
         return datetime.now(timezone.utc) + timedelta(hours=settings.session_ttl_hours)
+
+    @staticmethod
+    def _should_touch_session(last_seen_at: datetime) -> bool:
+        age_seconds = (datetime.now(timezone.utc) - _coerce_utc(last_seen_at)).total_seconds()
+        return age_seconds >= settings.session_touch_interval_seconds
 
 
 def _coerce_utc(value: datetime) -> datetime:

@@ -197,7 +197,7 @@ class PlatformRepository:
         return list(result.scalars())
 
     async def trim_metrics(self, *, keep_latest: int) -> None:
-        metrics = await self.list_metrics(limit=5000)
+        metrics = await self.list_metrics(limit=keep_latest + 250)
         if len(metrics) <= keep_latest:
             return
         removable_ids = [record.id for record in metrics[keep_latest:]]

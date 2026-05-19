@@ -54,7 +54,7 @@ async def test_system_settings_and_auth_foundation_round_trip() -> None:
         ),
         user_id=settings.default_user_id,
     )
-    assert updated.runtime.monitor_interval_seconds == 7
+    assert updated.runtime.monitor_interval_seconds == 15
     assert updated.ai.default_provider_id == "claude"
 
     credential = await system_settings.upsert_credential(

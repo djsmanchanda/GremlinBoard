@@ -68,8 +68,8 @@ class SportsWidgetService(BaseWidgetService):
 
         directive = self.resolve_refresh_directive(
             live=bool(payload.get("live")),
-            default_interval_seconds=90,
-            live_interval_seconds=20,
+            default_interval_seconds=180,
+            live_interval_seconds=60,
         )
         self.set_refresh_directive(directive)
         state = {

@@ -24,8 +24,8 @@ export const WIDGET_PRESETS: WidgetPreset[] = [
       tournament: "IPL",
       competition_code: "PL",
       refresh_behavior: "auto",
-      refresh_interval_seconds: 30,
-      cache_ttl_seconds: 20,
+      refresh_interval_seconds: 120,
+      cache_ttl_seconds: 90,
     },
   },
   {
@@ -40,8 +40,8 @@ export const WIDGET_PRESETS: WidgetPreset[] = [
       tournament: "IPL",
       competition_code: "PL",
       refresh_behavior: "auto",
-      refresh_interval_seconds: 30,
-      cache_ttl_seconds: 20,
+      refresh_interval_seconds: 120,
+      cache_ttl_seconds: 90,
     },
   },
   {
@@ -56,8 +56,8 @@ export const WIDGET_PRESETS: WidgetPreset[] = [
       tournament: "IPL",
       competition_code: "PL",
       refresh_behavior: "auto",
-      refresh_interval_seconds: 30,
-      cache_ttl_seconds: 20,
+      refresh_interval_seconds: 120,
+      cache_ttl_seconds: 90,
     },
   },
   {

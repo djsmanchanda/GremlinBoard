@@ -135,15 +135,6 @@ export function SystemShell() {
     };
   }, []);
 
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      void fetchObservabilityOverview()
-        .then(setOverview)
-        .catch(() => undefined);
-    }, 8000);
-    return () => window.clearInterval(interval);
-  }, []);
-
   const aiStatusMap = useMemo(
     () => new Map(providers.map((provider) => [provider.provider_id, provider])),
     [providers],
@@ -173,6 +164,35 @@ export function SystemShell() {
   const missingRequiredProviders = setupItems.filter((item) => item.required && !item.configured);
   const configuredProviderCount = setupItems.filter((item) => item.configured).length;
   const maxMetricValue = Math.max(...(overview?.metrics.map((metric) => metric.metric_value) ?? [1]), 1);
+  const overviewPollIntervalSeconds = settings ? Math.max(settings.runtime.monitor_interval_seconds, 15) : 30;
+
+  useEffect(() => {
+    if (!settings) {
+      return;
+    }
+
+    const refreshOverview = () => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      void fetchObservabilityOverview()
+        .then(setOverview)
+        .catch(() => undefined);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshOverview();
+      }
+    };
+
+    const interval = window.setInterval(refreshOverview, overviewPollIntervalSeconds * 1000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [overviewPollIntervalSeconds, settings]);
 
   useEffect(() => {
     setCredentialDraft((current) => {
@@ -280,7 +300,7 @@ export function SystemShell() {
             <SummaryCard label="Setup progress" value={`${configuredProviderCount}/${setupItems.length}`} hint="Providers ready for runtime or AI use." />
             <SummaryCard label="Stored secrets" value={String(credentials.length)} hint="Persisted credentials in secure storage." />
             <SummaryCard label="Missing required" value={String(missingRequiredProviders.length)} hint="Providers still missing required setup." />
-            <SummaryCard label="Monitor cadence" value="8s" hint="Deployment overview refresh interval." />
+            <SummaryCard label="Monitor cadence" value={`${overviewPollIntervalSeconds}s`} hint="Deployment overview refresh interval." />
           </div>
         </header>
 
@@ -469,8 +489,8 @@ export function SystemShell() {
                       <NumberField
                         label="Monitor interval"
                         value={settings.runtime.monitor_interval_seconds}
-                        min={1}
-                        max={60}
+                        min={15}
+                        max={300}
                         onChange={(value) =>
                           setSettings({
                             ...settings,

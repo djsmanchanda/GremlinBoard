@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3000"
     session_cookie_name: str = "gremlinboard_session"
     session_ttl_hours: int = 168
+    session_touch_interval_seconds: int = 300
     cors_origins: list[str] = [
         "http://localhost:3000",
         "http://localhost:3001",

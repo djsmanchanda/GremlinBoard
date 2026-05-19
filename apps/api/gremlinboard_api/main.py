@@ -60,8 +60,8 @@ async def seed_default_widgets(session_factory) -> None:
                     "sport": "ipl",
                     "provider": "auto",
                     "refresh_behavior": "auto",
-                    "refresh_interval_seconds": 30,
-                    "cache_ttl_seconds": 20,
+                    "refresh_interval_seconds": 120,
+                    "cache_ttl_seconds": 90,
                     "competition_code": "PL",
                     "tournament": "IPL",
                 },
@@ -202,6 +202,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def attach_auth_context(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     session_id = request.cookies.get(settings.session_cookie_name) or request.headers.get("x-gremlin-session")
     resolution = await request.app.state.auth_service.resolve_context(
         header_user_id=request.headers.get("x-gremlin-user"),

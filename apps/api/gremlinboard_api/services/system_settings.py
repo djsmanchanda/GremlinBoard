@@ -24,6 +24,8 @@ DEFAULT_SYSTEM_SETTINGS = {
     "app": AppSettingsSection().model_dump(mode="json"),
 }
 
+MIN_MONITOR_INTERVAL_SECONDS = 15
+
 
 class SystemSettingsService:
     def __init__(self, *, session_factory: async_sessionmaker[AsyncSession]) -> None:
@@ -42,6 +44,7 @@ class SystemSettingsService:
             repository = PlatformRepository(session)
             payloads = {record.section: decode_setting(record) for record in await repository.list_settings()}
         merged = {key: payloads.get(key, value) for key, value in DEFAULT_SYSTEM_SETTINGS.items()}
+        merged["runtime"] = _normalize_runtime_settings(merged["runtime"])
         return SystemSettingsRead(
             runtime=RuntimeSettingsSection.model_validate(merged["runtime"]),
             appearance=AppearanceSettingsSection.model_validate(merged["appearance"]),
@@ -56,6 +59,7 @@ class SystemSettingsService:
             value = getattr(payload, section)
             if value is not None:
                 updates[section] = value.model_dump(mode="json")
+        updates["runtime"] = _normalize_runtime_settings(updates["runtime"])
         async with self.session_factory() as session:
             repository = PlatformRepository(session)
             for section, value in updates.items():
@@ -89,3 +93,12 @@ class SystemSettingsService:
         async with self.session_factory() as session:
             repository = PlatformRepository(session)
             await repository.delete_credential(credential_id)
+
+
+def _normalize_runtime_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    value = normalized.get("monitor_interval_seconds", RuntimeSettingsSection().monitor_interval_seconds)
+    if not isinstance(value, int) or isinstance(value, bool):
+        value = RuntimeSettingsSection().monitor_interval_seconds
+    normalized["monitor_interval_seconds"] = max(value, MIN_MONITOR_INTERVAL_SECONDS)
+    return normalized

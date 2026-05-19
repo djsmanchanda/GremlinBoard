@@ -69,7 +69,7 @@ class RuntimeManager:
         self._widget_locks: dict[str, asyncio.Lock] = {}
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
-        self._monitor_interval_seconds = monitor_interval_seconds
+        self._monitor_interval_seconds = self._coerce_monitor_interval(monitor_interval_seconds)
 
     @property
     def active_count(self) -> int:
@@ -80,7 +80,7 @@ class RuntimeManager:
         return self._monitor_interval_seconds
 
     def update_monitor_interval(self, seconds: int) -> None:
-        self._monitor_interval_seconds = max(seconds, 1)
+        self._monitor_interval_seconds = self._coerce_monitor_interval(seconds)
 
     async def bootstrap(self) -> None:
         async with self.session_factory() as session:
@@ -279,6 +279,8 @@ class RuntimeManager:
                 await self.restart_widget(record.id, reason=reason)
 
     async def publish_board_snapshot(self) -> None:
+        if self.event_bus.subscriber_count == 0:
+            return
         async with self.session_factory() as session:
             repository = BoardRepository(session)
             board = await repository.ensure_board(self.board_id, "GremlinBoard")
@@ -557,9 +559,22 @@ class RuntimeManager:
                 pass
             if self._monitor_stop.is_set():
                 break
-            await self._monitor_runtime_health()
-            if self.capture_metrics is not None:
-                await self.capture_metrics()
+            try:
+                await self._monitor_runtime_health()
+                if self.capture_metrics is not None:
+                    await self.capture_metrics()
+            except Exception as exc:  # pragma: no cover - defensive background task guard
+                try:
+                    await self.log(
+                        level="error",
+                        event="runtime.monitor_failed",
+                        widget_instance_id=None,
+                        widget_id=None,
+                        message=str(exc),
+                        context={"error_type": type(exc).__name__},
+                    )
+                except Exception:
+                    pass
 
     async def _monitor_runtime_health(self) -> None:
         now = datetime.now(timezone.utc)
@@ -587,11 +602,12 @@ class RuntimeManager:
                     continue
 
         for record in records.values():
-            if record.expires_at is not None and record.expires_at <= now and record.lifecycle_state != LifecycleState.EXPIRED.value:
+            expires_at = self._coerce_utc(record.expires_at) if record.expires_at is not None else None
+            if expires_at is not None and expires_at <= now and record.lifecycle_state != LifecycleState.EXPIRED.value:
                 await self.stop_widget(record.id, final_state=LifecycleState.EXPIRED, reason="expired")
                 continue
             if record.lifecycle_state == LifecycleState.ERROR.value and record.last_heartbeat is not None:
-                stale_age = (now - record.last_heartbeat).total_seconds()
+                stale_age = (now - self._coerce_utc(record.last_heartbeat)).total_seconds()
                 manifest = self.registry.get(record.widget_id).manifest if record.widget_id in registered_widget_ids else None
                 if manifest is not None and stale_age > manifest.runtime_policy.stale_after_seconds:
                     await self.stop_widget(record.id, final_state=LifecycleState.PAUSED, reason="stale cleanup")
@@ -640,6 +656,16 @@ class RuntimeManager:
         if runner.last_started_at is None:
             return 0
         return max(int((datetime.now(timezone.utc) - runner.last_started_at).total_seconds()), 0)
+
+    @staticmethod
+    def _coerce_monitor_interval(seconds: int) -> int:
+        return min(max(seconds, 15), 300)
+
+    @staticmethod
+    def _coerce_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @staticmethod
     def _config_interval_override(config: dict[str, Any]) -> int | None:

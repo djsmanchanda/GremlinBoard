@@ -411,7 +411,7 @@ class AuthContextRead(BaseModel):
 class RuntimeSettingsSection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    monitor_interval_seconds: int = Field(default=5, ge=1, le=60)
+    monitor_interval_seconds: int = Field(default=30, ge=1, le=300)
     metrics_retention_points: int = Field(default=120, ge=10, le=1000)
     log_view_limit: int = Field(default=200, ge=20, le=1000)
 
@@ -422,7 +422,7 @@ class AppearanceSettingsSection(BaseModel):
     theme_mode: str = "control"
     board_density: str = "comfortable"
     show_grid_overlay: bool = True
-    reduced_motion: bool = False
+    reduced_motion: bool = True
 
 
 class AIProviderSettingsSection(BaseModel):
