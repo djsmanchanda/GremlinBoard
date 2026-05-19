@@ -105,12 +105,16 @@ The runtime must manage:
 The board should feel like a live control surface.
 
 Required behaviors:
-- drag from the top 5-10% interaction band, excluding corners
+- default to locked View mode for monitoring
+- use Edit mode for drag, resize, widget controls, and source settings
+- drag from the top interaction band, excluding resize corners
 - resize from the bottom-right corner by allowed ratios only
-- show dashed resize previews for all allowed sizes, with the nearest target highlighted
+- show dashed resize previews for allowed sizes that fit the current column count, with the nearest target highlighted
 - snap to grid
 - persist layout
-- show freshness, uptime, mode, and restart stats through a board-level overlay toggle
+- persist board appearance settings such as density presets
+- expose freshness, uptime, mode, and restart stats through compact chrome and the widget Stats toggle
+- surface runtime warnings, widget errors, and provider failures as the alert priority layer
 - keep permanent widget chrome minimal so widgets can show more data
 - support quick add via command box
 

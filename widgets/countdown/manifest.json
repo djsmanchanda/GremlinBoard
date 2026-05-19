@@ -6,10 +6,10 @@
   "description": "Dense countdown tile for release windows, sessions, and deadlines.",
   "min_size": "1x1",
   "preferred_size": "1x2",
-  "allowed_sizes": ["1x1", "1x2", "2x2"],
+  "allowed_sizes": ["1x1", "1x2", "2x2", "2x4"],
   "refresh_policy": {
-    "mode": "live",
-    "interval_seconds": 1
+    "mode": "interval",
+    "interval_seconds": 60
   },
   "lifecycle_policy": {
     "stateful": true,
@@ -22,7 +22,7 @@
     "heartbeat_timeout_seconds": 30,
     "max_retries": 2,
     "retry_backoff_seconds": 1,
-    "stale_after_seconds": 60
+    "stale_after_seconds": 86400
   },
   "permissions": [],
   "renderer": {

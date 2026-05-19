@@ -3,16 +3,18 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 
 import { WidgetRenderer } from "@/components/board/renderers";
-import { WidgetSettingsPanel } from "@/components/board/widget-settings-panel";
+import type { BoardDensityDefinition, WidgetAlert } from "@/lib/board-view-settings";
+import { getWidgetProviderStates } from "@/lib/board-view-settings";
 import { getWidgetDisplayTier, isCompactWidget, isSmallWidget } from "@/lib/widget-display";
-import type { JsonObject, WidgetInstance, WidgetManifest, WidgetPlugin } from "@/lib/types";
+import type { JsonObject, WidgetInstance, WidgetManifest } from "@/lib/types";
 import { formatFreshness } from "@/lib/utils";
 
 interface WidgetCardProps {
   widget: WidgetInstance;
   manifest: WidgetManifest;
-  configSchema: JsonObject;
-  plugin?: WidgetPlugin | null;
+  alert: WidgetAlert;
+  canRefresh: boolean;
+  densityTone: BoardDensityDefinition["cardTone"];
   selected: boolean;
   hovered: boolean;
   editMode: boolean;
@@ -57,8 +59,9 @@ function lifecycleTone(state: WidgetInstance["lifecycle_state"]) {
 export function WidgetCard({
   widget,
   manifest,
-  configSchema,
-  plugin,
+  alert,
+  canRefresh,
+  densityTone,
   selected,
   hovered,
   editMode,
@@ -78,35 +81,37 @@ export function WidgetCard({
   const small = isSmallWidget(widget.size);
   const tier = getWidgetDisplayTier(widget.size);
   const meta = typeof widget.state.meta === "object" && widget.state.meta ? (widget.state.meta as JsonObject) : {};
-  const providerStates = Array.isArray(meta.providers)
-    ? (meta.providers as Array<{
-        provider_id?: string;
-        label?: string;
-        status?: string;
-        error?: string | null;
-      }>)
-    : [];
+  const providerStates = getWidgetProviderStates(widget);
   const primaryProvider =
     typeof meta.primary_provider === "string" ? meta.primary_provider : providerStates[0]?.provider_id;
-  const issues = [plugin?.last_error, widget.last_error].filter((value): value is string => Boolean(value));
   const showControls = editMode && !ghost && (selected || hovered);
   const freshness = formatFreshness(widget.freshness_at);
   const uptime = formatUptime(widget.service_uptime_seconds);
   const mode = manifest.refresh_policy.mode;
+  const densityCompact = densityTone === "condensed";
+  const densityBroadcast = densityTone === "broadcast";
+  const paddingClass = compact || densityCompact ? "p-3" : densityBroadcast ? "p-5" : "p-4";
   const titleClass =
     tier === "compact"
       ? "text-[13px] leading-5"
       : small
-        ? "text-base leading-6"
+        ? densityBroadcast
+          ? "text-lg leading-6"
+          : "text-base leading-6"
         : tier === "expanded"
-          ? "text-xl leading-7"
-          : "text-lg leading-6";
+          ? densityBroadcast
+            ? "text-2xl leading-8"
+            : "text-xl leading-7"
+          : densityBroadcast
+            ? "text-xl leading-7"
+            : "text-lg leading-6";
 
   return (
     <div
       className={[
-        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border bg-[#0a0d11] transition-[border-color,background-color,box-shadow,transform] duration-150",
-        compact ? "p-3" : "p-4",
+        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border bg-[#0a0d11] transition-[border-color,background-color] duration-150",
+        paddingClass,
+        alertFrameClass(alert.level),
         ghost
           ? "border-white/18 bg-[#0d1116] shadow-[0_18px_50px_rgba(2,6,23,0.45)]"
           : selected
@@ -121,17 +126,18 @@ export function WidgetCard({
       }}
       onClick={onSelect}
     >
+      {alert.level !== "nominal" ? <div className={`absolute inset-x-0 top-0 h-1 ${alertBandClass(alert.level)}`} /> : null}
+
       {editMode && !ghost ? (
         <>
           <div
-            className="absolute inset-x-10 top-0 z-10 h-[10%] min-h-8 max-h-12 cursor-grab border-t border-cyan-200/35 bg-cyan-200/[0.035] opacity-90 transition active:cursor-grabbing"
+            className="absolute inset-x-10 top-0 z-10 h-[10%] min-h-8 max-h-12 cursor-grab border-t border-cyan-200/35 bg-cyan-200/[0.035] opacity-90 active:cursor-grabbing"
             onPointerDown={(event) => {
               event.stopPropagation();
               onDragHandlePointerDown(event);
             }}
           >
             <span className="pointer-events-none absolute left-1/2 top-2 h-1 w-12 -translate-x-1/2 border-y border-cyan-100/35" />
-            <span className="pointer-events-none absolute left-1/2 top-4 h-1 w-8 -translate-x-1/2 border-y border-cyan-100/25" />
           </div>
           <div
             className="absolute bottom-0 right-0 z-30 h-12 w-12 cursor-nwse-resize bg-gradient-to-tl from-cyan-300/12 via-cyan-300/[0.025] to-transparent"
@@ -142,8 +148,7 @@ export function WidgetCard({
               onResizeHandlePointerDown(event);
             }}
           >
-            <span className="absolute bottom-2 right-2 h-5 w-5 border-b-2 border-r-2 border-cyan-100/70 transition group-hover:border-cyan-50" />
-            <span className="absolute bottom-4 right-4 h-3 w-3 border-b border-r border-cyan-100/35 transition group-hover:border-cyan-100/70" />
+            <span className="absolute bottom-2 right-2 h-5 w-5 border-b-2 border-r-2 border-cyan-100/70 group-hover:border-cyan-50" />
           </div>
         </>
       ) : null}
@@ -154,9 +159,11 @@ export function WidgetCard({
             showControls ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
           }`}
         >
-          <IconButton label="Refresh" onClick={onRefresh}>
-            <RefreshIcon />
-          </IconButton>
+          {canRefresh ? (
+            <IconButton label="Refresh" onClick={onRefresh}>
+              <RefreshIcon />
+            </IconButton>
+          ) : null}
           <IconButton label={isRunning ? "Pause" : "Start"} onClick={onToggleRun}>
             {isRunning ? <PauseIcon /> : <PlayIcon />}
           </IconButton>
@@ -207,14 +214,7 @@ export function WidgetCard({
           />
         ) : null}
 
-        {issues.length > 0 ? (
-          <div className={`rounded-[14px] border border-rose-300/18 bg-rose-300/8 ${compact ? "px-2.5 py-2" : "px-3 py-2.5"}`}>
-            <p className="text-[10px] uppercase tracking-[0.18em] text-rose-100/80">Runtime issue</p>
-            <p className={`mt-1 text-rose-50 ${compact ? "line-clamp-2 text-[11px] leading-4" : "line-clamp-2 text-xs leading-5"}`}>
-              {issues[0]}
-            </p>
-          </div>
-        ) : null}
+        {alert.level !== "nominal" ? <AlertCallout alert={alert} compact={compact || densityCompact} /> : null}
 
         {primaryProvider && !compact && tier !== "standard" ? (
           <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-slate-300">
@@ -233,14 +233,49 @@ export function WidgetCard({
         {widget.status_message && !compact ? <p className="text-xs leading-5 text-slate-400">{widget.status_message}</p> : null}
       </div>
 
-      {editMode && !compact && selected ? (
-        <WidgetSettingsPanel
-          configSchema={configSchema}
-          value={widget.config}
-          onSave={onUpdateConfig}
-          providerStates={providerStates}
-        />
-      ) : null}
+    </div>
+  );
+}
+
+function alertFrameClass(level: WidgetAlert["level"]) {
+  if (level === "critical") {
+    return "shadow-[inset_0_0_0_1px_rgba(251,113,133,0.28)]";
+  }
+  if (level === "warning") {
+    return "shadow-[inset_0_0_0_1px_rgba(251,191,36,0.22)]";
+  }
+  if (level === "watch") {
+    return "shadow-[inset_0_0_0_1px_rgba(103,232,249,0.16)]";
+  }
+  return "";
+}
+
+function alertBandClass(level: WidgetAlert["level"]) {
+  if (level === "critical") {
+    return "bg-rose-300";
+  }
+  if (level === "warning") {
+    return "bg-amber-300";
+  }
+  return "bg-cyan-300";
+}
+
+function AlertCallout({ alert, compact }: { alert: WidgetAlert; compact: boolean }) {
+  const critical = alert.level === "critical";
+  return (
+    <div
+      className={[
+        "rounded-none border",
+        compact ? "px-2.5 py-2" : "px-3 py-2.5",
+        critical ? "border-rose-300/22 bg-rose-300/9" : "border-amber-300/20 bg-amber-300/8",
+      ].join(" ")}
+    >
+      <p className={`text-[10px] uppercase tracking-[0.18em] ${critical ? "text-rose-100/80" : "text-amber-100/80"}`}>
+        {alert.level}
+      </p>
+      <p className={`mt-1 ${critical ? "text-rose-50" : "text-amber-50"} ${compact ? "line-clamp-2 text-[11px] leading-4" : "line-clamp-2 text-xs leading-5"}`}>
+        {alert.reasons.join(" / ")}
+      </p>
     </div>
   );
 }

@@ -12,8 +12,18 @@ import {
   packBoardLayout,
   reorderWidgetCollection,
 } from "@/lib/board-layout";
+import {
+  BOARD_DENSITY_PRESETS,
+  canManuallyRefreshWidget,
+  getWidgetAlert,
+  getWidgetProviderStates,
+  readBoardViewSettings,
+  writeBoardViewSettings,
+} from "@/lib/board-view-settings";
+import type { BoardDensityPreset, BoardViewSettings, WidgetAlert } from "@/lib/board-view-settings";
 import type { BoardState, JsonObject, TileSize, WidgetRegistryEntry } from "@/lib/types";
 import { WidgetCard } from "@/components/board/widget-card";
+import { WidgetSettingsPanel } from "@/components/board/widget-settings-panel";
 
 interface BoardGridProps {
   board: BoardState;
@@ -45,8 +55,6 @@ interface PendingDragState {
   pointerOffsetY: number;
 }
 
-type BoardMode = "view" | "edit";
-
 export function BoardGrid({
   board,
   registry,
@@ -64,10 +72,10 @@ export function BoardGrid({
   const [pendingDrag, setPendingDrag] = useState<PendingDragState | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
-  const [showStats, setShowStats] = useState(false);
-  const [boardMode, setBoardMode] = useState<BoardMode>("view");
+  const [viewSettings, setViewSettings] = useState<BoardViewSettings>(() => readBoardViewSettings());
   const resizeCandidateRef = useRef<TileSize | null>(null);
-  const isEditMode = boardMode === "edit";
+  const densityDefinition = BOARD_DENSITY_PRESETS[viewSettings.density];
+  const isEditMode = viewSettings.mode === "edit";
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -88,14 +96,22 @@ export function BoardGrid({
     containerWidth > 0
       ? Math.min(
           MAX_BOARD_COLUMNS,
-          Math.max(MIN_BOARD_COLUMNS, Math.floor((containerWidth + BOARD_GAP_PX) / (BOARD_TARGET_CELL_PX + BOARD_GAP_PX))),
+          Math.max(
+            MIN_BOARD_COLUMNS,
+            Math.floor((containerWidth + BOARD_GAP_PX) / (densityDefinition.targetCellPx + BOARD_GAP_PX)),
+          ),
         )
       : MIN_BOARD_COLUMNS;
-  const displayWidgets = dragState?.previewWidgets ?? board.widgets;
-  const packedLayout = useMemo(() => packBoardLayout(displayWidgets, { columns: columnCount }), [columnCount, displayWidgets]);
   const committedLayout = useMemo(() => packBoardLayout(board.widgets, { columns: columnCount }), [board.widgets, columnCount]);
+  const displayWidgets = dragState?.previewWidgets ?? board.widgets;
+  const packedLayout = useMemo(
+    () => (displayWidgets === board.widgets ? committedLayout : packBoardLayout(displayWidgets, { columns: columnCount })),
+    [board.widgets, columnCount, committedLayout, displayWidgets],
+  );
   const cellWidth =
-    containerWidth > 0 ? Math.max((containerWidth - (columnCount - 1) * BOARD_GAP_PX) / columnCount, BOARD_MIN_CELL_PX) : 176;
+    containerWidth > 0
+      ? Math.max((containerWidth - (columnCount - 1) * BOARD_GAP_PX) / columnCount, densityDefinition.minCellPx)
+      : densityDefinition.minCellPx;
   const rowHeight = cellWidth;
   const visibleRows = Math.max(packedLayout.rows, 4);
   const boardHeight = visibleRows * rowHeight + Math.max(visibleRows - 1, 0) * BOARD_GAP_PX;
@@ -105,6 +121,19 @@ export function BoardGrid({
       (cell) => `${cell.col}-${cell.row}`,
     ),
   );
+  const alertsByWidgetId = useMemo(() => {
+    const alerts: Record<string, WidgetAlert> = {};
+    for (const widget of board.widgets) {
+      const entry = registry[widget.widget_id];
+      alerts[widget.id] = entry
+        ? getWidgetAlert(widget, entry.manifest, entry.plugin)
+        : { level: "critical", rank: 3, label: "Registry issue", reasons: ["Widget manifest is not registered"] };
+    }
+    return alerts;
+  }, [board.widgets, registry]);
+  const alertSummary = useMemo(() => summarizeAlerts(board.widgets, alertsByWidgetId), [alertsByWidgetId, board.widgets]);
+  const selectedWidget = selectedId ? board.widgets.find((widget) => widget.id === selectedId) ?? null : null;
+  const selectedEntry = selectedWidget ? registry[selectedWidget.widget_id] : null;
 
   useEffect(() => {
     if (selectedId && !board.widgets.some((widget) => widget.id === selectedId)) {
@@ -122,6 +151,14 @@ export function BoardGrid({
     setSelectedId(null);
     resizeCandidateRef.current = null;
   }, [isEditMode]);
+
+  function updateViewSettings(patch: Partial<BoardViewSettings>) {
+    setViewSettings((current) => {
+      const next = { ...current, ...patch };
+      writeBoardViewSettings(next);
+      return next;
+    });
+  }
 
   function beginDrag(widgetId: string, event: ReactPointerEvent<HTMLDivElement>) {
     if (!isEditMode || !containerRef.current) {
@@ -314,12 +351,14 @@ export function BoardGrid({
   }, [board.widgets, cellWidth, committedLayout.placements, onResize, resizeState, rowHeight]);
 
   return (
-    <div className="glass-panel-strong premium-ring overflow-x-auto rounded-none p-3">
+    <div className="glass-panel-strong premium-ring relative overflow-x-auto rounded-none p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Monitoring board</p>
           <p className="mt-1 truncate text-sm text-slate-300">
-            {isEditMode ? "Edit mode active: layout handles are enabled." : "View mode active: layout is locked for monitoring."}
+            {isEditMode
+              ? "Edit mode active: layout handles and side inspector are enabled."
+              : `${densityDefinition.label}: layout locked with alert priority active.`}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
@@ -327,7 +366,7 @@ export function BoardGrid({
             <button
               type="button"
               aria-pressed={!isEditMode}
-              onClick={() => setBoardMode("view")}
+              onClick={() => updateViewSettings({ mode: "view" })}
               className={`px-3 py-1.5 transition ${
                 !isEditMode ? "bg-cyan-300/16 text-cyan-50" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
               }`}
@@ -337,7 +376,7 @@ export function BoardGrid({
             <button
               type="button"
               aria-pressed={isEditMode}
-              onClick={() => setBoardMode("edit")}
+              onClick={() => updateViewSettings({ mode: "edit" })}
               className={`px-3 py-1.5 transition ${
                 isEditMode ? "bg-amber-300/16 text-amber-50" : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
               }`}
@@ -345,12 +384,30 @@ export function BoardGrid({
               Edit
             </button>
           </div>
+          <div className="grid grid-cols-3 overflow-hidden rounded border border-white/10 bg-white/[0.04] p-0.5">
+            {(Object.keys(BOARD_DENSITY_PRESETS) as BoardDensityPreset[]).map((density) => (
+              <button
+                key={density}
+                type="button"
+                title={BOARD_DENSITY_PRESETS[density].description}
+                aria-pressed={viewSettings.density === density}
+                onClick={() => updateViewSettings({ density })}
+                className={`px-2.5 py-1.5 transition ${
+                  viewSettings.density === density
+                    ? "bg-cyan-300/16 text-cyan-50"
+                    : "text-slate-400 hover:bg-white/[0.06] hover:text-slate-200"
+                }`}
+              >
+                {density === "wall-monitor" ? "Wall" : density === "half-display" ? "Half" : "Desk"}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
-            aria-pressed={showStats}
-            onClick={() => setShowStats((current) => !current)}
+            aria-pressed={viewSettings.showStats}
+            onClick={() => updateViewSettings({ showStats: !viewSettings.showStats })}
             className={`rounded border px-3 py-1.5 transition ${
-              showStats
+              viewSettings.showStats
                 ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-50"
                 : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
             }`}
@@ -363,15 +420,29 @@ export function BoardGrid({
           <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1.5">
             {columnCount} cols
           </span>
+          <AlertSummaryBadge summary={alertSummary} />
           <span className="rounded border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
             {isEditMode ? (selectedId ? `Selected ${selectedId}` : "No tile selected") : "Layout locked"}
           </span>
         </div>
       </div>
+      {alertSummary.highest ? (
+        <div className="mb-3 grid gap-2 border border-white/10 bg-[#07090d] px-3 py-2 text-xs text-slate-300 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+          <span className={`w-fit rounded border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertSummary.highest.level === "critical" ? "border-rose-300/24 bg-rose-300/10 text-rose-50" : "border-amber-300/24 bg-amber-300/10 text-amber-50"}`}>
+            Priority {alertSummary.highest.level}
+          </span>
+          <span className="min-w-0 truncate">
+            {alertSummary.highestWidgetTitle}: {alertSummary.highest.reasons.join(" / ")}
+          </span>
+          <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
+            C{alertSummary.critical} W{alertSummary.warning} Watch{alertSummary.watch}
+          </span>
+        </div>
+      ) : null}
       <div
         ref={containerRef}
         className="relative min-w-[760px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
-        style={{ height: boardHeight }}
+        style={{ height: boardHeight, minWidth: densityDefinition.gridMinWidthPx }}
       >
         {Array.from({ length: visibleRows }).map((_, row) =>
           Array.from({ length: columnCount }).map((__, col) => {
@@ -381,7 +452,7 @@ export function BoardGrid({
             return (
               <div
                 key={key}
-                className={`absolute rounded-none border transition duration-300 ${
+                className={`absolute rounded-none border ${
                   previewCellKeys.has(key)
                     ? "border-cyan-300/35 bg-cyan-300/12 shadow-[0_0_0_1px_rgba(103,232,249,0.14)]"
                     : occupiedCellKeys.has(key)
@@ -415,25 +486,26 @@ export function BoardGrid({
           return (
             <div
               key={widget.id}
-              className="absolute will-change-transform transition-[transform,width,height,opacity,filter] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              className={`absolute transition-[transform,width,height,opacity] duration-150 ${isDragged ? "will-change-transform" : ""}`}
               style={{
                 width,
                 height,
                 transform: `translate3d(${left}px, ${top}px, 0)`,
                 opacity: isDragged ? 0.18 : 1,
-                filter: isDragged ? "saturate(0.85)" : "none",
+                zIndex: isDragged ? 1 : 10 + (alertsByWidgetId[widget.id]?.rank ?? 0) * 10 + (selectedId === widget.id ? 4 : 0),
               }}
             >
               {manifest ? (
                 <WidgetCard
                   widget={widget}
                   manifest={manifest}
-                  configSchema={entry.config_schema}
-                  plugin={entry.plugin}
+                  alert={alertsByWidgetId[widget.id]}
+                  canRefresh={canManuallyRefreshWidget(manifest)}
+                  densityTone={densityDefinition.cardTone}
                   selected={isEditMode && selectedId === widget.id}
                   hovered={isEditMode && !dragState && !pendingDrag && hoveredId === widget.id}
                   editMode={isEditMode}
-                  showStats={showStats}
+                  showStats={viewSettings.showStats}
                   onSelect={() => {
                     if (isEditMode) {
                       setSelectedId(widget.id);
@@ -516,7 +588,6 @@ export function BoardGrid({
                 committedLayout.placements[dragState.widgetId].height * rowHeight +
                 (committedLayout.placements[dragState.widgetId].height - 1) * BOARD_GAP_PX,
               transform: `translate3d(${dragState.ghostX}px, ${dragState.ghostY}px, 0) rotate(1.2deg) scale(1.015)`,
-              filter: "drop-shadow(0 24px 70px rgba(8,145,178,0.34))",
             }}
           >
             {(() => {
@@ -532,13 +603,14 @@ export function BoardGrid({
                 <WidgetCard
                   widget={widget}
                   manifest={entry.manifest}
-                  configSchema={entry.config_schema}
-                  plugin={entry.plugin}
+                  alert={alertsByWidgetId[widget.id]}
+                  canRefresh={canManuallyRefreshWidget(entry.manifest)}
+                  densityTone={densityDefinition.cardTone}
                   selected
                   hovered={false}
                   editMode
                   ghost
-                  showStats={showStats}
+                  showStats={viewSettings.showStats}
                   onSelect={() => undefined}
                   onHoverChange={() => undefined}
                   onDragHandlePointerDown={() => undefined}
@@ -553,6 +625,25 @@ export function BoardGrid({
           </div>
         ) : null}
       </div>
+
+      {isEditMode && selectedWidget ? (
+        <WidgetInspector
+          widget={selectedWidget}
+          entry={selectedEntry}
+          alert={alertsByWidgetId[selectedWidget.id]}
+          canRefresh={selectedEntry ? canManuallyRefreshWidget(selectedEntry.manifest) : false}
+          onClose={() => setSelectedId(null)}
+          onRefresh={() => onRefresh(selectedWidget.id)}
+          onToggleRun={() =>
+            onToggleRun(
+              selectedWidget.id,
+              selectedWidget.lifecycle_state === "running" || selectedWidget.lifecycle_state === "created",
+            )
+          }
+          onRemove={() => onRemove(selectedWidget.id)}
+          onUpdateConfig={(config) => onUpdateConfig(selectedWidget.id, config)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -563,8 +654,187 @@ interface ResizeState {
   candidateSize: TileSize;
 }
 
-const BOARD_TARGET_CELL_PX = 224;
-const BOARD_MIN_CELL_PX = 160;
+interface AlertSummary {
+  critical: number;
+  warning: number;
+  watch: number;
+  highest: WidgetAlert | null;
+  highestWidgetTitle: string;
+}
+
+function summarizeAlerts(widgets: BoardState["widgets"], alertsByWidgetId: Record<string, WidgetAlert>): AlertSummary {
+  const summary: AlertSummary = {
+    critical: 0,
+    warning: 0,
+    watch: 0,
+    highest: null,
+    highestWidgetTitle: "",
+  };
+
+  for (const widget of widgets) {
+    const alert = alertsByWidgetId[widget.id];
+    if (!alert || alert.level === "nominal") {
+      continue;
+    }
+    if (alert.level === "critical") {
+      summary.critical += 1;
+    } else if (alert.level === "warning") {
+      summary.warning += 1;
+    } else if (alert.level === "watch") {
+      summary.watch += 1;
+    }
+    if (!summary.highest || alert.rank > summary.highest.rank) {
+      summary.highest = alert;
+      summary.highestWidgetTitle = widget.title;
+    }
+  }
+
+  return summary;
+}
+
+function AlertSummaryBadge({ summary }: { summary: AlertSummary }) {
+  const active = summary.critical + summary.warning + summary.watch;
+  if (active === 0) {
+    return (
+      <span className="rounded border border-emerald-300/15 bg-emerald-300/8 px-3 py-1.5 text-emerald-100">
+        Alerts clear
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`rounded border px-3 py-1.5 ${
+        summary.critical > 0
+          ? "border-rose-300/24 bg-rose-300/10 text-rose-50"
+          : "border-amber-300/24 bg-amber-300/10 text-amber-50"
+      }`}
+    >
+      {summary.critical} critical / {summary.warning} warning / {summary.watch} watch
+    </span>
+  );
+}
+
+function WidgetInspector({
+  widget,
+  entry,
+  alert,
+  canRefresh,
+  onClose,
+  onRefresh,
+  onToggleRun,
+  onRemove,
+  onUpdateConfig,
+}: {
+  widget: BoardState["widgets"][number];
+  entry?: WidgetRegistryEntry | null;
+  alert: WidgetAlert;
+  canRefresh: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+  onToggleRun: () => void;
+  onRemove: () => void;
+  onUpdateConfig: (config: JsonObject) => void | Promise<void>;
+}) {
+  const providerStates = getWidgetProviderStates(widget);
+  const running = widget.lifecycle_state === "running" || widget.lifecycle_state === "created";
+
+  return (
+    <aside className="fixed bottom-5 right-5 top-5 z-50 flex w-[390px] flex-col overflow-hidden border border-white/12 bg-[#080b10] shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
+      <div className="border-b border-white/10 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Side inspector</p>
+            <h2 className="mt-2 truncate text-lg font-semibold text-white">{widget.title}</h2>
+            <p className="mt-1 truncate text-xs text-slate-400">
+              {widget.widget_id} / {widget.size}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="Close inspector"
+            title="Close"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+          >
+            x
+          </button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div
+          className={`border px-3 py-2.5 text-xs ${
+            alert.level === "critical"
+              ? "border-rose-300/22 bg-rose-300/9 text-rose-50"
+              : alert.level === "warning"
+                ? "border-amber-300/22 bg-amber-300/9 text-amber-50"
+                : "border-cyan-300/16 bg-cyan-300/8 text-cyan-50"
+          }`}
+        >
+          <p className="text-[10px] uppercase tracking-[0.18em] opacity-75">Alert priority</p>
+          <p className="mt-1 font-medium">{alert.label}</p>
+          {alert.reasons.length > 0 ? <p className="mt-1 leading-5 opacity-90">{alert.reasons.join(" / ")}</p> : null}
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <InspectorMetric label="Lifecycle" value={widget.lifecycle_state} />
+          <InspectorMetric label="Restarts" value={String(widget.restart_count)} />
+          <InspectorMetric label="Failures" value={String(widget.consecutive_failures)} />
+          <InspectorMetric label="Uptime" value={`${widget.service_uptime_seconds}s`} />
+        </div>
+
+        {entry ? (
+          <WidgetSettingsPanel
+            configSchema={entry.config_schema}
+            value={widget.config}
+            onSave={onUpdateConfig}
+            providerStates={providerStates}
+          />
+        ) : (
+          <div className="mt-4 border border-rose-300/18 bg-rose-300/8 px-3 py-3 text-sm text-rose-50">
+            This tile cannot be configured because its manifest is not registered.
+          </div>
+        )}
+      </div>
+
+      <div className={`grid gap-2 border-t border-white/10 p-3 ${canRefresh ? "grid-cols-3" : "grid-cols-2"}`}>
+        {canRefresh ? (
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="border border-white/10 bg-white/[0.04] px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-200 transition hover:bg-white/[0.08]"
+          >
+            Refresh
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={onToggleRun}
+          className="border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
+        >
+          {running ? "Pause" : "Start"}
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+        >
+          Remove
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function InspectorMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border border-white/10 bg-black/20 px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
+    </div>
+  );
+}
 
 function UnavailableWidgetCard({
   title,

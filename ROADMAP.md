@@ -1,42 +1,60 @@
 # GremlinBoard Roadmap
 
-## Phase 1 — Board MVP
-- Grid board
-- Snap-to-grid placement
-- Fixed tile sizes
-- Widget registry
+## Phase 1 - Board Foundation
+
+- Strict responsive grid
+- Fixed tile sizes only
+- Registry-backed core widgets
 - Persistent layout
-- Timer widget
-- Personal note widget
+- Command box add flow
+- View/Edit board mode
 
-## Phase 2 — Live Widgets
-- News widget
-- Sports widget
-- Trending feed widget
-- Widget refresh scheduling
-- Widget lifecycle states
+Status: implemented for the local monitoring board.
 
-## Phase 3 — Runtime Host
+## Phase 2 - Monitoring Station UX
+
+- Locked View mode for watch duty
+- Edit-only drag, resize, widget controls, and selected-widget settings
+- Board density presets
+- Stats toggle for freshness, uptime, mode, and restart count
+- Alert priority layer for runtime warnings, widget errors, provider failures, and timeline levels
+
+Status: active product shape.
+
+## Phase 3 - Runtime and Observability
+
 - Python microservice runner
 - Health checks
-- Logs
-- Restart / stop / remove
+- Restart, stop, refresh, and remove actions
+- Metrics and runtime logs
 - Event delivery channel
+- System Panel observability overview
 
-## Phase 4 — Spec Widget
+Status: implemented locally; continue hardening failure/restart tests.
+
+## Phase 4 - Provider and Settings Setup
+
+- Provider credential setup
+- AI provider defaults and fallback chain
+- Runtime cadence settings
+- Appearance settings including density, grid overlay, and reduced motion
+
+Status: implemented through System Panel.
+
+## Phase 5 - Spec Studio and AI Tooling
+
 - Natural language input
 - Structured widget spec generation
 - Validation layer
-- Scaffold generation
+- Scaffold preview
+- Review-gated install
+- Generated widget rollback
 
-## Phase 5 — AI Tooling
-- Codex integration
-- Claude Code CLI integration
-- Generate widget from spec
-- Review and install pipeline
+Status: implemented as a staged flow; production provider integrations can deepen over time.
 
-## Phase 6 — Desktop Shell
-- Tauri packaging
-- Local-first mode
-- Startup launch
-- System integration
+## Phase 6 - Testing and Packaging
+
+- Keep backend pytest coverage current
+- Keep frontend typecheck, lint, and build green
+- Add/maintain Playwright smoke tests for board, System Panel, and Spec Studio
+- Consider Tauri packaging only when desktop distribution is needed

@@ -122,9 +122,30 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
   const canAdd = timers.length < MAX_TIMERS;
 
   useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, []);
+    const hasActiveTimer = timers.some((timer) => remainingSeconds(timer.target_time, Date.now()) > 0);
+    if (!hasActiveTimer) {
+      return;
+    }
+
+    const tick = () => {
+      if (document.visibilityState !== "hidden") {
+        setNow(Date.now());
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        tick();
+      }
+    };
+
+    const interval = window.setInterval(tick, 1000);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [timers]);
 
   function commitTimers(nextTimers: CountdownTimer[]) {
     const { label: _legacyLabel, target_time: _legacyTargetTime, ...nextConfig } = widget.config;
@@ -178,7 +199,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="min-h-0 flex-1 space-y-2 overflow-hidden">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {visibleTimers.length === 0 ? (
           <div className="flex h-full items-center justify-center border border-dashed border-white/12 bg-white/[0.03] p-3 text-center text-xs text-slate-400">
             Add up to four countdowns.

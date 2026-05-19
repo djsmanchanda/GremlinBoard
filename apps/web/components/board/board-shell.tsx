@@ -68,7 +68,24 @@ export function BoardShell() {
 
   useEffect(() => {
     const socketUrl = apiWebSocketUrl("/board/stream");
-    const socket = new WebSocket(socketUrl);
+    let closed = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | null = null;
+
+    const clearReconnect = () => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const closeSocket = () => {
+      clearReconnect();
+      const activeSocket = socket;
+      socket = null;
+      activeSocket?.close();
+    };
+
     const refreshRegistrySnapshot = () => {
       void fetchRegistry()
         .then((registryResponse) => {
@@ -92,23 +109,60 @@ export function BoardShell() {
       }, 0);
       pendingSnapshotTimers.current.push(timer);
     };
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
-      if (payload.type === "board.snapshot") {
-        applyBoardSnapshot(payload.payload);
+
+    const connect = () => {
+      if (closed || socket || document.visibilityState === "hidden") {
         return;
       }
-      if (payload.type === "registry.updated") {
-        refreshRegistrySnapshot();
-      }
+      const nextSocket = new WebSocket(socketUrl);
+      socket = nextSocket;
+      nextSocket.onmessage = (event) => {
+        const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
+        if (payload.type === "board.snapshot") {
+          applyBoardSnapshot(payload.payload);
+          return;
+        }
+        if (payload.type === "registry.updated") {
+          refreshRegistrySnapshot();
+        }
+      };
+      nextSocket.onerror = () => {
+        if (!hasBoardSnapshot.current) {
+          setError("Realtime board stream disconnected");
+        }
+      };
+      nextSocket.onclose = () => {
+        if (socket !== nextSocket) {
+          return;
+        }
+        socket = null;
+        if (!closed && document.visibilityState === "visible") {
+          reconnectTimer = window.setTimeout(connect, 5000);
+        }
+      };
     };
-    socket.onerror = () => {
-      if (!hasBoardSnapshot.current) {
-        setError("Realtime board stream disconnected");
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        closeSocket();
+        return;
       }
+      void fetchBoard()
+        .then((snapshot) => {
+          setBoard(snapshot);
+          hasBoardSnapshot.current = true;
+          setError(null);
+        })
+        .catch(() => undefined);
+      connect();
     };
+
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      socket.close();
+      closed = true;
+      closeSocket();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       for (const timer of pendingSnapshotTimers.current) {
         window.clearTimeout(timer);
       }
@@ -163,7 +217,9 @@ export function BoardShell() {
 
   async function handleRefresh(widgetId: string) {
     try {
-      await refreshWidget(widgetId);
+      const boardResponse = await refreshWidget(widgetId);
+      setBoard(boardResponse);
+      setError(null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Failed to refresh widget");
     }
@@ -171,11 +227,14 @@ export function BoardShell() {
 
   async function handleToggleRun(widgetId: string, running: boolean) {
     try {
+      let boardResponse: BoardState;
       if (running) {
-        await stopWidget(widgetId);
+        boardResponse = await stopWidget(widgetId);
       } else {
-        await startWidget(widgetId);
+        boardResponse = await startWidget(widgetId);
       }
+      setBoard(boardResponse);
+      setError(null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Failed to update widget lifecycle");
     }
