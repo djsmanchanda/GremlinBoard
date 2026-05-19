@@ -14,6 +14,13 @@ RuntimeManager owns:
 - metrics and runtime log emission
 - cleanup when a widget is removed
 
+RuntimeManager also protects the app's background footprint:
+- monitor cadence is clamped to a control-panel-friendly lower bound
+- snapshot serialization is skipped when there are no websocket subscribers
+- subscriber queues are bounded and drop the oldest pending event under backpressure
+- monitor-loop exceptions are logged without terminating the monitor task
+- timezone-naive persisted datetimes are normalized before expiry or stale comparisons
+
 ## Failure Policy
 
 - Each widget manifest may define runtime policy values such as timeouts, max retries, retry backoff, and stale-after seconds.
@@ -44,3 +51,18 @@ Every service should report or allow the runtime to derive:
 - The board Stats toggle expands freshness, uptime, mode, and restart count without making that rail permanent chrome.
 - The System Panel shows aggregate runtime health, widget/service health, latest metrics, and timeline events.
 - Runtime cadence, metric retention, and log view limits persist in system settings.
+
+## Efficiency Rules
+
+- Do not create one-second backend refresh loops for widgets that only need visual countdown or local display ticks.
+- Prefer renderer-local ticking for countdowns and similarly deterministic UI-only state.
+- Data-backed widgets should use cache TTLs and conservative default intervals; manual refresh is the escape hatch for immediate operator action.
+- Observability polling should pause while the System Panel tab is hidden.
+- Runtime metrics retention should trim bounded windows, not scan the whole historical table during every cadence.
+- Avoid committing generated development logs. `*.log` is ignored at the repo root.
+
+## Local Run Modes
+
+- Development mode: `npm run dev:api` and `npm run dev:web`. Use this while changing code; CPU cost from reloaders and compilers is expected.
+- Utility mode: `npm run start:api` plus `npm run build && npm run start:web`. Use this when evaluating the app as a lightweight local control panel.
+- API start helpers in `scripts/start-api.ps1` and `scripts/start-api.sh` run without reload and without access logs.

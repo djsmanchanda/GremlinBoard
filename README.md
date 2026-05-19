@@ -20,6 +20,22 @@ GremlinBoard is a monitoring-station board for registered live widgets. It keeps
 - System Panel for provider setup, credentials, runtime cadence, density, grid overlay, reduced motion, observability, and widget health
 - Spec Studio for staged AI widget creation: spec draft, validation, scaffold, codegen, review, install
 
+## Performance Posture
+
+GremlinBoard is intended to behave like a local control panel, not a heavy dashboard tab. The current runtime and UI are tuned around a lightweight background footprint:
+
+- Use production-style local starts for day-to-day operation. `scripts/start-api.*` and `npm run start:api` run Uvicorn without reload watchers or access-log spam.
+- Reserve `npm run dev:api` and `npm run dev:web` for active development. Dev reloaders and Next dev compilation are expected to use more CPU.
+- API GET requests avoid unnecessary JSON content headers so simple reads do not trigger extra CORS preflights.
+- Session rows are touched at most every 300 seconds instead of on every request.
+- Runtime snapshots are only serialized and published when websocket subscribers exist.
+- Event queues are bounded so disconnected or slow UI clients cannot create unbounded backend memory pressure.
+- System Panel observability polling follows the configured monitor cadence and pauses while the tab is hidden.
+- Countdown widgets render second-by-second locally in the browser, while backend refresh runs on a slower interval.
+- Sports widgets default to a slower polling cadence with manual refresh available when operators need fresh data immediately.
+- Reduced motion is the default appearance posture, with `prefers-reduced-motion` also respected.
+- Root `*.log` files are ignored and existing dev logs were removed from Git tracking.
+
 ## Repository Layout
 
 - `apps/web`: Next.js monitoring board, System Panel, and Spec Studio
@@ -51,6 +67,19 @@ npm run dev:web
 
 Open `http://localhost:3000`. The frontend expects the API at `http://127.0.0.1:8000/api` by default. Copy `.env.example` to `.env` if you need to override ports, origins, database path, or local user defaults.
 
+For a lighter local utility run after building the web app:
+
+```bash
+npm run build
+npm run start:api
+```
+
+Then run the web production server in another terminal:
+
+```bash
+npm run start:web
+```
+
 ## Daily Development
 
 ```bash
@@ -59,6 +88,16 @@ npm run lint
 npm run build
 python -m pytest apps/api/tests -q
 ```
+
+Focused performance/runtime checks used for the latest optimization pass:
+
+```bash
+python -m pytest apps/api/tests/test_platform_foundations.py -p no:langsmith
+python -m pytest apps/api/tests/test_runtime_integration.py -p no:langsmith
+node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit
+```
+
+The `-p no:langsmith` flag may be needed on machines where an unrelated global pytest plugin interferes with local Pydantic imports.
 
 The web app includes Playwright smoke coverage for monitoring-station viewports:
 
@@ -115,3 +154,4 @@ If `npm` itself fails before it can run, reinstall Node.js 20+ or switch to a kn
 - Resize previews use dashed outlines for every allowed size that fits the current column count, with the nearest target highlighted while resizing.
 - Freshness, uptime, mode, and restart count stay compact in widget chrome and can be expanded with the persistent Stats toggle.
 - Runtime warnings and widget/provider failures form the alert layer and should be easier to notice than normal metrics.
+- Background runtime work should scale with active operators and configured cadence, not with idle tabs or stale subscribers.

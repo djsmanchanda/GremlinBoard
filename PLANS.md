@@ -17,6 +17,7 @@ Maintain GremlinBoard as a monitoring-station product with:
 - System Panel: provider setup, credentials, runtime settings, density presets, observability overview, widget health, metrics, event timeline
 - Spec Studio: idea/spec validation, scaffold preview, generation jobs, feedback refinement, review-gated install
 - Runtime: registry-backed services, websocket snapshots, restart/backoff, stale-service monitoring, local persistence
+- Performance baseline: hidden tabs should stop realtime/polling work, simple reads should avoid CORS preflights, and backend loops should use conservative cadences unless the operator asks for immediate refresh
 
 ## Active Documentation Notes
 
@@ -24,7 +25,8 @@ Maintain GremlinBoard as a monitoring-station product with:
 - Stats are a toggleable rail on widgets, not a separate always-on board overlay.
 - Source settings behave as a selected-widget inspector in Edit mode.
 - Runtime warnings and widget/provider failures are the alert priority layer.
-- Playwright smoke tests are expected as the browser-level gate, but this snapshot does not include a committed smoke harness or package script.
+- Playwright smoke tests cover `960x1080`, `1280x720`, `1920x1080`, and `2560x1440`.
+- The control-panel runtime should be able to run without dev reloaders, access-log spam, one-second backend loops, or always-open hidden-tab streams.
 
 ## Validation Steps
 
@@ -35,10 +37,14 @@ Maintain GremlinBoard as a monitoring-station product with:
 5. Run frontend build: `npm run build`.
 6. Run Playwright smoke tests when the smoke harness is present.
 7. Sanity check the local runtime by starting the API and web app, opening the board, toggling View/Edit, opening the command box, selecting a widget, and checking System Panel health.
+8. For performance-sensitive runtime changes, also run:
+   - `python -m pytest apps/api/tests/test_platform_foundations.py -p no:langsmith`
+   - `python -m pytest apps/api/tests/test_runtime_integration.py -p no:langsmith`
+   - `node node_modules/typescript/bin/tsc -p apps/web/tsconfig.json --noEmit`
 
 ## Risks
 
-- Browser smoke coverage can drift because the Playwright harness is not currently committed.
 - Dynamic widget renderer loading is still constrained by frontend renderer support.
 - Local setup depends on working Python/pip, `uvicorn`, Node, and npm.
 - Data-backed widgets need credentials or fallback behavior for provider failures.
+- Existing local SQLite state can contain old widget configs or timestamps; runtime comparisons must normalize persisted datetimes and docs should distinguish existing data from new defaults.
