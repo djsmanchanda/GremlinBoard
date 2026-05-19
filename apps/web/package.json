@@ -2,9 +2,9 @@
   "name": "gremlinboard-web",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 7556",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 7555",
     "e2e:smoke": "playwright test -c playwright.config.ts tests/smoke",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit"

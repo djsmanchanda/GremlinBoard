@@ -18,6 +18,7 @@ Maintain GremlinBoard as a monitoring-station product with:
 - Spec Studio: idea/spec validation, scaffold preview, generation jobs, feedback refinement, review-gated install
 - Runtime: registry-backed services, websocket snapshots, restart/backoff, stale-service monitoring, local persistence
 - Performance baseline: hidden tabs should stop realtime/polling work, simple reads should avoid CORS preflights, and backend loops should use conservative cadences unless the operator asks for immediate refresh
+- Local process model: normal use should be tray-managed utility mode, while active development can run as a second managed stack on separate ports
 
 ## Active Documentation Notes
 
@@ -27,6 +28,18 @@ Maintain GremlinBoard as a monitoring-station product with:
 - Runtime warnings and widget/provider failures are the alert priority layer.
 - Playwright smoke tests cover `960x1080`, `1280x720`, `1920x1080`, and `2560x1440`.
 - The control-panel runtime should be able to run without dev reloaders, access-log spam, one-second backend loops, or always-open hidden-tab streams.
+- Windows launchers provide one-button stable/dev starts, system-tray visibility, and a max-two managed instance policy.
+- Stable launcher ports are web/API `7555`/`2555`; dev ports are `7556`/`2556`. Startup must fail fast if those ports are already held by unmanaged processes.
+
+## Lightweight Roadmap
+
+- Make the tray status-aware: show API/web liveness, last startup error, and direct links to launcher logs.
+- Add an operator-presence idle mode that pauses non-critical widget refresh when no board or System Panel client is connected.
+- Add a backend suspend/resume API so the tray can put the runtime into low-power mode without fully stopping services.
+- Move expensive provider calls behind per-widget TTL caches and provider backoff budgets.
+- Split heavy frontend routes so board startup does not load Spec Studio or full observability code.
+- Keep the normal launcher on production web assets; reserve Next dev, reload watchers, source maps, and verbose logs for the dev launcher.
+- Add a compact process health probe in the tray menu so API/web failures are visible without opening the browser.
 
 ## Validation Steps
 

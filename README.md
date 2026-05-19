@@ -53,6 +53,36 @@ GremlinBoard is intended to behave like a local control panel, not a heavy dashb
 
 ## Quickstart
 
+### One-button Windows launcher
+
+For day-to-day local use on Windows, use the tray launcher instead of dev servers:
+
+```bat
+Start-GremlinBoard.bat
+```
+
+This starts the API on `127.0.0.1:2555`, starts the production web server on `127.0.0.1:7555`, and keeps a GremlinBoard icon in the system tray. The tray menu can open the board, open the System Panel, or stop the managed services.
+
+For active development, use the second managed stack:
+
+```bat
+Start-GremlinBoard-Dev.bat
+```
+
+Dev mode uses API port `2556` and web port `7556`, with reloaders enabled. The launcher allows at most two managed stacks: one stable utility stack and one dev stack. If another managed stack is already running, it asks which one to terminate before starting a new one.
+
+To stop all managed GremlinBoard services:
+
+```bat
+Stop-GremlinBoard.bat
+```
+
+Launcher state and logs live under `data/launcher/` and are intentionally ignored by Git.
+
+Stable mode uses the custom local web/API ports `7555`/`2555`. Dev mode uses the adjacent `7556`/`2556` pair. The launcher checks those ports before starting and refuses to attach to an unmanaged listener.
+
+### Manual development
+
 ```bash
 npm install
 python -m pip install -e apps/api
@@ -65,7 +95,7 @@ In another terminal:
 npm run dev:web
 ```
 
-Open `http://localhost:3000`. The frontend expects the API at `http://127.0.0.1:8000/api` by default. Copy `.env.example` to `.env` if you need to override ports, origins, database path, or local user defaults.
+Open `http://localhost:7556`. The frontend expects the stable API at `http://127.0.0.1:2555/api` by default. The dev launcher and `scripts/start-web.*` point the dev web server at `http://127.0.0.1:2556/api`. Copy `.env.example` to `.env` if you need to override ports, origins, database path, or local user defaults.
 
 For a lighter local utility run after building the web app:
 
@@ -79,6 +109,8 @@ Then run the web production server in another terminal:
 ```bash
 npm run start:web
 ```
+
+The tray launcher wraps the same utility-mode posture, but also supervises child process IDs and prevents accidental duplicate stacks.
 
 ## Daily Development
 
@@ -107,6 +139,59 @@ npm run test:e2e:smoke
 
 The smoke suite starts the web dev server, mocks the board API, and checks `960x1080`, `1280x720`, `1920x1080`, and `2560x1440` for board load, View/Edit mode, density controls, alert priority, and the side inspector.
 
+## Codex Worktree Environment
+
+Use this setup script for Codex worktree creation. The API package is installed from `apps/api/pyproject.toml`; this repo does not use a root `requirements.txt`.
+
+Default, macOS, and Linux:
+
+```bash
+cd "$CODEX_WORKTREE_PATH"
+python -m pip install --upgrade pip
+python -m pip install -e "apps/api[dev]"
+npm install
+npm run build
+```
+
+Windows:
+
+```powershell
+Set-Location $env:CODEX_WORKTREE_PATH
+py -3.12 -m pip install --upgrade pip
+py -3.12 -m pip install -e "apps/api[dev]"
+npm install
+npm run build
+```
+
+Use this cleanup script before Codex removes a worktree.
+
+Default, macOS, and Linux:
+
+```bash
+cd "$CODEX_WORKTREE_PATH"
+docker compose down --remove-orphans || true
+rm -rf data/launcher .cache/tmp apps/web/.next/cache
+```
+
+Windows:
+
+```powershell
+Set-Location $env:CODEX_WORKTREE_PATH
+docker compose down --remove-orphans
+Remove-Item -Recurse -Force data\launcher, .cache\tmp, apps\web\.next\cache -ErrorAction SilentlyContinue
+```
+
+Useful Codex actions:
+
+```powershell
+.\Start-GremlinBoard.bat
+.\Start-GremlinBoard-Dev.bat
+.\Stop-GremlinBoard.bat
+node node_modules\typescript\bin\tsc -p apps\web\tsconfig.json --noEmit
+npm run build
+py -3.12 -m pytest apps/api/tests -q -p no:langsmith
+```
+
 ## Setup Troubleshooting
 
 ### `pip` is missing
@@ -127,7 +212,7 @@ Install the API package from the repo root. `uvicorn[standard]` is declared in `
 
 ```bash
 python -m pip install -e apps/api
-python -m uvicorn --app-dir apps/api gremlinboard_api.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn --app-dir apps/api gremlinboard_api.main:app --reload --host 127.0.0.1 --port 2556
 ```
 
 You can also run `npm run dev:api` after the install step.

@@ -5,10 +5,10 @@
     "apps/web"
   ],
   "scripts": {
-    "dev:api": "uvicorn --app-dir apps/api gremlinboard_api.main:app --reload --reload-dir apps/api --reload-dir widgets --reload-exclude node_modules --reload-exclude data --reload-exclude .git --reload-exclude .pytest-backend --host 127.0.0.1 --port 8000 --no-access-log",
+    "dev:api": "uvicorn --app-dir apps/api gremlinboard_api.main:app --reload --reload-dir apps/api --reload-dir widgets --reload-exclude node_modules --reload-exclude data --reload-exclude .git --reload-exclude .pytest-backend --host 127.0.0.1 --port 2556 --no-access-log",
     "dev:web": "npm --workspace apps/web run dev",
     "dev": "npm run dev:web",
-    "start:api": "uvicorn --app-dir apps/api gremlinboard_api.main:app --host 127.0.0.1 --port 8000 --no-access-log",
+    "start:api": "uvicorn --app-dir apps/api gremlinboard_api.main:app --host 127.0.0.1 --port 2555 --no-access-log",
     "start:web": "npm --workspace apps/web run start",
     "start": "npm run start:web",
     "build": "npm --workspace apps/web run build",

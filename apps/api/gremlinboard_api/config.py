@@ -28,17 +28,17 @@ class Settings(BaseSettings):
     )
     widgets_dir: Path = ROOT_DIR / "widgets"
     api_host: str = "127.0.0.1"
-    api_port: int = 8000
-    web_origin: str = "http://localhost:3000"
+    api_port: int = 2555
+    web_origin: str = "http://localhost:7555"
     session_cookie_name: str = "gremlinboard_session"
     session_ttl_hours: int = 168
     session_touch_interval_seconds: int = 300
     cors_origins: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
+        "http://localhost:7555",
+        "http://localhost:7556",
         "http://localhost:3100",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
+        "http://127.0.0.1:7555",
+        "http://127.0.0.1:7556",
         "http://127.0.0.1:3100",
     ]
     provider_user_agent: str = "GremlinBoard/1.0"

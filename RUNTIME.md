@@ -66,3 +66,23 @@ Every service should report or allow the runtime to derive:
 - Development mode: `npm run dev:api` and `npm run dev:web`. Use this while changing code; CPU cost from reloaders and compilers is expected.
 - Utility mode: `npm run start:api` plus `npm run build && npm run start:web`. Use this when evaluating the app as a lightweight local control panel.
 - API start helpers in `scripts/start-api.ps1` and `scripts/start-api.sh` run without reload and without access logs.
+- Windows tray utility mode: `Start-GremlinBoard.bat` starts the production API/web pair and keeps a tray icon for open/stop actions.
+- Windows tray port allocation: stable web/API use `7555`/`2555`; dev web/API use `7556`/`2556`.
+- Windows tray dev mode: `Start-GremlinBoard-Dev.bat` starts the reload-enabled API/web pair on ports `7556`/`2556`.
+- The launcher checks selected ports before starting. If a port is already used by a process the launcher does not manage, startup fails instead of silently binding to the wrong stack.
+- Managed launcher state is stored in `data/launcher/instances.json`; it is runtime state, not source. The launcher cleans stale entries and allows at most two managed stacks so repeated starts do not silently stack background CPU work.
+- Use `Stop-GremlinBoard.bat` or the tray menu's `Stop Services and Exit` action to close managed child processes.
+
+## Lightweight Utility Direction
+
+The control-panel posture should continue moving toward:
+
+- production web serving for normal use, with Next dev mode only for code changes
+- no reload watchers in utility mode
+- bounded logs, metrics, websocket queues, and event history
+- refresh only while there is an operator or an explicit background need
+- widget-level cache TTLs and manual refresh over aggressive polling
+- route-level lazy loading for System Panel and Spec Studio surfaces
+- renderer-local timers for visual-only state
+- a visible process owner, currently the Windows tray launcher, so background services are easy to find and stop
+- tray-visible health state, including API/web liveness and last startup error, without opening the browser

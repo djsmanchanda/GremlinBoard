@@ -7,8 +7,8 @@ const repoRoot = resolve(configDir, "../..");
 
 const startManagedWebServer =
   process.env.PLAYWRIGHT_SKIP_WEBSERVER !== "1" && (Boolean(process.env.CI) || process.env.PLAYWRIGHT_START_WEBSERVER === "1");
-const webPort = Number(process.env.GREMLINBOARD_E2E_WEB_PORT ?? (startManagedWebServer ? 3100 : 3000));
-const apiPort = Number(process.env.GREMLINBOARD_E2E_API_PORT ?? 8000);
+const webPort = Number(process.env.GREMLINBOARD_E2E_WEB_PORT ?? (startManagedWebServer ? 3100 : 7555));
+const apiPort = Number(process.env.GREMLINBOARD_E2E_API_PORT ?? 2555);
 const webBaseURL = process.env.GREMLINBOARD_WEB_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${webPort}`;
 const apiBaseURL = process.env.NEXT_PUBLIC_GREMLINBOARD_API_URL ?? `http://127.0.0.1:${apiPort}/api`;
 const e2eDatabasePath = join(repoRoot, "data", "gremlinboard-e2e.db").replace(/\\/g, "/");
