@@ -11,12 +11,16 @@ from gremlinboard_api.db import Base
 from gremlinboard_api.registry.loader import load_registry
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.schemas.contracts import (
+    AgentEntityType,
+    AgentStatus,
     EasyGenerationCreateRequest,
     GenerationJobCreateRequest,
     GenerationJobFeedbackRequest,
     WidgetSpecDraft,
 )
+from gremlinboard_api.services.agent_registry import AgentRegistry
 from gremlinboard_api.services.auth import AuthService
+from gremlinboard_api.services.event_bus import EventBus
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.system_settings import SystemSettingsService
@@ -63,10 +67,13 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
             widgets_dir=widgets_dir,
             registry=registry,
         )
+        event_bus = EventBus()
+        agent_registry = AgentRegistry(event_bus=event_bus)
         generation_service = GenerationPipelineService(
             session_factory=session_factory,
             plugin_manager=plugin_manager,
             settings_service=settings_service,
+            agent_registry=agent_registry,
         )
         await generation_service.start()
         worker_task = generation_service._worker_task
@@ -104,6 +111,8 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
             GenerationJobCreateRequest(stage_id=stage.id, provider_id="codex")
         )
         assert queued.status == "queued"
+        queued_agents = await agent_registry.list_agents(status=AgentStatus.QUEUED, type=AgentEntityType.TASK)
+        assert [agent.id for agent in queued_agents] == [f"generation:{queued.id}"]
         job = await wait_for_generation(generation_service, queued.id)
         assert job.status == "completed"
         assert job.progress == 100
@@ -116,9 +125,16 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
         approved = await generation_service.approve_job(job_id=job.id)
         assert approved.status == "review_required"
         assert approved.install_blocked is False
+        review_agents = await agent_registry.list_agents(
+            status=AgentStatus.WAITING_FOR_REVIEW,
+            type=AgentEntityType.TASK,
+        )
+        assert [agent.id for agent in review_agents] == [f"generation:{job.id}"]
 
         installed = await generation_service.install_job(job_id=job.id, enabled=True)
         assert installed.status == "installed"
+        completed_agents = await agent_registry.list_agents(status=AgentStatus.COMPLETED, type=AgentEntityType.TASK)
+        assert f"generation:{job.id}" in {agent.id for agent in completed_agents}
         plugin = await plugin_manager.get_plugin("ops_status")
         assert plugin is not None
         assert plugin.installed is True

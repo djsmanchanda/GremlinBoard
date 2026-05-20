@@ -6,7 +6,7 @@ from collections import Counter
 import pytest
 
 from gremlinboard_api.repositories.board import BoardRepository
-from gremlinboard_api.schemas.contracts import LifecycleState
+from gremlinboard_api.schemas.contracts import GenerationJobRead, GenerationJobStatus, LifecycleState
 
 from .runtime_test_harness import (
     RuntimeTestHarness,
@@ -27,6 +27,32 @@ def _metric_value(metrics: list[dict[str, object]], *, metric_name: str, scope_t
         if metric["metric_name"] == metric_name and metric["scope_type"] == scope_type:
             return int(metric["metric_value"])
     return None
+
+
+def _generation_job_read(*, job_id: str, status: GenerationJobStatus, progress: int) -> GenerationJobRead:
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    return GenerationJobRead(
+        id=job_id,
+        widget_id="agent_status_widget",
+        stage_id="stage-1",
+        requested_provider_id="codex",
+        provider_id="codex",
+        status=status,
+        current_step=status.value,
+        progress=progress,
+        idea=None,
+        install_blocked=status != GenerationJobStatus.INSTALLED,
+        artifact_version=1,
+        selected_version="0.1.0",
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+        completed_at=None,
+        artifacts=[],
+        logs=[],
+    )
 
 
 @pytest.mark.asyncio
@@ -208,6 +234,46 @@ async def test_runtime_status_reports_control_plane_snapshot() -> None:
         assert payload["runners"][0]["instance_id"] == widget_id
         assert payload["runners"][0]["widget_id"] == "status_widget"
         assert payload["runners"][0]["refresh_mode"] == "manual"
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_agent_api_and_runtime_status_expose_agent_registry_snapshot() -> None:
+    harness = await RuntimeTestHarness.create()
+    try:
+        await harness.agent_registry.upsert_generation_job(
+            _generation_job_read(
+                job_id="agent-job-1",
+                status=GenerationJobStatus.REVIEW_REQUIRED,
+                progress=100,
+            )
+        )
+
+        agents_response = await harness.client.get("/api/agents")
+        assert agents_response.status_code == 200
+        assert {agent["id"] for agent in agents_response.json()} == {
+            "local-generation",
+            "generation:agent-job-1",
+        }
+
+        tree_response = await harness.client.get("/api/agents/tree")
+        assert tree_response.status_code == 200
+        tree = tree_response.json()
+        assert tree["total"] == 2
+        assert tree["roots"][0]["children"][0]["agent"]["status"] == "waiting_for_review"
+
+        events_response = await harness.client.get("/api/agents/events")
+        assert events_response.status_code == 200
+        assert events_response.json()[0]["type"] == "agent.created"
+
+        status_response = await harness.client.get("/api/runtime/status")
+        assert status_response.status_code == 200
+        status = status_response.json()
+        assert status["state"] == "active"
+        assert status["active_agents"] == 0
+        assert status["agents_waiting_for_review"] == 1
+        assert status["agents_failed"] == 0
     finally:
         await harness.close()
 

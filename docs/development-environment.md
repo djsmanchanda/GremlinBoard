@@ -1,67 +1,136 @@
 # Development Environment
 
-GremlinBoard backend development uses Python 3.12 in a project-local virtual environment.
+GremlinBoard development uses a local micromamba environment for Python and the existing repository-local Node workflow for the Next.js frontend.
 
-Do not use a global Python 3.13 interpreter for backend tests. Some Windows installs can fail importing `pydantic_core` from Python 3.13 with `ImportError: DLL load failed while importing _pydantic_core: Access is denied`.
+The canonical Python runtime is Python 3.12. Do not use Python 3.13 for backend validation.
 
 ## Requirements
 
-- Python 3.12
-- Node.js 20+
-- npm
+- Micromamba
+- Node.js installed outside micromamba
+- npm from the installed Node distribution
 - PowerShell on Windows
 
-## Windows Setup
+Do not install Node through conda or micromamba. Keep frontend dependencies in repository `node_modules`.
+
+## Canonical Setup
 
 From the repository root:
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e "apps/api[dev]"
-npm install
+.\scripts\bootstrap-dev.ps1
 ```
 
-Use this interpreter for backend work:
+The bootstrap script:
+
+- sets `MAMBA_ROOT_PREFIX` explicitly to avoid accidental `prefix = "y"` behavior.
+- creates or updates the `gremlinboard` micromamba environment from `environment.yml`.
+- installs the backend package in editable mode with `apps/api[dev]`.
+- validates backend imports.
+- runs `npm ci` when local frontend tooling is missing.
+- validates TypeScript through `node_modules\.bin\tsc.cmd`.
+
+The POSIX/Git Bash equivalent is:
+
+```bash
+./scripts/bootstrap-dev.sh
+```
+
+## Micromamba Layout
+
+Expected Windows paths:
+
+```text
+MAMBA_ROOT_PREFIX=C:\Users\djsma\micromamba
+micromamba.exe=C:\Users\djsma\AppData\Local\micromamba\micromamba.exe
+environment=C:\Users\djsma\micromamba\envs\gremlinboard
+```
+
+If `micromamba info` reports `base environment : y`, the root prefix is not set for that shell. Set it explicitly before running micromamba:
 
 ```powershell
-.\.venv\Scripts\python.exe
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" info
 ```
 
-## Editable Install
+The bootstrap scripts set this variable themselves, so they do not depend on PowerShell profile initialization.
 
-The API package is installed from `apps/api/pyproject.toml`.
+## Activation
+
+Use `micromamba run` for deterministic one-off commands:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -e "apps/api[dev]"
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python --version
 ```
 
-This installs FastAPI, SQLAlchemy, Pydantic, Uvicorn, pytest, pytest-asyncio, Ruff, and the `gremlinboard` console script.
+For an interactive PowerShell session:
 
-## Test Commands
+```powershell
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+$env:MAMBA_EXE = "$env:LOCALAPPDATA\micromamba\micromamba.exe"
+Import-Module "$env:MAMBA_ROOT_PREFIX\condabin\Mamba.psm1"
+micromamba activate gremlinboard
+```
+
+## Editable Backend Install
+
+`environment.yml` includes only the local editable package in the pip section:
+
+```yaml
+pip:
+  - -e ./apps/api[dev]
+```
+
+To refresh the editable install:
+
+```powershell
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pip install -e "apps/api[dev]"
+```
+
+## Backend Validation
 
 Run all backend tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest apps\api\tests -q -p no:langsmith
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests -q -p no:langsmith
 ```
 
-Run the runtime integration suite:
+Run focused suites:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest apps\api\tests\test_runtime_integration.py -q -p no:langsmith
-```
-
-Run a focused runtime status test:
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest apps\api\tests\test_runtime_integration.py::test_runtime_status_reports_control_plane_snapshot -q -p no:langsmith
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests\test_runtime_integration.py -q -p no:langsmith
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests\test_event_bus.py apps\api\tests\test_agent_registry.py -q -p no:langsmith
 ```
 
 Run syntax compilation for touched backend files:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile apps\api\gremlinboard_api\main.py apps\api\gremlinboard_api\runtime\manager.py
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m py_compile apps\api\gremlinboard_api\main.py apps\api\gremlinboard_api\services\agent_registry.py
+```
+
+## Frontend Validation
+
+Use local repository tooling:
+
+```powershell
+node_modules\.bin\tsc.cmd -p apps\web\tsconfig.json --noEmit
+```
+
+If frontend dependencies need a clean install, stop any running GremlinBoard/Next.js process first because Next native SWC binaries can be locked on Windows. Then run:
+
+```powershell
+$env:NPM_CONFIG_PREFIX = "C:\Program Files\nodejs"
+npm ci
+node_modules\.bin\tsc.cmd -p apps\web\tsconfig.json --noEmit
+```
+
+If the global npm launcher is still broken, bypass it:
+
+```powershell
+node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" ci
 ```
 
 ## Running Locally
@@ -69,23 +138,59 @@ Run syntax compilation for touched backend files:
 Development API:
 
 ```powershell
-npm run dev:api
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard uvicorn --app-dir apps/api gremlinboard_api.main:app --reload --reload-dir apps/api --reload-dir widgets --reload-exclude node_modules --reload-exclude data --reload-exclude .git --host 127.0.0.1 --port 2556 --no-access-log
 ```
 
 Development web:
 
 ```powershell
+$env:NPM_CONFIG_PREFIX = "C:\Program Files\nodejs"
 npm run dev:web
 ```
 
-Stable utility mode still uses the Windows launchers:
+Stable utility mode still uses the launchers:
 
 ```powershell
 .\Start-GremlinBoard.bat
 .\Stop-GremlinBoard.bat
 ```
 
+## Migration From `.venv`
+
+The old `.venv` workflow is no longer the canonical path, but it should remain untouched until a micromamba setup has passed validation.
+
+Previous known-good validation was:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest apps\api\tests -q -p no:langsmith
+```
+
+After micromamba validation passes, prefer:
+
+```powershell
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests -q -p no:langsmith
+```
+
 ## Troubleshooting
+
+### Micromamba reports `y`
+
+Symptom:
+
+```text
+base environment : y
+envs directories : y\envs
+```
+
+Fix:
+
+```powershell
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" info
+```
+
+Do not patch the PowerShell profile unless you intentionally want automatic shell activation. The bootstrap scripts do not require profile changes.
 
 ### `pydantic_core` import fails
 
@@ -97,40 +202,54 @@ ImportError: DLL load failed while importing _pydantic_core: Access is denied.
 
 Fix:
 
-1. Confirm you are not using global Python 3.13:
+```powershell
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python --version
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pip install -e "apps/api[dev]"
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests -q -p no:langsmith
+```
 
-   ```powershell
-   .\.venv\Scripts\python.exe --version
-   ```
+### Global npm is broken
 
-2. Reinstall the editable backend package inside the venv:
+Symptom:
 
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install --force-reinstall -e "apps/api[dev]"
-   ```
+```text
+Cannot find module 'C:\Users\djsma\AppData\Roaming\npm\node_modules\npm\bin\npm-cli.js'
+```
 
-3. Re-run pytest through the venv interpreter:
+Fix for the current shell:
 
-   ```powershell
-   .\.venv\Scripts\python.exe -m pytest apps\api\tests -q -p no:langsmith
-   ```
+```powershell
+$env:NPM_CONFIG_PREFIX = "C:\Program Files\nodejs"
+npm --version
+```
+
+If that still fails:
+
+```powershell
+node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" --version
+node "C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js" ci
+```
+
+### `npm ci` cannot unlink Next SWC
+
+Symptom:
+
+```text
+EPERM: operation not permitted, unlink 'node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node'
+```
+
+Fix:
+
+```powershell
+.\Stop-GremlinBoard.bat
+Get-Process node -ErrorAction SilentlyContinue
+$env:NPM_CONFIG_PREFIX = "C:\Program Files\nodejs"
+npm ci
+```
+
+If a GremlinBoard `next start -p 7555` child remains after the launcher exits, stop that process before retrying.
 
 ### Global pytest plugins interfere
 
 Use `-p no:langsmith` for backend test commands. This keeps unrelated global pytest plugins from affecting local Pydantic imports.
-
-### `pytest` is missing
-
-Install dev dependencies through the editable package:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e "apps/api[dev]"
-```
-
-### `uvicorn` is missing
-
-Install the API package:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e "apps/api[dev]"
-```

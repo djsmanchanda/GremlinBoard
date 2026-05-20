@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from gremlinboard_api.registry.loader import WidgetRegistry
     from gremlinboard_api.runtime.events import EventBus
     from gremlinboard_api.runtime.manager import RuntimeManager
+    from gremlinboard_api.services.agent_registry import AgentRegistry
     from gremlinboard_api.services.system_settings import SystemSettingsService
 
 
@@ -33,6 +34,7 @@ class ObservabilityService:
         event_bus: "EventBus",
         runtime_manager: "RuntimeManager",
         settings_service: "SystemSettingsService",
+        agent_registry: "AgentRegistry | None" = None,
     ) -> None:
         self.session_factory = session_factory
         self.board_id = board_id
@@ -40,6 +42,7 @@ class ObservabilityService:
         self.event_bus = event_bus
         self.runtime_manager = runtime_manager
         self.settings_service = settings_service
+        self.agent_registry = agent_registry
         self._event_queue: asyncio.Queue[RuntimeEventEnvelope] | None = None
         self._event_task: asyncio.Task[None] | None = None
         self.last_event_sink_error: str | None = None
@@ -81,6 +84,7 @@ class ObservabilityService:
                 "widgets_expired": sum(1 for widget in widgets if widget.lifecycle_state == "expired"),
                 "event_subscribers": self.event_bus.subscriber_count,
             }
+            summary.update(_agent_summary(self.agent_registry))
             metric_batch = [
                 {
                     "scope_type": "board",
@@ -147,6 +151,7 @@ class ObservabilityService:
             "widgets_expired": sum(1 for widget in widgets if widget.lifecycle_state == "expired"),
             "event_subscribers": self.event_bus.subscriber_count,
         }
+        summary.update(_agent_summary(self.agent_registry))
 
         widget_health = [
             WidgetHealthRead(
@@ -267,3 +272,20 @@ def _typed_platform_event_type(event: str) -> str:
     if event.startswith("system."):
         return event
     return f"system.{event.replace('.', '_')}"
+
+
+def _agent_summary(agent_registry: Any | None) -> dict[str, int]:
+    if agent_registry is None:
+        return {
+            "agent_registry_size": 0,
+            "agents_active": 0,
+            "agents_waiting_for_review": 0,
+            "agents_failed": 0,
+        }
+    summary = agent_registry.summary()
+    return {
+        "agent_registry_size": summary.total_agents,
+        "agents_active": summary.active_agents,
+        "agents_waiting_for_review": summary.waiting_for_review,
+        "agents_failed": summary.failed_agents,
+    }

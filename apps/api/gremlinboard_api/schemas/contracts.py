@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import re
 from uuid import uuid4
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -297,6 +297,79 @@ class RuntimeEventEnvelope(BaseModel):
         return self.model_dump(mode="json", by_alias=True)
 
 
+class AgentStatus(str, Enum):
+    CREATED = "created"
+    QUEUED = "queued"
+    RUNNING = "running"
+    WAITING_FOR_REVIEW = "waiting_for_review"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PAUSED = "paused"
+
+
+class AgentEntityType(str, Enum):
+    SESSION = "session"
+    TASK = "task"
+    SUBAGENT = "subagent"
+
+
+class AgentBaseRead(BaseModel):
+    id: str
+    parent_id: str | None = None
+    session_id: str
+    name: str
+    type: AgentEntityType
+    source: str
+    status: AgentStatus
+    progress: int = Field(default=0, ge=0, le=100)
+    created_at: datetime
+    updated_at: datetime
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentSession(AgentBaseRead):
+    type: Literal[AgentEntityType.SESSION] = AgentEntityType.SESSION
+
+
+class AgentTask(AgentBaseRead):
+    type: Literal[AgentEntityType.TASK] = AgentEntityType.TASK
+    linked_jobs: list[str] = Field(default_factory=list)
+    linked_widgets: list[str] = Field(default_factory=list)
+    review_required: bool = False
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SubAgent(AgentBaseRead):
+    type: Literal[AgentEntityType.SUBAGENT] = AgentEntityType.SUBAGENT
+    linked_jobs: list[str] = Field(default_factory=list)
+    linked_widgets: list[str] = Field(default_factory=list)
+    review_required: bool = False
+    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+
+
+AgentEntity = Annotated[AgentSession | AgentTask | SubAgent, Field(discriminator="type")]
+
+
+class AgentTreeNodeRead(BaseModel):
+    agent: AgentEntity
+    children: list["AgentTreeNodeRead"] = Field(default_factory=list)
+
+
+class AgentTreeRead(BaseModel):
+    roots: list[AgentTreeNodeRead]
+    total: int
+
+
+class AgentRegistrySummaryRead(BaseModel):
+    active_agents: int = 0
+    waiting_for_review: int = 0
+    failed_agents: int = 0
+    total_agents: int = 0
+
+
 class RuntimeRunnerStatusRead(BaseModel):
     instance_id: str
     widget_id: str
@@ -341,6 +414,9 @@ class RuntimeStatusRead(BaseModel):
     replay_event_count: int = 0
     registry_size: int
     widgets_total: int
+    active_agents: int = 0
+    agents_waiting_for_review: int = 0
+    agents_failed: int = 0
     runners: list[RuntimeRunnerStatusRead]
     startup_recovery: RuntimeStartupRecoveryRead
 

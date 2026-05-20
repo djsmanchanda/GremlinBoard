@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from gremlinboard_api.api.routes import board, observability, plugins, runtime
+from gremlinboard_api.api.routes import agents, board, observability, plugins, runtime
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base, get_session
 from gremlinboard_api.registry.loader import WidgetRegistry, load_registry
@@ -23,6 +23,7 @@ from gremlinboard_api.runtime.events import EventBus
 from gremlinboard_api.runtime.manager import RuntimeManager
 from gremlinboard_api.schemas.contracts import RuntimeLogRead, RuntimeMetricRead, WidgetInstanceRead
 from gremlinboard_api.services.auth import AuthService
+from gremlinboard_api.services.agent_registry import AgentRegistry
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.system_settings import SystemSettingsService
@@ -229,6 +230,7 @@ class RuntimeTestHarness:
     settings_service: SystemSettingsService
     plugin_manager: PluginManagerService
     event_bus: EventBus
+    agent_registry: AgentRegistry
     runtime_manager: RuntimeManager
     observability: ObservabilityService
     app: FastAPI
@@ -271,6 +273,7 @@ class RuntimeTestHarness:
         )
         await plugin_manager.sync_with_filesystem()
         event_bus = EventBus()
+        agent_registry = AgentRegistry(event_bus=event_bus)
         runtime_manager = RuntimeManager(
             session_factory=session_factory,
             registry=registry,
@@ -286,6 +289,7 @@ class RuntimeTestHarness:
             event_bus=event_bus,
             runtime_manager=runtime_manager,
             settings_service=settings_service,
+            agent_registry=agent_registry,
         )
         runtime_manager.capture_metrics = observability_service.capture_runtime_snapshot
         await observability_service.start_event_sink()
@@ -300,6 +304,7 @@ class RuntimeTestHarness:
         app.state.registry = registry
         app.state.plugin_manager = plugin_manager
         app.state.event_bus = event_bus
+        app.state.agent_registry = agent_registry
         app.state.runtime_manager = runtime_manager
         app.state.auth_service = auth_service
         app.state.system_settings = settings_service
@@ -328,6 +333,7 @@ class RuntimeTestHarness:
         app.include_router(board.router, prefix="/api")
         app.include_router(plugins.router, prefix="/api")
         app.include_router(runtime.router, prefix="/api")
+        app.include_router(agents.router, prefix="/api")
         app.include_router(observability.router, prefix="/api")
 
         await runtime_manager.bootstrap()
@@ -344,6 +350,7 @@ class RuntimeTestHarness:
             settings_service=settings_service,
             plugin_manager=plugin_manager,
             event_bus=event_bus,
+            agent_registry=agent_registry,
             runtime_manager=runtime_manager,
             observability=observability_service,
             app=app,

@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from difflib import unified_diff
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -46,6 +46,9 @@ from gremlinboard_api.specs.pipeline import (
     validate_widget_spec,
 )
 
+if TYPE_CHECKING:
+    from gremlinboard_api.services.agent_registry import AgentRegistry
+
 
 logger = logging.getLogger(__name__)
 
@@ -66,10 +69,12 @@ class GenerationPipelineService:
         session_factory: async_sessionmaker[AsyncSession],
         plugin_manager: PluginManagerService,
         settings_service: SystemSettingsService,
+        agent_registry: "AgentRegistry | None" = None,
     ) -> None:
         self.session_factory = session_factory
         self.plugin_manager = plugin_manager
         self.settings_service = settings_service
+        self.agent_registry = agent_registry
         self.scaffold_generator = WidgetScaffoldGenerator()
         self.providers: dict[str, AIProvider] = {
             "codex": CodexProvider(),
@@ -88,6 +93,13 @@ class GenerationPipelineService:
                 return
             await self._fail_interrupted_jobs()
             self._ensure_worker_started_locked()
+        await self.reconcile_agents()
+
+    async def reconcile_agents(self) -> None:
+        if self.agent_registry is None:
+            return
+        jobs = await self.list_jobs()
+        await self.agent_registry.recover_generation_jobs(jobs)
 
     async def shutdown(self) -> None:
         async with self._worker_lock:
@@ -202,6 +214,7 @@ class GenerationPipelineService:
             idea_prompt=idea_prompt,
         )
         queued_job = await self.get_job(job_id=job.id)
+        await self._sync_agent_job(job_id=job.id)
         await self._queue_job(job.id)
         return queued_job
 
@@ -228,7 +241,7 @@ class GenerationPipelineService:
                     "feedback_categories": ["name", "sizing", "ui", "feature"],
                 },
             )
-        return await self.get_easy_job(job_id=job.id)
+        return EasyGenerationJobRead(job=job, test_box=_build_test_box_payload(job))
 
     async def get_easy_job(self, *, job_id: str) -> EasyGenerationJobRead:
         job = await self.get_job(job_id=job_id)
@@ -392,14 +405,17 @@ class GenerationPipelineService:
                 message="Generation job failed.",
                 context={"error": str(exc), "progress": record.progress},
             )
+        await self._sync_agent_job(job_id=job_id)
 
     async def _fail_interrupted_jobs(self) -> None:
+        changed_job_ids: list[str] = []
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
             records = await repository.list_jobs_by_status(
                 {GenerationJobStatus.QUEUED, GenerationJobStatus.RUNNING}
             )
             for record in records:
+                changed_job_ids.append(record.id)
                 await repository.update_job(
                     record,
                     status=GenerationJobStatus.FAILED,
@@ -414,6 +430,8 @@ class GenerationPipelineService:
                     message="Generation job failed after worker restart.",
                     context={"progress": record.progress},
                 )
+        for job_id in changed_job_ids:
+            await self._sync_agent_job(job_id=job_id)
 
     async def approve_job(self, *, job_id: str) -> GenerationJobRead:
         async with self.session_factory() as session:
@@ -435,6 +453,7 @@ class GenerationPipelineService:
                 log_message="Generation job review approved for install.",
                 log_context={"progress": 100},
             )
+        await self._sync_agent_job(job_id=job_id)
         return await self.get_job(job_id=job_id)
 
     async def reject_job(self, *, job_id: str, reason: str) -> GenerationJobRead:
@@ -457,6 +476,7 @@ class GenerationPipelineService:
                 log_message="Generation job rejected.",
                 log_context={"reason": reason, "progress": 100},
             )
+        await self._sync_agent_job(job_id=job_id)
         return await self.get_job(job_id=job_id)
 
     async def install_job(self, *, job_id: str, enabled: bool) -> GenerationJobRead:
@@ -511,6 +531,7 @@ class GenerationPipelineService:
                 log_message="Generated widget package installed through the registry.",
                 log_context={"widget_id": record.widget_id, "version": record.selected_version, "progress": 100},
             )
+        await self._sync_agent_job(job_id=job_id)
         return await self.get_job(job_id=job_id)
 
     async def _execute_job(
@@ -535,6 +556,7 @@ class GenerationPipelineService:
                 progress=10,
                 clear_error=True,
             )
+            await self._sync_agent_job(job_id=job.id)
             notes = validate_widget_spec(spec)
             if notes:
                 raise ValueError("; ".join(notes))
@@ -560,6 +582,7 @@ class GenerationPipelineService:
                 context={"stage_id": job.stage_id, "progress": 25},
             )
             await repository.update_job(job, progress=25)
+            await self._sync_agent_job(job_id=job.id)
 
             scaffold = self.scaffold_generator.generate(
                 spec=spec,
@@ -567,6 +590,7 @@ class GenerationPipelineService:
                 artifact_version=job.artifact_version,
             )
             await repository.update_job(job, current_step="scaffold", progress=40)
+            await self._sync_agent_job(job_id=job.id)
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -589,6 +613,7 @@ class GenerationPipelineService:
                 context={"file_count": len(scaffold["files"]), "progress": 50},
             )
             await repository.update_job(job, progress=50)
+            await self._sync_agent_job(job_id=job.id)
 
             provider_codegen = await provider.prepare_codegen(
                 widget_spec=spec_payload,
@@ -596,6 +621,7 @@ class GenerationPipelineService:
                 model_id=model_id,
             )
             await repository.update_job(job, current_step="codegen", progress=70)
+            await self._sync_agent_job(job_id=job.id)
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -616,6 +642,7 @@ class GenerationPipelineService:
                 context={"artifact_version": job.artifact_version, "progress": 80},
             )
             await repository.update_job(job, progress=80)
+            await self._sync_agent_job(job_id=job.id)
 
             review = await provider.review_package(widget_spec=spec_payload, package=scaffold["package"], model_id=model_id)
             await repository.add_artifact(
@@ -638,7 +665,14 @@ class GenerationPipelineService:
                 log_message="Generation completed. Install remains blocked pending review approval.",
                 log_context={"provider_id": provider.provider_id, "progress": 100},
             )
+            await self._sync_agent_job(job_id=job.id)
         return await self.get_job(job_id=job_id)
+
+    async def _sync_agent_job(self, *, job_id: str) -> None:
+        if self.agent_registry is None:
+            return
+        job = await self.get_job(job_id=job_id)
+        await self.agent_registry.upsert_generation_job(job)
 
     async def _resolve_spec_source(
         self,

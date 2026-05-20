@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": ["all", "active", "review_required"],
+      "default": "all"
+    },
+    "max_agents": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12,
+      "default": 6
+    },
+    "include_timeline": {
+      "type": "boolean",
+      "default": true
+    },
+    "show_completed": {
+      "type": "boolean",
+      "default": false
+    },
+    "refresh_behavior": {
+      "type": "string",
+      "enum": ["auto", "interval", "manual"],
+      "default": "auto"
+    },
+    "refresh_interval_seconds": {
+      "type": "integer",
+      "minimum": 15,
+      "maximum": 300,
+      "default": 30
+    }
+  },
+  "additionalProperties": false
+}

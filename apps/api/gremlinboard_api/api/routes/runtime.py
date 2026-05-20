@@ -37,10 +37,21 @@ async def runtime_status(
     widgets = await repository.list_widgets(request.app.state.runtime_manager.board_id)
     provider_degradation = _provider_degradation(widgets)
     event_stats = request.app.state.event_bus.stats()
+    agent_registry = getattr(request.app.state, "agent_registry", None)
+    agent_summary = agent_registry.summary() if agent_registry is not None else None
     has_widget_error = any(widget.lifecycle_state == "error" for widget in widgets)
-    state = "degraded" if has_widget_error or provider_degradation else "active"
-    if request.app.state.runtime_manager.active_count == 0 and not has_widget_error and not provider_degradation:
+    has_agent_failure = bool(agent_summary and agent_summary.failed_agents)
+    has_agent_activity = bool(agent_summary and (agent_summary.active_agents or agent_summary.waiting_for_review))
+    state = "degraded" if has_widget_error or provider_degradation or has_agent_failure else "active"
+    if (
+        request.app.state.runtime_manager.active_count == 0
+        and not has_widget_error
+        and not provider_degradation
+        and not has_agent_activity
+    ):
         state = "idle"
+    if has_agent_failure:
+        state = "degraded"
 
     return RuntimeStatusRead(
         state=state,
@@ -53,6 +64,9 @@ async def runtime_status(
         replay_event_count=event_stats.replay_event_count,
         registry_size=request.app.state.registry.size,
         widgets_total=len(widgets),
+        active_agents=agent_summary.active_agents if agent_summary is not None else 0,
+        agents_waiting_for_review=agent_summary.waiting_for_review if agent_summary is not None else 0,
+        agents_failed=agent_summary.failed_agents if agent_summary is not None else 0,
         runners=[
             RuntimeRunnerStatusRead.model_validate(runner)
             for runner in request.app.state.runtime_manager.runner_statuses()

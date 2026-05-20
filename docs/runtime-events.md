@@ -48,7 +48,7 @@ Allowed categories are:
 - `plugin`: registry sync, plugin install, update, rollback, enable, disable, and uninstall events.
 - `operator`: CLI, tray, and board operator intent events.
 - `system`: platform errors, stream resets, auth/session, settings, and process-level events.
-- `agent`: future AgentSession, AgentTask, and SubAgent lifecycle events.
+- `agent`: AgentSession, AgentTask, SubAgent, review, and generation-backed orchestration events.
 
 The first segment of `type` must match the category, except legacy `registry.*` events map to `plugin`.
 
@@ -161,16 +161,40 @@ Queue overflow for websocket subscribers emits `stream.reset`. The websocket rou
 }
 ```
 
-### `agent.needs_review`
+### `agent.waiting_for_review`
 
 ```json
 {
-  "type": "agent.needs_review",
+  "type": "agent.waiting_for_review",
   "category": "agent",
   "level": "warning",
-  "source": {"component": "agent_registry", "agent_id": "agent1", "job_id": "job1"},
+  "source": {"component": "agent_registry", "agent_id": "generation:job1", "job_id": "job1"},
   "persistence": "timeline",
-  "payload": {"artifact_count": 3, "linked_widget_id": "agent_overview"}
+  "payload": {
+    "session_id": "local-generation",
+    "status": "waiting_for_review",
+    "linked_jobs": ["job1"],
+    "linked_widgets": ["agent_overview"],
+    "review_required": true
+  }
+}
+```
+
+### `agent.progress_updated`
+
+```json
+{
+  "type": "agent.progress_updated",
+  "category": "agent",
+  "level": "info",
+  "source": {"component": "agent_registry", "agent_id": "generation:job1", "job_id": "job1"},
+  "persistence": "ephemeral",
+  "payload": {
+    "session_id": "local-generation",
+    "status": "running",
+    "progress": 70,
+    "metadata": {"current_step": "codegen"}
+  }
 }
 ```
 

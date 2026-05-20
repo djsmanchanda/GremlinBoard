@@ -1,0 +1,38 @@
+{
+  "id": "agent_overview",
+  "version": "1.0.0",
+  "name": "Agent Overview",
+  "category": "agent",
+  "description": "Dense agent activity, review, and runtime status overview.",
+  "min_size": "4x4",
+  "preferred_size": "4x4",
+  "allowed_sizes": ["4x4"],
+  "refresh_policy": {
+    "mode": "interval",
+    "interval_seconds": 30
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 5,
+    "refresh_timeout_seconds": 5,
+    "heartbeat_timeout_seconds": 90,
+    "max_retries": 2,
+    "retry_backoff_seconds": 1,
+    "stale_after_seconds": 120
+  },
+  "permissions": [],
+  "renderer": {
+    "target": "react",
+    "module": "@widgets/agent_overview/renderer",
+    "export_name": "AgentOverviewRenderer"
+  },
+  "service": {
+    "module": "widgets.agent_overview.backend",
+    "class_name": "AgentOverviewWidgetService"
+  },
+  "config_schema": "config.schema.json"
+}
