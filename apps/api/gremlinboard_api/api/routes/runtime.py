@@ -8,8 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gremlinboard_api.db import get_session
 from gremlinboard_api.repositories.board import BoardRepository, serialize_runtime_log, serialize_widget
 from gremlinboard_api.schemas.contracts import (
+    PresenceSnapshotRead,
+    PresenceSource,
     ProviderDegradationRead,
     RuntimeLogRead,
+    RuntimePowerState,
     RuntimeStartupRecoveryRead,
     RuntimeStatusRead,
     RuntimeRunnerStatusRead,
@@ -33,6 +36,7 @@ async def runtime_status(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> RuntimeStatusRead:
+    await _record_runtime_presence(request)
     repository = BoardRepository(session)
     widgets = await repository.list_widgets(request.app.state.runtime_manager.board_id)
     provider_degradation = _provider_degradation(widgets)
@@ -42,19 +46,23 @@ async def runtime_status(
     has_widget_error = any(widget.lifecycle_state == "error" for widget in widgets)
     has_agent_failure = bool(agent_summary and agent_summary.failed_agents)
     has_agent_activity = bool(agent_summary and (agent_summary.active_agents or agent_summary.waiting_for_review))
-    state = "degraded" if has_widget_error or provider_degradation or has_agent_failure else "active"
-    if (
-        request.app.state.runtime_manager.active_count == 0
-        and not has_widget_error
-        and not provider_degradation
-        and not has_agent_activity
-    ):
-        state = "idle"
-    if has_agent_failure:
-        state = "degraded"
+    degraded = has_widget_error or bool(provider_degradation) or has_agent_failure
+    presence = await _presence_snapshot(
+        request,
+        degraded=degraded,
+        reason="runtime errors present" if degraded else None,
+    )
+    state = presence.state.value if presence is not None else _legacy_state(
+        active_count=request.app.state.runtime_manager.active_count,
+        has_widget_error=has_widget_error,
+        provider_degradation=provider_degradation,
+        has_agent_activity=has_agent_activity,
+        has_agent_failure=has_agent_failure,
+    )
 
     return RuntimeStatusRead(
         state=state,
+        presence=presence,
         active_runners=request.app.state.runtime_manager.active_count,
         websocket_subscribers=request.app.state.event_bus.websocket_subscriber_count,
         monitor_cadence_seconds=request.app.state.runtime_manager.monitor_interval_seconds,
@@ -62,6 +70,18 @@ async def runtime_status(
         queue_depth=event_stats.queued_event_count,
         dropped_event_count=event_stats.dropped_event_count,
         replay_event_count=event_stats.replay_event_count,
+        published_event_count=event_stats.published_event_count,
+        replay_history_size=event_stats.history_size,
+        replay_oldest_sequence=event_stats.replay_oldest_sequence,
+        latest_sequence=event_stats.latest_sequence,
+        stream_reset_count=event_stats.stream_reset_count,
+        replay_miss_count=event_stats.replay_miss_count,
+        snapshot_fallback_count=event_stats.snapshot_fallback_count,
+        websocket_queue_depth=event_stats.websocket_queue_depth,
+        internal_queue_depth=event_stats.internal_queue_depth,
+        max_subscriber_queue_depth=event_stats.max_subscriber_queue_depth,
+        websocket_dropped_event_count=event_stats.websocket_dropped_event_count,
+        observability_sink_error=getattr(request.app.state.observability, "last_event_sink_error", None),
         registry_size=request.app.state.registry.size,
         widgets_total=len(widgets),
         active_agents=agent_summary.active_agents if agent_summary is not None else 0,
@@ -75,6 +95,20 @@ async def runtime_status(
             request.app.state.runtime_manager.startup_recovery
         ),
     )
+
+
+@router.post("/suspend", response_model=PresenceSnapshotRead)
+async def suspend_runtime(request: Request) -> PresenceSnapshotRead:
+    presence = request.app.state.presence_manager
+    source = _presence_source_from_request(request, default=PresenceSource.OPERATOR)
+    await presence.record_activity(source)
+    return await presence.suspend(reason=f"{source.value} requested suspend")
+
+
+@router.post("/resume", response_model=PresenceSnapshotRead)
+async def resume_runtime(request: Request) -> PresenceSnapshotRead:
+    presence = request.app.state.presence_manager
+    return await presence.resume(source=_presence_source_from_request(request, default=PresenceSource.OPERATOR))
 
 
 def _provider_degradation(widgets: list[Any]) -> list[ProviderDegradationRead]:
@@ -102,3 +136,47 @@ def _provider_degradation(widgets: list[Any]) -> list[ProviderDegradationRead]:
                 )
             )
     return degraded
+
+
+async def _record_runtime_presence(request: Request) -> None:
+    presence = getattr(request.app.state, "presence_manager", None)
+    if presence is None or request.headers.get("x-gremlin-presence-passive") == "true":
+        return
+    await presence.record_activity(_presence_source_from_request(request, default=PresenceSource.OPERATOR))
+
+
+async def _presence_snapshot(
+    request: Request,
+    *,
+    degraded: bool,
+    reason: str | None,
+) -> PresenceSnapshotRead | None:
+    presence = getattr(request.app.state, "presence_manager", None)
+    if presence is None:
+        return None
+    return await presence.snapshot(degraded=degraded, reason=reason)
+
+
+def _presence_source_from_request(request: Request, *, default: PresenceSource) -> PresenceSource:
+    raw = request.headers.get("x-gremlin-presence-source")
+    if raw is None:
+        return default
+    try:
+        return PresenceSource(raw)
+    except ValueError:
+        return default
+
+
+def _legacy_state(
+    *,
+    active_count: int,
+    has_widget_error: bool,
+    provider_degradation: list[ProviderDegradationRead],
+    has_agent_activity: bool,
+    has_agent_failure: bool,
+) -> str:
+    if has_widget_error or provider_degradation or has_agent_failure:
+        return RuntimePowerState.DEGRADED.value
+    if active_count == 0 and not has_agent_activity:
+        return RuntimePowerState.IDLE.value
+    return RuntimePowerState.ACTIVE.value

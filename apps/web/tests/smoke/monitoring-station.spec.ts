@@ -60,6 +60,9 @@ for (const viewport of monitoringViewports) {
 }
 
 async function mockBoardApi(page: Page) {
+  await page.routeWebSocket("**/api/board/stream*", (socket) => {
+    socket.send(JSON.stringify({ type: "board.snapshot", sequence: 1, payload: mockBoard }));
+  });
   await page.route("**/api/board", (route) =>
     route.fulfill({
       status: 200,

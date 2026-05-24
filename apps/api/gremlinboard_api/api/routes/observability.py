@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query, Request
 
-from gremlinboard_api.schemas.contracts import ObservabilityOverviewRead, RuntimeLogRead
+from gremlinboard_api.schemas.contracts import ObservabilityOverviewRead, PresenceSource, RuntimeLogRead
 
 
 router = APIRouter(prefix="/observability", tags=["observability"])
@@ -13,6 +13,9 @@ async def get_overview(
     request: Request,
     limit: int = Query(default=80, ge=20, le=500),
 ) -> ObservabilityOverviewRead:
+    presence = getattr(request.app.state, "presence_manager", None)
+    if presence is not None:
+        await presence.record_activity(PresenceSource.SYSTEM_PANEL)
     return await request.app.state.observability.overview(limit=limit)
 
 

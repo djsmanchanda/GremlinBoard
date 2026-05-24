@@ -70,6 +70,10 @@ async def test_websocket_overflow_emits_stream_reset() -> None:
     assert reset.event_type == "stream.reset"
     assert reset.payload["reason"] == "subscriber_overflow"
     assert bus.dropped_event_count == 1
+    stats = bus.stats()
+    assert stats.stream_reset_count == 1
+    assert stats.websocket_dropped_event_count == 1
+    assert stats.max_subscriber_queue_depth == 0
 
 
 @pytest.mark.asyncio
@@ -82,6 +86,8 @@ async def test_event_bus_replay_is_bounded_by_sequence() -> None:
     assert bus.can_replay(second.sequence - 1)
     assert not bus.can_replay(first.sequence - 1)
     assert [event.event_type for event in bus.replay(after_sequence=second.sequence)] == [third.event_type]
+    assert bus.stats().replay_oldest_sequence == second.sequence
+    assert bus.stats().latest_sequence == third.sequence
 
 
 @pytest.mark.asyncio

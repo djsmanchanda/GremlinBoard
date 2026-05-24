@@ -12,6 +12,7 @@ const apiPort = Number(process.env.GREMLINBOARD_E2E_API_PORT ?? 2555);
 const webBaseURL = process.env.GREMLINBOARD_WEB_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${webPort}`;
 const apiBaseURL = process.env.NEXT_PUBLIC_GREMLINBOARD_API_URL ?? `http://127.0.0.1:${apiPort}/api`;
 const e2eDatabasePath = join(repoRoot, "data", "gremlinboard-e2e.db").replace(/\\/g, "/");
+const apiPythonCommand = process.env.GREMLINBOARD_E2E_API_PYTHON_COMMAND ?? "python";
 
 function findSystemBrowserChannel() {
   if (process.env.CI || process.env.PLAYWRIGHT_DISABLE_SYSTEM_BROWSER_FALLBACK === "1") {
@@ -75,7 +76,7 @@ export default defineConfig({
       ? undefined
       : [
           {
-            command: `python -m uvicorn --app-dir apps/api gremlinboard_api.main:app --host 127.0.0.1 --port ${apiPort}`,
+            command: `${apiPythonCommand} -m uvicorn --app-dir apps/api gremlinboard_api.main:app --host 127.0.0.1 --port ${apiPort}`,
             cwd: repoRoot,
             url: `${apiBaseURL}/health`,
             reuseExistingServer: !process.env.CI,

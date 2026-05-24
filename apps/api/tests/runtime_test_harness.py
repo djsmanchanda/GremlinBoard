@@ -26,6 +26,7 @@ from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.agent_registry import AgentRegistry
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
+from gremlinboard_api.services.presence import PresenceManager
 from gremlinboard_api.services.system_settings import SystemSettingsService
 
 
@@ -230,6 +231,7 @@ class RuntimeTestHarness:
     settings_service: SystemSettingsService
     plugin_manager: PluginManagerService
     event_bus: EventBus
+    presence_manager: PresenceManager
     agent_registry: AgentRegistry
     runtime_manager: RuntimeManager
     observability: ObservabilityService
@@ -273,6 +275,11 @@ class RuntimeTestHarness:
         )
         await plugin_manager.sync_with_filesystem()
         event_bus = EventBus()
+        presence_manager = PresenceManager(
+            event_bus=event_bus,
+            board_id=settings.default_board_id,
+            idle_after_seconds=90,
+        )
         agent_registry = AgentRegistry(event_bus=event_bus)
         runtime_manager = RuntimeManager(
             session_factory=session_factory,
@@ -280,6 +287,7 @@ class RuntimeTestHarness:
             event_bus=event_bus,
             board_id=settings.default_board_id,
             is_widget_enabled=plugin_manager.is_enabled,
+            presence_manager=presence_manager,
             monitor_interval_seconds=monitor_interval_seconds,
         )
         observability_service = ObservabilityService(
@@ -290,6 +298,7 @@ class RuntimeTestHarness:
             runtime_manager=runtime_manager,
             settings_service=settings_service,
             agent_registry=agent_registry,
+            presence_manager=presence_manager,
         )
         runtime_manager.capture_metrics = observability_service.capture_runtime_snapshot
         await observability_service.start_event_sink()
@@ -304,6 +313,7 @@ class RuntimeTestHarness:
         app.state.registry = registry
         app.state.plugin_manager = plugin_manager
         app.state.event_bus = event_bus
+        app.state.presence_manager = presence_manager
         app.state.agent_registry = agent_registry
         app.state.runtime_manager = runtime_manager
         app.state.auth_service = auth_service
@@ -350,6 +360,7 @@ class RuntimeTestHarness:
             settings_service=settings_service,
             plugin_manager=plugin_manager,
             event_bus=event_bus,
+            presence_manager=presence_manager,
             agent_registry=agent_registry,
             runtime_manager=runtime_manager,
             observability=observability_service,

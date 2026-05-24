@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -16,6 +17,7 @@ from gremlinboard_api.schemas.contracts import (
     WidgetInstanceRead,
     WidgetReorder,
     WidgetResize,
+    PresenceSource,
 )
 from gremlinboard_api.validation.config_schema import ConfigValidationError, normalize_config
 
@@ -31,7 +33,13 @@ async def _read_board(session: AsyncSession) -> BoardRead:
 
 
 @router.get("", response_model=BoardRead)
-async def get_board(session: AsyncSession = Depends(get_session)) -> BoardRead:
+async def get_board(
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> BoardRead:
+    presence = getattr(request.app.state, "presence_manager", None)
+    if presence is not None:
+        await presence.record_activity(PresenceSource.BOARD_FETCH)
     return await _read_board(session)
 
 
@@ -189,41 +197,61 @@ async def remove_widget(
 async def board_stream(websocket: WebSocket) -> None:
     await websocket.accept()
     event_bus = websocket.app.state.event_bus
+    presence = getattr(websocket.app.state, "presence_manager", None)
+    presence_token = await presence.websocket_connected() if presence is not None else None
     last_seq = _parse_last_seq(websocket.query_params.get("last_seq"))
     queue = event_bus.subscribe(kind="websocket")
     try:
         if last_seq is not None and event_bus.can_replay(last_seq):
             for event in event_bus.replay(after_sequence=last_seq):
-                await websocket.send_json(event.to_websocket_message())
+                if not await _send_json(websocket, event.to_websocket_message()):
+                    return
         else:
+            if last_seq is not None:
+                event_bus.record_replay_miss()
+            event_bus.record_snapshot_fallback()
             async with websocket.app.state.session_factory() as session:
                 snapshot = await _read_board(session)
-                await websocket.send_json(
+                runtime = getattr(websocket.app.state, "runtime_manager", None)
+                if runtime is not None:
+                    runtime.note_board_snapshot(snapshot)
+                if not await _send_json(
+                    websocket,
                     {
                         "type": "board.snapshot",
                         "sequence": event_bus.latest_sequence,
                         "payload": snapshot.model_dump(mode="json"),
-                    }
-                )
+                    },
+                ):
+                    return
 
         while True:
             event = await queue.get()
             if event.event_type == "stream.reset":
+                event_bus.record_snapshot_fallback()
                 async with websocket.app.state.session_factory() as session:
                     snapshot = await _read_board(session)
-                    await websocket.send_json(
+                    runtime = getattr(websocket.app.state, "runtime_manager", None)
+                    if runtime is not None:
+                        runtime.note_board_snapshot(snapshot)
+                    if not await _send_json(
+                        websocket,
                         {
                             "type": "board.snapshot",
                             "sequence": event_bus.latest_sequence,
                             "payload": snapshot.model_dump(mode="json"),
-                        }
-                    )
+                        },
+                    ):
+                        return
                 continue
-            await websocket.send_json(event.to_websocket_message())
+            if not await _send_json(websocket, event.to_websocket_message()):
+                return
     except WebSocketDisconnect:
         pass
     finally:
         event_bus.unsubscribe(queue)
+        if presence is not None:
+            await presence.websocket_disconnected(presence_token)
 
 
 def _parse_last_seq(value: str | None) -> int | None:
@@ -234,3 +262,11 @@ def _parse_last_seq(value: str | None) -> int | None:
     except ValueError:
         return None
     return parsed if parsed >= 0 else None
+
+
+async def _send_json(websocket: WebSocket, payload: dict[str, object]) -> bool:
+    try:
+        await asyncio.wait_for(websocket.send_json(payload), timeout=5.0)
+        return True
+    except Exception:
+        return False

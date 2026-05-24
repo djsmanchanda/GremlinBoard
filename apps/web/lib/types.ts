@@ -1,5 +1,6 @@
 export type TileSize = "1x1" | "1x2" | "2x2" | "4x2" | "2x4" | "4x4";
 export type LifecycleState = "created" | "installing" | "running" | "paused" | "expired" | "removed" | "error";
+export type WidgetPermission = "network" | "storage" | "credentials" | "long_running" | "realtime_stream" | "passive_widget";
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -32,7 +33,7 @@ export interface WidgetManifest {
     retry_backoff_seconds: number;
     stale_after_seconds: number;
   };
-  permissions: string[];
+  permissions: WidgetPermission[];
   renderer: {
     target: "react";
     module: string;
@@ -86,6 +87,21 @@ export interface BoardState {
   name: string;
   owner_user_id?: string | null;
   widgets: WidgetInstance[];
+}
+
+export interface BoardPatch {
+  board_id: string;
+  name?: string | null;
+  owner_user_id?: string | null;
+  upserted_widgets?: WidgetInstance[];
+  removed_widget_ids?: string[];
+  ordered_widget_ids?: string[];
+}
+
+export interface RuntimeEventMessage<TPayload = JsonObject> {
+  type: string;
+  sequence?: number;
+  payload?: TPayload;
 }
 
 export interface WidgetRendererProps {

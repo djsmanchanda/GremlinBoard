@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from gremlinboard_api.runtime.events import EventBus
     from gremlinboard_api.runtime.manager import RuntimeManager
     from gremlinboard_api.services.agent_registry import AgentRegistry
+    from gremlinboard_api.services.presence import PresenceManager
     from gremlinboard_api.services.system_settings import SystemSettingsService
 
 
@@ -35,6 +36,7 @@ class ObservabilityService:
         runtime_manager: "RuntimeManager",
         settings_service: "SystemSettingsService",
         agent_registry: "AgentRegistry | None" = None,
+        presence_manager: "PresenceManager | None" = None,
     ) -> None:
         self.session_factory = session_factory
         self.board_id = board_id
@@ -43,6 +45,7 @@ class ObservabilityService:
         self.runtime_manager = runtime_manager
         self.settings_service = settings_service
         self.agent_registry = agent_registry
+        self.presence_manager = presence_manager
         self._event_queue: asyncio.Queue[RuntimeEventEnvelope] | None = None
         self._event_task: asyncio.Task[None] | None = None
         self.last_event_sink_error: str | None = None
@@ -55,6 +58,10 @@ class ObservabilityService:
 
     async def shutdown_event_sink(self) -> None:
         if self._event_queue is not None:
+            try:
+                await asyncio.wait_for(self._event_queue.join(), timeout=1.0)
+            except TimeoutError:
+                pass
             self.event_bus.unsubscribe(self._event_queue)
         if self._event_task is None:
             return
@@ -84,6 +91,7 @@ class ObservabilityService:
                 "widgets_expired": sum(1 for widget in widgets if widget.lifecycle_state == "expired"),
                 "event_subscribers": self.event_bus.subscriber_count,
             }
+            summary.update(await self._presence_summary())
             summary.update(_agent_summary(self.agent_registry))
             metric_batch = [
                 {
@@ -151,6 +159,7 @@ class ObservabilityService:
             "widgets_expired": sum(1 for widget in widgets if widget.lifecycle_state == "expired"),
             "event_subscribers": self.event_bus.subscriber_count,
         }
+        summary.update(await self._presence_summary())
         summary.update(_agent_summary(self.agent_registry))
 
         widget_health = [
@@ -176,6 +185,24 @@ class ObservabilityService:
             widget_health=widget_health,
             timeline=[serialize_runtime_log(log) for log in logs],
         )
+
+    async def _presence_summary(self) -> dict[str, int]:
+        if self.presence_manager is None:
+            return {
+                "presence_active_websockets": 0,
+                "runtime_power_state_active": 0,
+                "runtime_power_state_idle": 0,
+                "runtime_power_state_suspended": 0,
+                "runtime_power_state_degraded": 0,
+            }
+        snapshot = await self.presence_manager.snapshot()
+        return {
+            "presence_active_websockets": snapshot.active_websocket_count,
+            "runtime_power_state_active": 1 if snapshot.state == "active" else 0,
+            "runtime_power_state_idle": 1 if snapshot.state == "idle" else 0,
+            "runtime_power_state_suspended": 1 if snapshot.state == "suspended" else 0,
+            "runtime_power_state_degraded": 1 if snapshot.state == "degraded" else 0,
+        }
 
     async def list_logs(
         self,

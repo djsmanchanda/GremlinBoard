@@ -224,6 +224,8 @@ async def test_runtime_status_reports_control_plane_snapshot() -> None:
         payload = status_response.json()
 
         assert payload["state"] == "active"
+        assert payload["presence"]["state"] == "active"
+        assert payload["presence"]["active_sources"][0]["source"] == "operator"
         assert payload["active_runners"] == 1
         assert payload["websocket_subscribers"] == 0
         assert payload["monitor_cadence_seconds"] == 60
@@ -234,6 +236,24 @@ async def test_runtime_status_reports_control_plane_snapshot() -> None:
         assert payload["runners"][0]["instance_id"] == widget_id
         assert payload["runners"][0]["widget_id"] == "status_widget"
         assert payload["runners"][0]["refresh_mode"] == "manual"
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_runtime_status_passive_probe_does_not_keep_runtime_active() -> None:
+    harness = await RuntimeTestHarness.create()
+    try:
+        status_response = await harness.client.get(
+            "/api/runtime/status",
+            headers={"x-gremlin-presence-passive": "true"},
+        )
+        assert status_response.status_code == 200
+        payload = status_response.json()
+
+        assert payload["state"] == "idle"
+        assert payload["presence"]["state"] == "idle"
+        assert payload["presence"]["reason"] == "no recent operator presence"
     finally:
         await harness.close()
 

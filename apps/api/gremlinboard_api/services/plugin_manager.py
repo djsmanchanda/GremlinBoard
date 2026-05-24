@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import re
 import shutil
 from pathlib import Path
@@ -301,6 +302,11 @@ class PluginManagerService:
             renderer_source=str(package["renderer_source"]),
             export_name=manifest.renderer.export_name,
         )
+        PluginManagerService._validate_backend_contract(
+            backend_source=str(package["backend_source"]),
+            class_name=manifest.service.class_name,
+        )
+        PluginManagerService._validate_config_schema(package["config_schema"])
         return manifest
 
     @staticmethod
@@ -313,3 +319,34 @@ class PluginManagerService:
         )
         if not any(re.search(pattern, renderer_source) for pattern in export_patterns):
             raise ValueError(f"renderer.tsx must export '{export_name}'")
+
+    @staticmethod
+    def _validate_backend_contract(*, backend_source: str, class_name: str) -> None:
+        try:
+            tree = ast.parse(backend_source)
+        except SyntaxError as exc:
+            raise ValueError(f"backend.py has invalid syntax: {exc.msg}") from exc
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef) or node.name != class_name:
+                continue
+            base_names = {_base_name(base) for base in node.bases}
+            if "BaseWidgetService" not in base_names:
+                raise ValueError(f"backend.py class '{class_name}' must inherit BaseWidgetService")
+            return
+        raise ValueError(f"backend.py must define service class '{class_name}'")
+
+    @staticmethod
+    def _validate_config_schema(config_schema: Any) -> None:
+        if not isinstance(config_schema, dict):
+            raise ValueError("config_schema must be a JSON object")
+        schema_type = config_schema.get("type")
+        if schema_type is not None and schema_type != "object":
+            raise ValueError("config_schema type must be 'object' when specified")
+
+
+def _base_name(node: ast.expr) -> str:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ""

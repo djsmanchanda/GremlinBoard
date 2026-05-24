@@ -119,6 +119,15 @@ Use local repository tooling:
 node_modules\.bin\tsc.cmd -p apps\web\tsconfig.json --noEmit
 ```
 
+Run the Playwright smoke suite with managed local servers:
+
+```powershell
+$env:MAMBA_ROOT_PREFIX = "$env:USERPROFILE\micromamba"
+$env:GREMLINBOARD_E2E_API_PYTHON_COMMAND = "`"$env:LOCALAPPDATA\micromamba\micromamba.exe`" run -n gremlinboard python"
+$env:PLAYWRIGHT_START_WEBSERVER = "1"
+node_modules\.bin\playwright.cmd test -c apps\web\playwright.config.ts tests\smoke
+```
+
 If frontend dependencies need a clean install, stop any running GremlinBoard/Next.js process first because Next native SWC binaries can be locked on Windows. Then run:
 
 ```powershell

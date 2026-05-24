@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { Route } from "next";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { BoardGrid } from "@/components/board/board-grid";
 import { CommandPalette } from "@/components/board/command-palette";
@@ -18,8 +18,9 @@ import {
   stopWidget,
   updateWidget,
 } from "@/lib/api";
+import { applyBoardEvent, type BoardProjectionState } from "@/lib/board-reconciliation";
 import { apiWebSocketUrl } from "@/lib/constants";
-import type { BoardState, JsonObject, WidgetPreset } from "@/lib/types";
+import type { BoardPatch, BoardState, JsonObject, RuntimeEventMessage, WidgetPreset } from "@/lib/types";
 import { useBoardStore } from "@/store/board-store";
 
 interface RemovedWidgetState {
@@ -32,7 +33,17 @@ export function BoardShell() {
   const [removedWidget, setRemovedWidget] = useState<RemovedWidgetState | null>(null);
   const hasBoardSnapshot = useRef(false);
   const hasRegistrySnapshot = useRef(false);
-  const pendingSnapshotTimers = useRef<number[]>([]);
+  const registryRefreshInFlight = useRef(false);
+  const projection = useRef<BoardProjectionState>({ board: null, lastSequence: 0, needsSnapshot: false });
+
+  const commitBoard = useCallback((nextBoard: BoardState, sequence = projection.current.lastSequence) => {
+    projection.current = {
+      board: nextBoard,
+      lastSequence: sequence,
+      needsSnapshot: false,
+    };
+    setBoard(nextBoard);
+  }, [setBoard]);
 
   useEffect(() => {
     hasRegistrySnapshot.current = Object.keys(registry).length > 0;
@@ -46,7 +57,7 @@ export function BoardShell() {
         if (cancelled) {
           return;
         }
-        setBoard(boardResponse);
+        commitBoard(boardResponse, projection.current.lastSequence);
         setRegistry(registryResponse);
         hasBoardSnapshot.current = true;
         setError(null);
@@ -64,10 +75,9 @@ export function BoardShell() {
     return () => {
       cancelled = true;
     };
-  }, [setBoard, setError, setRegistry]);
+  }, [commitBoard, setError, setRegistry]);
 
   useEffect(() => {
-    const socketUrl = apiWebSocketUrl("/board/stream");
     let closed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
@@ -87,6 +97,10 @@ export function BoardShell() {
     };
 
     const refreshRegistrySnapshot = () => {
+      if (registryRefreshInFlight.current) {
+        return;
+      }
+      registryRefreshInFlight.current = true;
       void fetchRegistry()
         .then((registryResponse) => {
           setRegistry(registryResponse);
@@ -95,31 +109,55 @@ export function BoardShell() {
         })
         .catch((loadError) => {
           setError(loadError instanceof Error ? loadError.message : "Failed to refresh widget registry");
+        })
+        .finally(() => {
+          registryRefreshInFlight.current = false;
         });
     };
-    const applyBoardSnapshot = (snapshot: BoardState) => {
-      const timer = window.setTimeout(() => {
-        pendingSnapshotTimers.current = pendingSnapshotTimers.current.filter((id) => id !== timer);
-        setBoard(snapshot);
-        hasBoardSnapshot.current = true;
-        setError(null);
-        if (!hasRegistrySnapshot.current) {
-          refreshRegistrySnapshot();
-        }
-      }, 0);
-      pendingSnapshotTimers.current.push(timer);
+    const commitProjectedBoard = (nextProjection: BoardProjectionState) => {
+      projection.current = nextProjection;
+      if (nextProjection.board) {
+        commitBoard(nextProjection.board, nextProjection.lastSequence);
+      }
+      hasBoardSnapshot.current = true;
+      setError(null);
+      if (!hasRegistrySnapshot.current) {
+        refreshRegistrySnapshot();
+      }
+    };
+
+    const fetchSnapshotFallback = () => {
+      void fetchBoard()
+        .then((snapshot) => {
+          commitProjectedBoard({
+            board: snapshot,
+            lastSequence: projection.current.lastSequence,
+            needsSnapshot: false,
+          });
+        })
+        .catch((loadError) => {
+          setError(loadError instanceof Error ? loadError.message : "Failed to recover board snapshot");
+        });
     };
 
     const connect = () => {
       if (closed || socket || document.visibilityState === "hidden") {
         return;
       }
-      const nextSocket = new WebSocket(socketUrl);
+      const lastSequence = projection.current.lastSequence;
+      const streamPath = lastSequence > 0 ? `/board/stream?last_seq=${lastSequence}` : "/board/stream";
+      const nextSocket = new WebSocket(apiWebSocketUrl(streamPath));
       socket = nextSocket;
       nextSocket.onmessage = (event) => {
-        const payload = JSON.parse(event.data) as { type: string; payload: BoardState };
-        if (payload.type === "board.snapshot") {
-          applyBoardSnapshot(payload.payload);
+        const payload = JSON.parse(event.data) as RuntimeEventMessage<BoardState | BoardPatch>;
+        const projected = applyBoardEvent(projection.current, payload);
+        projection.current = projected.state;
+        if (projected.kind === "snapshot_required") {
+          fetchSnapshotFallback();
+          return;
+        }
+        if (projected.kind === "applied") {
+          commitProjectedBoard(projected.state);
           return;
         }
         if (payload.type === "registry.updated") {
@@ -149,7 +187,11 @@ export function BoardShell() {
       }
       void fetchBoard()
         .then((snapshot) => {
-          setBoard(snapshot);
+          commitProjectedBoard({
+            board: snapshot,
+            lastSequence: projection.current.lastSequence,
+            needsSnapshot: false,
+          });
           hasBoardSnapshot.current = true;
           setError(null);
         })
@@ -163,12 +205,8 @@ export function BoardShell() {
       closed = true;
       closeSocket();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      for (const timer of pendingSnapshotTimers.current) {
-        window.clearTimeout(timer);
-      }
-      pendingSnapshotTimers.current = [];
     };
-  }, [setBoard, setError, setRegistry]);
+  }, [commitBoard, setError, setRegistry]);
 
   useEffect(() => {
     if (!removedWidget) {
@@ -203,7 +241,7 @@ export function BoardShell() {
 
   async function handleResize(widgetId: string, size: WidgetPreset["size"]) {
     if (board) {
-      setBoard({
+      commitBoard({
         ...board,
         widgets: board.widgets.map((widget) => (widget.id === widgetId ? { ...widget, size } : widget)),
       });
@@ -218,7 +256,7 @@ export function BoardShell() {
   async function handleRefresh(widgetId: string) {
     try {
       const boardResponse = await refreshWidget(widgetId);
-      setBoard(boardResponse);
+      commitBoard(boardResponse);
       setError(null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Failed to refresh widget");
@@ -233,7 +271,7 @@ export function BoardShell() {
       } else {
         boardResponse = await startWidget(widgetId);
       }
-      setBoard(boardResponse);
+      commitBoard(boardResponse);
       setError(null);
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Failed to update widget lifecycle");
@@ -250,7 +288,7 @@ export function BoardShell() {
     }
 
     const previousBoard = board;
-    setBoard({
+    commitBoard({
       ...board,
       widgets: board.widgets.filter((widget) => widget.id !== widgetId),
     });
@@ -268,7 +306,7 @@ export function BoardShell() {
     try {
       await removeWidget(widgetId);
     } catch (actionError) {
-      setBoard(previousBoard);
+      commitBoard(previousBoard);
       setRemovedWidget(null);
       setError(actionError instanceof Error ? actionError.message : "Failed to remove widget");
     }
@@ -277,7 +315,7 @@ export function BoardShell() {
   async function handleUpdateConfig(widgetId: string, config: JsonObject) {
     const previousBoard = board;
     if (board) {
-      setBoard({
+      commitBoard({
         ...board,
         widgets: board.widgets.map((widget) => (widget.id === widgetId ? { ...widget, config } : widget)),
       });
@@ -286,7 +324,7 @@ export function BoardShell() {
       await updateWidget(widgetId, { config });
     } catch (actionError) {
       if (previousBoard) {
-        setBoard(previousBoard);
+        commitBoard(previousBoard);
       }
       setError(actionError instanceof Error ? actionError.message : "Failed to update widget config");
     }
@@ -301,7 +339,7 @@ export function BoardShell() {
       ...board,
       widgets: orderedIds.map((id) => widgetsById.get(id)).filter(Boolean) as BoardState["widgets"],
     };
-    setBoard(optimisticBoard);
+    commitBoard(optimisticBoard);
     try {
       await reorderWidgets(orderedIds);
     } catch (actionError) {

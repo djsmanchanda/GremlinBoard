@@ -37,6 +37,15 @@ class EventBusStats:
     published_event_count: int = 0
     replay_event_count: int = 0
     history_size: int = 0
+    replay_oldest_sequence: int | None = None
+    latest_sequence: int = 0
+    stream_reset_count: int = 0
+    websocket_queue_depth: int = 0
+    internal_queue_depth: int = 0
+    max_subscriber_queue_depth: int = 0
+    websocket_dropped_event_count: int = 0
+    replay_miss_count: int = 0
+    snapshot_fallback_count: int = 0
 
 
 class TypedEventBus:
@@ -48,6 +57,9 @@ class TypedEventBus:
         self._next_sequence = 1
         self._published_event_count = 0
         self._replay_event_count = 0
+        self._stream_reset_count = 0
+        self._replay_miss_count = 0
+        self._snapshot_fallback_count = 0
 
     async def publish(
         self,
@@ -74,6 +86,7 @@ class TypedEventBus:
                 if subscriber.kind == "websocket":
                     dropped = self._drain_queue(subscriber.queue)
                     subscriber.dropped_events += dropped
+                    self._stream_reset_count += 1
                     subscriber.queue.put_nowait(
                         self._stream_reset_event(
                             sequence=envelope.sequence,
@@ -84,6 +97,7 @@ class TypedEventBus:
                     continue
                 try:
                     subscriber.queue.get_nowait()
+                    self._safe_task_done(subscriber.queue)
                     subscriber.dropped_events += 1
                 except asyncio.QueueEmpty:
                     pass
@@ -150,6 +164,7 @@ class TypedEventBus:
                     if queue.full():
                         try:
                             queue.get_nowait()
+                            self._safe_task_done(queue)
                             subscriber.dropped_events += 1
                         except asyncio.QueueEmpty:
                             pass
@@ -187,6 +202,12 @@ class TypedEventBus:
             return after_sequence >= self.latest_sequence
         return after_sequence >= self._history[0].sequence - 1
 
+    def record_replay_miss(self) -> None:
+        self._replay_miss_count += 1
+
+    def record_snapshot_fallback(self) -> None:
+        self._snapshot_fallback_count += 1
+
     @property
     def latest_sequence(self) -> int:
         return self._next_sequence - 1
@@ -208,6 +229,13 @@ class TypedEventBus:
         return sum(subscriber.dropped_events for subscriber in self._subscribers.values())
 
     def stats(self) -> EventBusStats:
+        websocket_subscribers = [
+            subscriber for subscriber in self._subscribers.values() if subscriber.kind == "websocket"
+        ]
+        internal_subscribers = [
+            subscriber for subscriber in self._subscribers.values() if subscriber.kind == "internal"
+        ]
+        queue_depths = [subscriber.queue.qsize() for subscriber in self._subscribers.values()]
         return EventBusStats(
             subscriber_count=self.subscriber_count,
             queued_event_count=self.queued_event_count,
@@ -215,6 +243,15 @@ class TypedEventBus:
             published_event_count=self._published_event_count,
             replay_event_count=self._replay_event_count,
             history_size=len(self._history),
+            replay_oldest_sequence=self._history[0].sequence if self._history else None,
+            latest_sequence=self.latest_sequence,
+            stream_reset_count=self._stream_reset_count,
+            websocket_queue_depth=sum(subscriber.queue.qsize() for subscriber in websocket_subscribers),
+            internal_queue_depth=sum(subscriber.queue.qsize() for subscriber in internal_subscribers),
+            max_subscriber_queue_depth=max(queue_depths, default=0),
+            websocket_dropped_event_count=sum(subscriber.dropped_events for subscriber in websocket_subscribers),
+            replay_miss_count=self._replay_miss_count,
+            snapshot_fallback_count=self._snapshot_fallback_count,
         )
 
     def _coerce_event(
@@ -277,9 +314,17 @@ class TypedEventBus:
         while True:
             try:
                 queue.get_nowait()
+                TypedEventBus._safe_task_done(queue)
                 dropped += 1
             except asyncio.QueueEmpty:
                 return dropped
+
+    @staticmethod
+    def _safe_task_done(queue: asyncio.Queue[RuntimeEventEnvelope]) -> None:
+        try:
+            queue.task_done()
+        except ValueError:
+            pass
 
     @staticmethod
     def _stream_reset_event(*, sequence: int, causation_id: str, dropped_events: int) -> RuntimeEventEnvelope:

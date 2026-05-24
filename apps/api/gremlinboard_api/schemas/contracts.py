@@ -44,7 +44,7 @@ class LifecycleState(str, Enum):
 class RefreshPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    mode: str
+    mode: Literal["manual", "interval", "live"]
     interval_seconds: int = Field(ge=0)
 
 
@@ -65,6 +65,15 @@ class RuntimePolicy(BaseModel):
     max_retries: int = Field(default=3, ge=0)
     retry_backoff_seconds: int = Field(default=2, ge=1)
     stale_after_seconds: int = Field(default=300, ge=1)
+
+
+class WidgetPermission(str, Enum):
+    NETWORK = "network"
+    STORAGE = "storage"
+    CREDENTIALS = "credentials"
+    LONG_RUNNING = "long_running"
+    REALTIME_STREAM = "realtime_stream"
+    PASSIVE_WIDGET = "passive_widget"
 
 
 class RendererTarget(BaseModel):
@@ -96,7 +105,7 @@ class WidgetManifest(BaseModel):
     refresh_policy: RefreshPolicy
     lifecycle_policy: LifecyclePolicy
     runtime_policy: RuntimePolicy = Field(default_factory=RuntimePolicy)
-    permissions: list[str]
+    permissions: list[WidgetPermission]
     renderer: RendererTarget
     service: ServiceTarget
     config_schema: str
@@ -198,6 +207,15 @@ class BoardRead(BaseModel):
     widgets: list[WidgetInstanceRead]
 
 
+class BoardPatchRead(BaseModel):
+    board_id: str
+    name: str | None = None
+    owner_user_id: str | None = None
+    upserted_widgets: list[WidgetInstanceRead] = Field(default_factory=list)
+    removed_widget_ids: list[str] = Field(default_factory=list)
+    ordered_widget_ids: list[str] = Field(default_factory=list)
+
+
 class WidgetRegistryEntry(BaseModel):
     manifest: WidgetManifest
     config_schema: dict[str, Any]
@@ -241,6 +259,22 @@ class RuntimeEventVisibility(str, Enum):
     INTERNAL = "internal"
     WEBSOCKET = "websocket"
     BOTH = "both"
+
+
+class RuntimePowerState(str, Enum):
+    ACTIVE = "active"
+    IDLE = "idle"
+    SUSPENDED = "suspended"
+    DEGRADED = "degraded"
+
+
+class PresenceSource(str, Enum):
+    WEBSOCKET = "websocket"
+    BOARD_FETCH = "board_fetch"
+    SYSTEM_PANEL = "system_panel"
+    CLI = "cli"
+    TRAY = "tray"
+    OPERATOR = "operator"
 
 
 class RuntimeEventSource(BaseModel):
@@ -392,6 +426,24 @@ class RuntimeStartupRecoveryRead(BaseModel):
     checked_at: datetime | None = None
 
 
+class PresenceSourceRead(BaseModel):
+    source: PresenceSource
+    active: int = Field(default=0, ge=0)
+    last_seen_at: datetime | None = None
+
+
+class PresenceSnapshotRead(BaseModel):
+    state: RuntimePowerState
+    active_sources: list[PresenceSourceRead] = Field(default_factory=list)
+    active_websocket_count: int = Field(default=0, ge=0)
+    recent_interaction_at: datetime | None = None
+    idle_after_seconds: int = Field(default=90, ge=1)
+    suspended: bool = False
+    degraded: bool = False
+    reason: str | None = None
+    updated_at: datetime
+
+
 class ProviderDegradationRead(BaseModel):
     provider_id: str
     label: str | None = None
@@ -405,6 +457,7 @@ class ProviderDegradationRead(BaseModel):
 
 class RuntimeStatusRead(BaseModel):
     state: Literal["active", "idle", "suspended", "degraded"]
+    presence: PresenceSnapshotRead | None = None
     active_runners: int
     websocket_subscribers: int
     monitor_cadence_seconds: int
@@ -412,6 +465,18 @@ class RuntimeStatusRead(BaseModel):
     queue_depth: int
     dropped_event_count: int = 0
     replay_event_count: int = 0
+    published_event_count: int = 0
+    replay_history_size: int = 0
+    replay_oldest_sequence: int | None = None
+    latest_sequence: int = 0
+    stream_reset_count: int = 0
+    replay_miss_count: int = 0
+    snapshot_fallback_count: int = 0
+    websocket_queue_depth: int = 0
+    internal_queue_depth: int = 0
+    max_subscriber_queue_depth: int = 0
+    websocket_dropped_event_count: int = 0
+    observability_sink_error: str | None = None
     registry_size: int
     widgets_total: int
     active_agents: int = 0

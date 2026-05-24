@@ -47,12 +47,40 @@ def test_cli_runtime_status_can_emit_json(capsys) -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert str(request.url) == "http://127.0.0.1:2556/api/runtime/status"
+        assert request.headers["x-gremlin-presence-source"] == "cli"
         return httpx.Response(200, json=payload)
 
     exit_code = cli.run(["--mode", "dev", "--json", "runtime", "status"], client_factory=_client_factory(handler))
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out) == payload
+
+
+def test_cli_runtime_suspend_posts_operator_command(capsys) -> None:
+    seen: list[tuple[str, str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.headers["x-gremlin-presence-source"]))
+        return httpx.Response(
+            200,
+            json={
+                "state": "suspended",
+                "active_sources": [],
+                "active_websocket_count": 0,
+                "recent_interaction_at": None,
+                "idle_after_seconds": 90,
+                "suspended": True,
+                "degraded": False,
+                "reason": "cli requested suspend",
+                "updated_at": "2026-05-24T00:00:00Z",
+            },
+        )
+
+    exit_code = cli.run(["runtime", "suspend"], client_factory=_client_factory(handler))
+
+    assert exit_code == 0
+    assert seen == [("POST", "/api/runtime/suspend", "cli")]
+    assert "Runtime suspended: reason=cli requested suspend" in capsys.readouterr().out
 
 
 def test_cli_widget_refresh_posts_to_board_action() -> None:

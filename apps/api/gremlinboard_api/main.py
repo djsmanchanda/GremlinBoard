@@ -22,6 +22,7 @@ from gremlinboard_api.services.generation_pipeline import GenerationPipelineServ
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.fixtures import default_countdown_target
 from gremlinboard_api.services.plugin_manager import PluginManagerService
+from gremlinboard_api.services.presence import PresenceManager
 from gremlinboard_api.services.system_settings import SystemSettingsService
 
 
@@ -146,6 +147,11 @@ async def lifespan(app: FastAPI):
     )
     await plugin_manager.sync_with_filesystem()
     event_bus = EventBus()
+    presence_manager = PresenceManager(
+        event_bus=event_bus,
+        board_id=settings.default_board_id,
+        idle_after_seconds=90,
+    )
     agent_registry = AgentRegistry(event_bus=event_bus)
     runtime_manager = RuntimeManager(
         session_factory=SessionLocal,
@@ -154,6 +160,7 @@ async def lifespan(app: FastAPI):
         board_id=settings.default_board_id,
         is_widget_enabled=plugin_manager.is_enabled,
         service_context=ServiceContext(provider_registry=provider_registry),
+        presence_manager=presence_manager,
         monitor_interval_seconds=(await system_settings.read()).runtime.monitor_interval_seconds,
     )
     observability_service = ObservabilityService(
@@ -164,6 +171,7 @@ async def lifespan(app: FastAPI):
         runtime_manager=runtime_manager,
         settings_service=system_settings,
         agent_registry=agent_registry,
+        presence_manager=presence_manager,
     )
     runtime_manager.capture_metrics = observability_service.capture_runtime_snapshot
     generation_pipeline = GenerationPipelineService(
@@ -177,6 +185,7 @@ async def lifespan(app: FastAPI):
     app.state.provider_registry = provider_registry
     app.state.plugin_manager = plugin_manager
     app.state.event_bus = event_bus
+    app.state.presence_manager = presence_manager
     app.state.agent_registry = agent_registry
     app.state.runtime_manager = runtime_manager
     app.state.generation_pipeline = generation_pipeline

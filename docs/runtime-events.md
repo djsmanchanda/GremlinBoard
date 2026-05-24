@@ -86,6 +86,14 @@ Replay is bounded:
 
 Queue overflow for websocket subscribers emits `stream.reset`. The websocket route handles `stream.reset` by sending a fresh `board.snapshot`, then continues live delivery.
 
+Board streams use snapshot plus patch reconciliation:
+
+- `board.snapshot` is the authoritative base state.
+- `board.patch` carries changed widgets, removed widget ids, and optional ordering.
+- clients track the highest accepted `sequence`.
+- reconnecting clients pass `last_seq`; the backend replays when the in-memory ring still covers that sequence.
+- clients treat `stream.reset`, missing bases, board-id mismatch, or sequence gaps as snapshot fallback triggers.
+
 ## Queue And Backpressure Rules
 
 - Each subscriber has its own bounded queue.
@@ -93,6 +101,7 @@ Queue overflow for websocket subscribers emits `stream.reset`. The websocket rou
 - Websocket queues drop/coalesce ephemeral events and reset the stream when overflow occurs.
 - Internal subscribers drop the oldest queued item under pressure, and runtime status exposes dropped and queued counts.
 - Critical persistence should use direct domain writes or timeline/state events handled by an internal observability sink.
+- Runtime status exposes queue pressure metrics including websocket/internal queue depth, maximum subscriber queue depth, stream resets, replay misses, snapshot fallbacks, and dropped event counts.
 
 ## Event Examples
 
@@ -132,6 +141,53 @@ Queue overflow for websocket subscribers emits `stream.reset`. The websocket rou
   "source": {"component": "presence_manager"},
   "persistence": "timeline",
   "payload": {"reason": "no operator presence"}
+}
+```
+
+### `runtime.suspended_entered`
+
+```json
+{
+  "type": "runtime.suspended_entered",
+  "category": "runtime",
+  "level": "info",
+  "source": {"component": "presence_manager"},
+  "persistence": "timeline",
+  "payload": {"previous_state": "active", "reason": "tray requested suspend"}
+}
+```
+
+### `board.patch`
+
+```json
+{
+  "type": "board.patch",
+  "category": "board",
+  "level": "info",
+  "source": {"component": "runtime_manager", "board_id": "default"},
+  "visibility": "websocket",
+  "persistence": "ephemeral",
+  "payload": {
+    "board_id": "default",
+    "upserted_widgets": [],
+    "removed_widget_ids": ["widget-1"],
+    "ordered_widget_ids": ["widget-2", "widget-3"]
+  }
+}
+```
+
+### `operator.activity`
+
+```json
+{
+  "type": "operator.activity",
+  "category": "operator",
+  "level": "info",
+  "source": {"component": "presence_manager"},
+  "visibility": "internal",
+  "persistence": "ephemeral",
+  "replayable": false,
+  "payload": {"source": "cli", "detail": "runtime status"}
 }
 ```
 
@@ -201,3 +257,18 @@ Queue overflow for websocket subscribers emits `stream.reset`. The websocket rou
 ## Current Backend Strategy
 
 The current backend keeps full `board.snapshot` fanout as the compatibility path. Future `board.patch` events can be introduced after frontend support lands. Until then, backend changes should publish typed envelopes but continue to keep board state reconstructable from the REST board endpoint and full snapshots.
+
+## Presence And Power-State Rules
+
+Presence is the runtime coordination signal for reducing unattended work. The backend records presence from existing operator paths: websocket connections, board fetches, runtime status calls, CLI commands, tray commands, and visible system-panel observability calls. Passive probes, such as the tray timer, must send `x-gremlin-presence-passive: true` so they do not keep the runtime active.
+
+Power states are:
+
+- `active`: recent operator interaction or connected board websocket.
+- `idle`: no recent operator presence after the idle window.
+- `suspended`: explicit operator/tray/CLI request to pause scheduled work.
+- `degraded`: runtime, widget, provider, or agent failure state that should remain visible.
+
+The event bus emits timeline events only on power-state transitions, such as `runtime.active_entered`, `runtime.idle_entered`, `runtime.suspended_entered`, and `runtime.degraded_entered`. Routine activity remains ephemeral and internal by default.
+
+Scheduled widget refreshes and observability metric captures consult presence before doing work. Idle and suspended states skip scheduled work, while manual refresh requests still run. This keeps GremlinBoard quiet when unattended without adding another polling loop or changing widget contracts.

@@ -126,7 +126,7 @@
     "permissions": {
       "type": "array",
       "items": {
-        "type": "string"
+        "enum": ["network", "storage", "credentials", "long_running", "realtime_stream", "passive_widget"]
       },
       "uniqueItems": true
     },

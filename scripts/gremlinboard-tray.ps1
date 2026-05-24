@@ -232,7 +232,10 @@ function Test-HttpEndpoint {
 }
 
 function Get-RuntimeStatusSnapshot {
-    param([object]$Instance)
+    param(
+        [object]$Instance,
+        [bool]$Passive = $true
+    )
 
     $snapshot = [ordered]@{
         powerState = "unknown"
@@ -243,7 +246,13 @@ function Get-RuntimeStatusSnapshot {
     }
 
     try {
-        $status = Invoke-RestMethod -Uri "$($Instance.apiUrl)/runtime/status" -TimeoutSec 2 -ErrorAction Stop
+        $headers = @{
+            "x-gremlin-presence-source" = "tray"
+        }
+        if ($Passive) {
+            $headers["x-gremlin-presence-passive"] = "true"
+        }
+        $status = Invoke-RestMethod -Uri "$($Instance.apiUrl)/runtime/status" -Headers $headers -TimeoutSec 2 -ErrorAction Stop
         $snapshot.powerState = [string]$status.state
         $snapshot.activeWidgetCount = [int]$status.active_runners
         $snapshot.websocketSubscribers = [int]$status.websocket_subscribers
@@ -258,11 +267,14 @@ function Get-RuntimeStatusSnapshot {
 }
 
 function Update-LauncherInstanceStatus {
-    param([object]$Instance)
+    param(
+        [object]$Instance,
+        [bool]$Passive = $true
+    )
 
     $Instance.apiLive = (Test-ProcessAlive $Instance.apiPid) -and (Test-HttpEndpoint "$($Instance.apiUrl)/health")
     $Instance.webLive = (Test-ProcessAlive $Instance.webPid) -and (Test-HttpEndpoint $Instance.boardUrl)
-    $snapshot = Get-RuntimeStatusSnapshot $Instance
+    $snapshot = Get-RuntimeStatusSnapshot -Instance $Instance -Passive $Passive
     $Instance.powerState = $snapshot.powerState
     $Instance.activeWidgetCount = $snapshot.activeWidgetCount
     $Instance.recentErrorCount = $snapshot.recentErrorCount
@@ -460,7 +472,7 @@ function Start-Tray {
     $openSystem.add_Click({ Start-Process $Instance.systemUrl })
     $openLogs.add_Click({ Start-Process explorer.exe $StateDir })
     $refreshStatus.add_Click({
-        Update-LauncherInstanceStatus $Instance | Out-Null
+        Update-LauncherInstanceStatus -Instance $Instance -Passive $false | Out-Null
         Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
         $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
         $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
@@ -487,7 +499,7 @@ function Start-Tray {
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 15000
     $timer.add_Tick({
-        Update-LauncherInstanceStatus $Instance | Out-Null
+        Update-LauncherInstanceStatus -Instance $Instance -Passive $true | Out-Null
         Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
         $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
         $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"

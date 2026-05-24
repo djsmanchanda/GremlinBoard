@@ -65,6 +65,8 @@ def _build_parser() -> argparse.ArgumentParser:
     runtime = subparsers.add_parser("runtime")
     runtime_subparsers = runtime.add_subparsers(dest="runtime_command", required=True)
     runtime_subparsers.add_parser("status")
+    runtime_subparsers.add_parser("suspend")
+    runtime_subparsers.add_parser("resume")
 
     start = subparsers.add_parser("start")
     start.add_argument("--mode", choices=sorted(DEFAULT_API_PORTS), default="stable")
@@ -93,11 +95,17 @@ def _dispatch_http_command(args: argparse.Namespace, client: httpx.Client) -> An
         return _request_json(client, "POST", f"/board/widgets/{args.instance_id}/{args.action}")
     if args.command == "runtime" and args.runtime_command == "status":
         return _request_json(client, "GET", "/runtime/status")
+    if args.command == "runtime" and args.runtime_command == "suspend":
+        return _request_json(client, "POST", "/runtime/suspend")
+    if args.command == "runtime" and args.runtime_command == "resume":
+        return _request_json(client, "POST", "/runtime/resume")
     raise CliError(f"unsupported command '{args.command}'")
 
 
 def _request_json(client: httpx.Client, method: str, path: str, **kwargs: Any) -> Any:
-    response = client.request(method, path, **kwargs)
+    headers = dict(kwargs.pop("headers", {}) or {})
+    headers.setdefault("x-gremlin-presence-source", "cli")
+    response = client.request(method, path, headers=headers, **kwargs)
     if response.status_code >= 400:
         raise CliError(f"{method} {path} failed with HTTP {response.status_code}: {response.text}")
     return response.json()
@@ -116,6 +124,9 @@ def _print_payload(args: argparse.Namespace, payload: Any) -> None:
         )
         return
     if args.command == "runtime":
+        if args.runtime_command in {"suspend", "resume"}:
+            print("Runtime {state}: reason={reason}".format(**payload))
+            return
         print(
             "Runtime {state}: active_runners={active_runners} subscribers={websocket_subscribers} "
             "monitor={monitor_cadence_seconds}s queue_depth={queue_depth}".format(**payload)

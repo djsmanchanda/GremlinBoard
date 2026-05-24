@@ -7,7 +7,7 @@ import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,6 +16,8 @@ from gremlinboard_api.repositories.board import BoardRepository, serialize_board
 from gremlinboard_api.runtime.base import BaseWidgetService, RefreshDirective, ServiceContext
 from gremlinboard_api.runtime.events import EventBus
 from gremlinboard_api.schemas.contracts import (
+    BoardPatchRead,
+    BoardRead,
     LifecycleState,
     RuntimeEventCategory,
     RuntimeEventLevel,
@@ -24,6 +26,9 @@ from gremlinboard_api.schemas.contracts import (
     RuntimeEventVisibility,
     WidgetManifest,
 )
+
+if TYPE_CHECKING:
+    from gremlinboard_api.services.presence import PresenceManager
 
 
 class RuntimeFailure(Exception):
@@ -64,6 +69,7 @@ class RuntimeManager:
         is_widget_enabled: Callable[[str], Awaitable[bool]] | None = None,
         service_context: ServiceContext | None = None,
         capture_metrics: Callable[[], Awaitable[None]] | None = None,
+        presence_manager: PresenceManager | None = None,
         monitor_interval_seconds: int = 5,
     ) -> None:
         self.session_factory = session_factory
@@ -73,6 +79,7 @@ class RuntimeManager:
         self.is_widget_enabled = is_widget_enabled
         self.service_context = service_context
         self.capture_metrics = capture_metrics
+        self.presence_manager = presence_manager
         self._runners: dict[str, WidgetRunner] = {}
         self._widget_locks: dict[str, asyncio.Lock] = {}
         self._monitor_stop = asyncio.Event()
@@ -85,6 +92,7 @@ class RuntimeManager:
             "registry_size": 0,
             "checked_at": None,
         }
+        self._last_published_board: BoardRead | None = None
 
     @property
     def active_count(self) -> int:
@@ -347,6 +355,19 @@ class RuntimeManager:
             board = await repository.ensure_board(self.board_id, "GremlinBoard")
             widgets = await repository.list_widgets(self.board_id)
             snapshot = serialize_board(board, widgets)
+            previous = self._last_published_board
+            self._last_published_board = snapshot
+            if previous is not None:
+                patch = self._diff_board_snapshot(previous, snapshot)
+                await self.event_bus.publish_event(
+                    "board.patch",
+                    category=RuntimeEventCategory.BOARD,
+                    source=RuntimeEventSource(component="runtime_manager", board_id=self.board_id),
+                    payload=patch.model_dump(mode="json"),
+                    visibility=RuntimeEventVisibility.WEBSOCKET,
+                    persistence=RuntimeEventPersistence.EPHEMERAL,
+                )
+                return
             await self.event_bus.publish_event(
                 "board.snapshot",
                 category=RuntimeEventCategory.BOARD,
@@ -355,6 +376,9 @@ class RuntimeManager:
                 visibility=RuntimeEventVisibility.WEBSOCKET,
                 persistence=RuntimeEventPersistence.EPHEMERAL,
             )
+
+    def note_board_snapshot(self, snapshot: BoardRead) -> None:
+        self._last_published_board = snapshot
 
     async def log(
         self,
@@ -482,6 +506,8 @@ class RuntimeManager:
             if runner.stop_event.is_set():
                 break
             if directive.mode != "manual":
+                if await self._scheduled_work_paused():
+                    continue
                 await self._refresh_runner(runner, force=False)
                 await self.publish_board_snapshot()
 
@@ -633,7 +659,7 @@ class RuntimeManager:
                 break
             try:
                 await self._monitor_runtime_health()
-                if self.capture_metrics is not None:
+                if self.capture_metrics is not None and not await self._scheduled_work_paused():
                     await self.capture_metrics()
             except Exception as exc:  # pragma: no cover - defensive background task guard
                 try:
@@ -771,12 +797,38 @@ class RuntimeManager:
             reason="manifest refresh policy",
         )
 
+    @staticmethod
+    def _diff_board_snapshot(previous: BoardRead, current: BoardRead) -> BoardPatchRead:
+        previous_by_id = {widget.id: widget for widget in previous.widgets}
+        current_by_id = {widget.id: widget for widget in current.widgets}
+        upserted_widgets = [
+            widget
+            for widget in current.widgets
+            if previous_by_id.get(widget.id) != widget
+        ]
+        removed_widget_ids = [widget_id for widget_id in previous_by_id if widget_id not in current_by_id]
+        previous_order = [widget.id for widget in previous.widgets]
+        current_order = [widget.id for widget in current.widgets]
+        return BoardPatchRead(
+            board_id=current.id,
+            name=current.name if current.name != previous.name else None,
+            owner_user_id=current.owner_user_id if current.owner_user_id != previous.owner_user_id else None,
+            upserted_widgets=upserted_widgets,
+            removed_widget_ids=removed_widget_ids,
+            ordered_widget_ids=current_order if current_order != previous_order else [],
+        )
+
     def _widget_lock(self, instance_id: str) -> asyncio.Lock:
         lock = self._widget_locks.get(instance_id)
         if lock is None:
             lock = asyncio.Lock()
             self._widget_locks[instance_id] = lock
         return lock
+
+    async def _scheduled_work_paused(self) -> bool:
+        if self.presence_manager is None:
+            return False
+        return await self.presence_manager.should_pause_scheduled_work()
 
     @staticmethod
     def _normalize_log_event_type(event: str) -> str:
