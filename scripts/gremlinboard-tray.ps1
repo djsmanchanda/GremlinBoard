@@ -10,12 +10,194 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $StateDir = Join-Path $RepoRoot "data\launcher"
 $StateFile = Join-Path $StateDir "instances.json"
+$LauncherStateVersion = 2
 
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+
+function Write-LauncherStateEvent {
+    param(
+        [string]$Event,
+        [string]$Message
+    )
+
+    $line = "{0} {1} {2}" -f (Get-Date).ToString("o"), $Event, $Message
+    $logPath = Join-Path $StateDir "launcher-state.log"
+    try {
+        Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
+    }
+    catch {
+        Write-Warning $line
+    }
+}
 
 function Quote-PSLiteral {
     param([string]$Value)
     return "'" + $Value.Replace("'", "''") + "'"
+}
+
+function Test-ObjectProperty {
+    param(
+        [object]$Object,
+        [string]$Name
+    )
+
+    return $null -ne $Object -and $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Get-ObjectProperty {
+    param(
+        [object]$Object,
+        [string]$Name,
+        [object]$Default = $null
+    )
+
+    if (Test-ObjectProperty -Object $Object -Name $Name) {
+        $value = $Object.PSObject.Properties[$Name].Value
+        if ($null -ne $value) {
+            return $value
+        }
+    }
+    return $Default
+}
+
+function ConvertTo-StringValue {
+    param(
+        [object]$Value,
+        [string]$Default = ""
+    )
+
+    if ($null -eq $Value) {
+        return $Default
+    }
+    return [string]$Value
+}
+
+function ConvertTo-NullableStringValue {
+    param([object]$Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+    return [string]$Value
+}
+
+function ConvertTo-IntValue {
+    param(
+        [object]$Value,
+        [int]$Default = 0
+    )
+
+    if ($null -eq $Value) {
+        return $Default
+    }
+    try {
+        return [int]$Value
+    }
+    catch {
+        return $Default
+    }
+}
+
+function ConvertTo-BoolValue {
+    param(
+        [object]$Value,
+        [bool]$Default = $false
+    )
+
+    if ($null -eq $Value) {
+        return $Default
+    }
+    if ($Value -is [bool]) {
+        return $Value
+    }
+    $text = ([string]$Value).Trim()
+    if ($text -match "^(true|1|yes)$") {
+        return $true
+    }
+    if ($text -match "^(false|0|no)$") {
+        return $false
+    }
+    return $Default
+}
+
+function Normalize-LauncherInstance {
+    param([object]$Instance)
+
+    if ($null -eq $Instance -or $Instance -isnot [psobject]) {
+        return $null
+    }
+
+    $apiPort = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "apiPort") -Default 0
+    $webPort = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "webPort") -Default 0
+    $apiUrl = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "apiUrl") -Default $(if ($apiPort -gt 0) { "http://127.0.0.1:$apiPort/api" } else { "" })
+    $boardUrl = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "boardUrl") -Default $(if ($webPort -gt 0) { "http://127.0.0.1:$webPort" } else { "" })
+    $runtimeState = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "runtimeState" -Default (Get-ObjectProperty -Object $Instance -Name "powerState" -Default "unknown")) -Default "unknown"
+
+    return [pscustomobject][ordered]@{
+        state_version = $LauncherStateVersion
+        id = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "id") -Default ([guid]::NewGuid().ToString())
+        mode = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "mode") -Default "stable"
+        apiPid = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "apiPid") -Default 0
+        webPid = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "webPid") -Default 0
+        apiPort = $apiPort
+        webPort = $webPort
+        apiUrl = $apiUrl
+        boardUrl = $boardUrl
+        systemUrl = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "systemUrl") -Default $(if ($boardUrl) { "$boardUrl/system" } else { "" })
+        apiLog = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "apiLog")
+        apiErrorLog = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "apiErrorLog")
+        webLog = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "webLog")
+        webErrorLog = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "webErrorLog")
+        apiLive = ConvertTo-BoolValue -Value (Get-ObjectProperty -Object $Instance -Name "apiLive") -Default $false
+        webLive = ConvertTo-BoolValue -Value (Get-ObjectProperty -Object $Instance -Name "webLive") -Default $false
+        powerState = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "powerState" -Default $runtimeState) -Default "unknown"
+        runtimeState = $runtimeState
+        activeWidgetCount = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "activeWidgetCount") -Default 0
+        recentErrorCount = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "recentErrorCount") -Default 0
+        websocketSubscribers = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "websocketSubscribers") -Default 0
+        monitorCadenceSeconds = ConvertTo-IntValue -Value (Get-ObjectProperty -Object $Instance -Name "monitorCadenceSeconds") -Default 0
+        lastStartupError = ConvertTo-NullableStringValue -Value (Get-ObjectProperty -Object $Instance -Name "lastStartupError")
+        repoRoot = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "repoRoot") -Default $RepoRoot
+        startedAt = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "startedAt") -Default (Get-Date).ToString("o")
+        updatedAt = ConvertTo-StringValue -Value (Get-ObjectProperty -Object $Instance -Name "updatedAt") -Default (Get-Date).ToString("o")
+    }
+}
+
+function Normalize-LauncherState {
+    param([object[]]$Instances)
+
+    $normalized = @()
+    $seenIds = @{}
+    foreach ($instance in @($Instances)) {
+        $next = Normalize-LauncherInstance -Instance $instance
+        if ($null -eq $next) {
+            Write-LauncherStateEvent -Event "launcher.state_invalid" -Message "Dropped malformed launcher instance during normalization."
+            continue
+        }
+        if ($seenIds.ContainsKey($next.id)) {
+            Write-LauncherStateEvent -Event "launcher.state_invalid" -Message "Dropped duplicate launcher instance id '$($next.id)'."
+            continue
+        }
+        $seenIds[$next.id] = $true
+        $normalized += $next
+    }
+    return @($normalized)
+}
+
+function Backup-LauncherStateFile {
+    param([string]$Reason)
+
+    if (-not (Test-Path -LiteralPath $StateFile)) {
+        return
+    }
+    $backupPath = "{0}.{1}.bak" -f $StateFile, (Get-Date -Format "yyyyMMdd-HHmmss")
+    try {
+        Copy-Item -LiteralPath $StateFile -Destination $backupPath -Force
+        Write-LauncherStateEvent -Event $Reason -Message "Backed up launcher state to $backupPath."
+    }
+    catch {
+        Write-LauncherStateEvent -Event $Reason -Message "Could not back up launcher state: $($_.Exception.Message)"
+    }
 }
 
 function Get-LauncherInstances {
@@ -32,7 +214,9 @@ function Get-LauncherInstances {
         $items = $raw | ConvertFrom-Json
     }
     catch {
-        Write-Warning "Launcher state was unreadable. Resetting $StateFile."
+        Backup-LauncherStateFile -Reason "launcher.state_invalid"
+        Write-LauncherStateEvent -Event "launcher.state_recovered" -Message "Launcher state was unreadable. Rebuilding clean state."
+        Save-LauncherInstances @()
         return @()
     }
 
@@ -40,17 +224,22 @@ function Get-LauncherInstances {
         return @()
     }
 
-    return @($items)
+    $loaded = @($items)
+    $normalized = @(Normalize-LauncherState -Instances $loaded)
+    if (($normalized | ConvertTo-Json -Depth 8 -Compress) -ne ($loaded | ConvertTo-Json -Depth 8 -Compress)) {
+        Write-LauncherStateEvent -Event "launcher.state_normalized" -Message "Normalized launcher state from persisted schema to version $LauncherStateVersion."
+        Save-LauncherInstances $normalized
+    }
+    return @($normalized)
 }
 
 function Save-LauncherInstances {
     param([object[]]$Instances)
-    if ($null -eq $Instances -or $Instances.Count -eq 0) {
-        "[]" | Set-Content -LiteralPath $StateFile -Encoding UTF8
-        return
-    }
-
-    ConvertTo-Json -InputObject @($Instances) -Depth 8 | Set-Content -LiteralPath $StateFile -Encoding UTF8
+    $normalized = @(Normalize-LauncherState -Instances @($Instances))
+    $tempPath = "$StateFile.tmp"
+    $json = if ($normalized.Count -eq 0) { "[]" } else { ConvertTo-Json -InputObject @($normalized) -Depth 8 }
+    $json | Set-Content -LiteralPath $tempPath -Encoding UTF8
+    Move-Item -LiteralPath $tempPath -Destination $StateFile -Force
 }
 
 function Test-ProcessAlive {
@@ -60,7 +249,11 @@ function Test-ProcessAlive {
     }
 
     try {
-        [void](Get-Process -Id ([int]$PidValue) -ErrorAction Stop)
+        $processId = [int]$PidValue
+        if ($processId -le 0) {
+            return $false
+        }
+        [void](Get-Process -Id $processId -ErrorAction Stop)
         return $true
     }
     catch {
@@ -276,6 +469,7 @@ function Update-LauncherInstanceStatus {
     $Instance.webLive = (Test-ProcessAlive $Instance.webPid) -and (Test-HttpEndpoint $Instance.boardUrl)
     $snapshot = Get-RuntimeStatusSnapshot -Instance $Instance -Passive $Passive
     $Instance.powerState = $snapshot.powerState
+    $Instance.runtimeState = $snapshot.powerState
     $Instance.activeWidgetCount = $snapshot.activeWidgetCount
     $Instance.recentErrorCount = $snapshot.recentErrorCount
     $Instance.websocketSubscribers = $snapshot.websocketSubscribers
@@ -335,6 +529,7 @@ function Start-GremlinBoardStack {
 
         $startupError = "GremlinBoard startup failed because API or web exited immediately. Check logs in $StateDir."
         $failedInstance = [pscustomobject]@{
+            state_version = $LauncherStateVersion
             id = [guid]::NewGuid().ToString()
             mode = $SelectedMode
             apiPid = $apiProcess.Process.Id
@@ -351,6 +546,7 @@ function Start-GremlinBoardStack {
             apiLive = $false
             webLive = $false
             powerState = "failed"
+            runtimeState = "failed"
             activeWidgetCount = 0
             recentErrorCount = 0
             websocketSubscribers = 0
@@ -365,6 +561,7 @@ function Start-GremlinBoardStack {
     }
 
     $instance = [pscustomobject]@{
+        state_version = $LauncherStateVersion
         id = [guid]::NewGuid().ToString()
         mode = $SelectedMode
         apiPid = $apiProcess.Process.Id
@@ -381,6 +578,7 @@ function Start-GremlinBoardStack {
         apiLive = $false
         webLive = $false
         powerState = "starting"
+        runtimeState = "starting"
         activeWidgetCount = 0
         recentErrorCount = 0
         websocketSubscribers = 0
@@ -531,6 +729,10 @@ if ($StopAll) {
 if ($List) {
     Show-Instances @(Get-CleanLauncherInstances)
     exit 0
+}
+
+if ($env:GREMLINBOARD_TRAY_IMPORT_ONLY -eq "1") {
+    return
 }
 
 if ([System.Threading.Thread]::CurrentThread.ApartmentState -ne "STA") {

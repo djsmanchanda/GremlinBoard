@@ -165,6 +165,18 @@ Stable utility mode still uses the launchers:
 .\Stop-GremlinBoard.bat
 ```
 
+## Launcher State Compatibility
+
+The tray launcher persists managed API/web process records in `data\launcher\instances.json`. That file is treated as an operator-state cache, not as a database. On every load, `scripts\gremlinboard-tray.ps1` normalizes records to the current `state_version`, fills missing runtime fields with safe defaults, deduplicates malformed duplicates, and rewrites the file atomically.
+
+If the launcher finds invalid or truncated JSON, it writes a timestamped `.bak` copy next to `instances.json`, records a visible event in `data\launcher\launcher-state.log`, and rebuilds a clean empty state. Operators should not need to delete `instances.json` manually after schema changes.
+
+Run the focused launcher persistence smoke checks:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-launcher-state.ps1
+```
+
 ## Migration From `.venv`
 
 The old `.venv` workflow is no longer the canonical path, but it should remain untouched until a micromamba setup has passed validation.
