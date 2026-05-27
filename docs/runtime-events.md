@@ -103,6 +103,18 @@ Board streams use snapshot plus patch reconciliation:
 - Critical persistence should use direct domain writes or timeline/state events handled by an internal observability sink.
 - Runtime status exposes queue pressure metrics including websocket/internal queue depth, maximum subscriber queue depth, stream resets, replay misses, snapshot fallbacks, and dropped event counts.
 
+Phase 7 soak-hardening visibility is additive:
+
+- Replay misses are counted by reason: `invalid_sequence`, `future_sequence`, `empty_history`, `too_old`, and `unknown`.
+- Websocket subscribers track queue depth, dropped events, stream resets, creation time, last enqueue time, and last overflow time.
+- Overflowed websocket subscribers can be pruned when they remain full beyond the stale-subscriber threshold.
+- Stream heartbeats are direct websocket transport messages, not persisted runtime events, and exist only to detect dead long-session sockets.
+- Provider requests use a provider/query fingerprint for in-flight sharing while preserving widget-scoped cache namespaces for invalidation.
+- Provider cooldown state is coordinated per provider id so repeated failures suppress duplicate external requests and prefer stale/fallback responses.
+- Provider cache entries keep a bounded stale-retention window for fallback and are discarded after that window to avoid long-session memory growth.
+
+Durability under pressure remains unchanged: domain state and timeline/state events are authoritative; ephemeral websocket events may be shed when bounded queues overflow.
+
 ## Event Examples
 
 ### `widget.started`

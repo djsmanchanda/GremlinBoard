@@ -14,6 +14,7 @@ from gremlinboard_api.schemas.contracts import (
     DevtoolsActionRead,
     DevtoolsEventSummaryRead,
     DevtoolsProviderCacheRead,
+    DevtoolsProviderCoordinationRead,
     DevtoolsProviderRead,
     DevtoolsQueueRead,
     DevtoolsReplayRead,
@@ -50,6 +51,10 @@ async def devtools_snapshot(
             queue_depth=subscriber.queue_depth,
             max_queue_size=subscriber.max_queue_size,
             dropped_events=subscriber.dropped_events,
+            stream_reset_count=subscriber.stream_reset_count,
+            created_at=subscriber.created_at,
+            last_enqueued_at=subscriber.last_enqueued_at,
+            last_overflow_at=subscriber.last_overflow_at,
             categories=subscriber.categories,
             event_types=subscriber.event_types,
             health=_subscriber_health(
@@ -70,6 +75,8 @@ async def devtools_snapshot(
         max_subscriber_queue_depth=event_snapshot.stats.max_subscriber_queue_depth,
         dropped_event_count=event_snapshot.stats.dropped_event_count,
         websocket_dropped_event_count=event_snapshot.stats.websocket_dropped_event_count,
+        stale_subscriber_count=event_snapshot.stats.stale_subscriber_count,
+        pruned_subscriber_count=event_snapshot.stats.pruned_subscriber_count,
         observability_sink_error=getattr(request.app.state.observability, "last_event_sink_error", None),
         health=_queue_health(
             dropped_events=event_snapshot.stats.dropped_event_count,
@@ -85,6 +92,7 @@ async def devtools_snapshot(
     providers = DevtoolsProviderRead(
         providers=provider_snapshot["providers"],
         cache=DevtoolsProviderCacheRead.model_validate(provider_snapshot["cache"]),
+        coordination=DevtoolsProviderCoordinationRead.model_validate(provider_snapshot["coordination"]),
         degradation=runtime.provider_degradation,
     )
 
@@ -100,6 +108,7 @@ async def devtools_snapshot(
             latest_sequence=event_snapshot.stats.latest_sequence,
             replay_event_count=event_snapshot.stats.replay_event_count,
             replay_miss_count=event_snapshot.stats.replay_miss_count,
+            replay_miss_reasons=event_snapshot.stats.replay_miss_reasons,
             stream_reset_count=event_snapshot.stats.stream_reset_count,
             snapshot_fallback_count=event_snapshot.stats.snapshot_fallback_count,
             recent_events=[_event_summary(event) for event in event_snapshot.recent_events],

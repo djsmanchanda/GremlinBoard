@@ -73,21 +73,45 @@ export function RuntimeDevtoolsShell() {
   useEffect(() => {
     let websocket: WebSocket | null = null;
     let closed = false;
+    let reconnectAttempt = 0;
+
+    const scheduleReconnect = (connect: () => void) => {
+      if (closed || document.visibilityState === "hidden" || reconnectTimer.current !== null) {
+        return;
+      }
+      const delay = Math.min(30000, 1000 * 2 ** reconnectAttempt);
+      reconnectAttempt += 1;
+      reconnectTimer.current = window.setTimeout(() => {
+        reconnectTimer.current = null;
+        connect();
+      }, delay);
+    };
 
     const connect = () => {
+      if (closed || document.visibilityState === "hidden") {
+        return;
+      }
+      if (websocket && websocket.readyState !== WebSocket.CLOSED) {
+        return;
+      }
       setConnectionState("connecting");
       const lastSequence = lastSequenceRef.current;
       const suffix = lastSequence > 0 ? `?last_seq=${lastSequence}` : "";
-      websocket = new WebSocket(apiWebSocketUrl(`/board/stream${suffix}`));
-      websocket.onopen = () => setConnectionState("open");
-      websocket.onerror = () => setConnectionState("error");
-      websocket.onclose = () => {
-        setConnectionState("closed");
-        if (!closed) {
-          reconnectTimer.current = window.setTimeout(connect, 1500);
-        }
+      const nextSocket = new WebSocket(apiWebSocketUrl(`/board/stream${suffix}`));
+      websocket = nextSocket;
+      nextSocket.onopen = () => {
+        reconnectAttempt = 0;
+        setConnectionState("open");
       };
-      websocket.onmessage = (message) => {
+      nextSocket.onerror = () => setConnectionState("error");
+      nextSocket.onclose = () => {
+        if (websocket === nextSocket) {
+          websocket = null;
+        }
+        setConnectionState("closed");
+        scheduleReconnect(connect);
+      };
+      nextSocket.onmessage = (message) => {
         if (pausedRef.current) {
           return;
         }
@@ -95,6 +119,7 @@ export function RuntimeDevtoolsShell() {
           const parsed = JSON.parse(message.data as string) as RuntimeEventMessage<JsonObject>;
           const sequence = typeof parsed.sequence === "number" ? parsed.sequence : lastSequenceRef.current;
           lastSequenceRef.current = Math.max(lastSequenceRef.current, sequence);
+          reconnectAttempt = 0;
           const record: StreamEventRecord = {
             receivedAt: new Date().toISOString(),
             sequence,
@@ -115,12 +140,21 @@ export function RuntimeDevtoolsShell() {
     };
 
     connect();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        websocket?.close();
+        return;
+      }
+      connect();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       closed = true;
       if (reconnectTimer.current !== null) {
         window.clearTimeout(reconnectTimer.current);
       }
       websocket?.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, []);
 
@@ -242,13 +276,17 @@ export function RuntimeDevtoolsShell() {
             <Panel title="Replay + Websocket">
               <KeyValue label="Subscribers" value={String(snapshot?.websocket.subscriber_count ?? 0)} />
               <KeyValue label="Oldest replay seq" value={String(snapshot?.replay.replay_oldest_sequence ?? "none")} />
+              <KeyValue label="Replay miss reasons" value={formatReasonCounts(snapshot?.replay.replay_miss_reasons)} />
               <KeyValue label="Snapshot fallbacks" value={String(snapshot?.websocket.snapshot_fallback_count ?? 0)} />
               <KeyValue label="Stream resets" value={String(snapshot?.websocket.stream_reset_count ?? 0)} />
               <div className="mt-3 space-y-2">
                 {snapshot?.websocket.subscribers.map((subscriber) => (
                   <div key={subscriber.id} className="border border-white/10 px-3 py-2">
                     <div className="flex justify-between text-xs"><span>subscriber {subscriber.id}</span><span>{subscriber.health}</span></div>
-                    <div className="mt-1 text-[11px] text-slate-500">queue {subscriber.queue_depth}/{subscriber.max_queue_size} drops {subscriber.dropped_events}</div>
+                    <div className="mt-1 text-[11px] text-slate-500">
+                      queue {subscriber.queue_depth}/{subscriber.max_queue_size} drops {subscriber.dropped_events} resets {subscriber.stream_reset_count}
+                    </div>
+                    <div className="mt-1 text-[11px] text-slate-600">overflow {formatTimestamp(subscriber.last_overflow_at)}</div>
                   </div>
                 ))}
               </div>
@@ -260,17 +298,27 @@ export function RuntimeDevtoolsShell() {
               <KeyValue label="Internal depth" value={String(snapshot?.queues.internal_queue_depth ?? 0)} />
               <KeyValue label="Generation depth" value={String(snapshot?.queues.generation_queue_depth ?? 0)} />
               <KeyValue label="Dropped events" value={String(snapshot?.queues.dropped_event_count ?? 0)} />
+              <KeyValue label="Stale subscribers" value={String(snapshot?.queues.stale_subscriber_count ?? 0)} />
+              <KeyValue label="Pruned subscribers" value={String(snapshot?.queues.pruned_subscriber_count ?? 0)} />
             </Panel>
 
             <Panel title="Provider Activity">
               <KeyValue label="Cache entries" value={`${snapshot?.providers.cache.entry_count ?? 0}/${snapshot?.providers.cache.max_entries ?? 0}`} />
               <KeyValue label="Expired cache" value={String(snapshot?.providers.cache.expired_entry_count ?? 0)} />
+              <KeyValue label="Stale retention" value={`${snapshot?.providers.cache.stale_retention_seconds ?? 0}s`} />
+              <KeyValue label="In-flight requests" value={`${snapshot?.providers.coordination.inflight_request_count ?? 0}/${snapshot?.providers.coordination.max_inflight_requests ?? 0}`} />
+              <KeyValue label="Coalesced waiters" value={String(snapshot?.providers.coordination.coalesced_request_count ?? 0)} />
               <KeyValue label="Degraded providers" value={String(snapshot?.providers.degradation.length ?? 0)} />
               <div className="mt-3 space-y-2">
                 {snapshot?.providers.providers.map((provider) => (
                   <div key={provider.provider_id} className="border border-white/10 px-3 py-2 text-xs">
                     <div className="flex justify-between"><span className="font-mono text-cyan-100">{provider.provider_id}</span><span>{provider.last_status}</span></div>
-                    <div className="mt-1 text-slate-500">active {provider.active_requests} total {provider.total_requests} hits {provider.cache_hits} misses {provider.cache_misses} errors {provider.errors}</div>
+                    <div className="mt-1 text-slate-500">
+                      active {provider.active_requests} total {provider.total_requests} coalesced {provider.coalesced_requests} hits {provider.cache_hits} misses {provider.cache_misses} errors {provider.errors}
+                    </div>
+                    <div className="mt-1 text-slate-600">
+                      failures {provider.consecutive_failures} cooldown skips {provider.cooldown_skips} until {formatTimestamp(provider.cooldown_until)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -351,4 +399,19 @@ function previewPayload(payload: unknown): string {
   } catch {
     return String(payload);
   }
+}
+
+function formatReasonCounts(reasons?: Record<string, number>): string {
+  const entries = Object.entries(reasons ?? {});
+  if (entries.length === 0) {
+    return "none";
+  }
+  return entries.map(([reason, count]) => `${reason}:${count}`).join(" ");
+}
+
+function formatTimestamp(value?: string | null): string {
+  if (!value) {
+    return "none";
+  }
+  return value;
 }

@@ -28,6 +28,10 @@ class EventSubscriber:
     categories: set[RuntimeEventCategory] | None = None
     event_types: set[str] | None = None
     dropped_events: int = 0
+    stream_reset_count: int = 0
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_enqueued_at: datetime | None = None
+    last_overflow_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -46,7 +50,10 @@ class EventBusStats:
     max_subscriber_queue_depth: int = 0
     websocket_dropped_event_count: int = 0
     replay_miss_count: int = 0
+    replay_miss_reasons: dict[str, int] = field(default_factory=dict)
     snapshot_fallback_count: int = 0
+    stale_subscriber_count: int = 0
+    pruned_subscriber_count: int = 0
 
 
 @dataclass(slots=True)
@@ -56,6 +63,10 @@ class EventSubscriberSnapshot:
     queue_depth: int
     max_queue_size: int
     dropped_events: int
+    stream_reset_count: int
+    created_at: datetime
+    last_enqueued_at: datetime | None = None
+    last_overflow_at: datetime | None = None
     categories: list[str] = field(default_factory=list)
     event_types: list[str] = field(default_factory=list)
 
@@ -79,7 +90,9 @@ class TypedEventBus:
         self._replay_event_count = 0
         self._stream_reset_count = 0
         self._replay_miss_count = 0
+        self._replay_miss_reasons: dict[str, int] = {}
         self._snapshot_fallback_count = 0
+        self._pruned_subscriber_count = 0
 
     async def publish(
         self,
@@ -106,6 +119,8 @@ class TypedEventBus:
                 if subscriber.kind == "websocket":
                     dropped = self._drain_queue(subscriber.queue)
                     subscriber.dropped_events += dropped
+                    subscriber.stream_reset_count += 1
+                    subscriber.last_overflow_at = datetime.now(timezone.utc)
                     self._stream_reset_count += 1
                     subscriber.queue.put_nowait(
                         self._stream_reset_event(
@@ -114,17 +129,21 @@ class TypedEventBus:
                             dropped_events=dropped,
                         )
                     )
+                    subscriber.last_enqueued_at = datetime.now(timezone.utc)
                     continue
                 try:
                     subscriber.queue.get_nowait()
                     self._safe_task_done(subscriber.queue)
                     subscriber.dropped_events += 1
+                    subscriber.last_overflow_at = datetime.now(timezone.utc)
                 except asyncio.QueueEmpty:
                     pass
             try:
                 subscriber.queue.put_nowait(envelope)
+                subscriber.last_enqueued_at = datetime.now(timezone.utc)
             except asyncio.QueueFull:
                 subscriber.dropped_events += 1
+                subscriber.last_overflow_at = datetime.now(timezone.utc)
         return envelope
 
     async def publish_event(
@@ -190,9 +209,11 @@ class TypedEventBus:
                             pass
                     try:
                         queue.put_nowait(event)
+                        subscriber.last_enqueued_at = datetime.now(timezone.utc)
                         self._replay_event_count += 1
                     except asyncio.QueueFull:
                         subscriber.dropped_events += 1
+                        subscriber.last_overflow_at = datetime.now(timezone.utc)
         return queue
 
     def unsubscribe(self, queue: asyncio.Queue[RuntimeEventEnvelope]) -> None:
@@ -255,15 +276,41 @@ class TypedEventBus:
     def can_replay(self, after_sequence: int) -> bool:
         if after_sequence < 0:
             return False
+        if after_sequence > self.latest_sequence:
+            return False
         if not self._history:
             return after_sequence >= self.latest_sequence
         return after_sequence >= self._history[0].sequence - 1
 
-    def record_replay_miss(self) -> None:
+    def record_replay_miss(self, reason: str = "unknown") -> None:
         self._replay_miss_count += 1
+        self._replay_miss_reasons[reason] = self._replay_miss_reasons.get(reason, 0) + 1
 
     def record_snapshot_fallback(self) -> None:
         self._snapshot_fallback_count += 1
+
+    def classify_replay_miss(self, after_sequence: int) -> str:
+        if after_sequence < 0:
+            return "invalid_sequence"
+        if after_sequence > self.latest_sequence:
+            return "future_sequence"
+        if not self._history:
+            return "empty_history"
+        if after_sequence < self._history[0].sequence - 1:
+            return "too_old"
+        return "unknown"
+
+    def prune_stale_subscribers(self, *, max_idle_seconds: int = 300) -> int:
+        now = datetime.now(timezone.utc)
+        stale_ids = [
+            queue_id
+            for queue_id, subscriber in self._subscribers.items()
+            if self._is_stale_subscriber(subscriber, now=now, max_idle_seconds=max_idle_seconds)
+        ]
+        for queue_id in stale_ids:
+            self._subscribers.pop(queue_id, None)
+        self._pruned_subscriber_count += len(stale_ids)
+        return len(stale_ids)
 
     @property
     def latest_sequence(self) -> int:
@@ -308,7 +355,18 @@ class TypedEventBus:
             max_subscriber_queue_depth=max(queue_depths, default=0),
             websocket_dropped_event_count=sum(subscriber.dropped_events for subscriber in websocket_subscribers),
             replay_miss_count=self._replay_miss_count,
+            replay_miss_reasons=dict(sorted(self._replay_miss_reasons.items())),
             snapshot_fallback_count=self._snapshot_fallback_count,
+            stale_subscriber_count=sum(
+                1
+                for subscriber in self._subscribers.values()
+                if self._is_stale_subscriber(
+                    subscriber,
+                    now=datetime.now(timezone.utc),
+                    max_idle_seconds=300,
+                )
+            ),
+            pruned_subscriber_count=self._pruned_subscriber_count,
         )
 
     def subscriber_snapshots(self) -> list[EventSubscriberSnapshot]:
@@ -321,6 +379,10 @@ class TypedEventBus:
                     queue_depth=subscriber.queue.qsize(),
                     max_queue_size=subscriber.queue.maxsize,
                     dropped_events=subscriber.dropped_events,
+                    stream_reset_count=subscriber.stream_reset_count,
+                    created_at=subscriber.created_at,
+                    last_enqueued_at=subscriber.last_enqueued_at,
+                    last_overflow_at=subscriber.last_overflow_at,
                     categories=sorted(category.value for category in subscriber.categories or []),
                     event_types=sorted(subscriber.event_types or []),
                 )
@@ -406,6 +468,20 @@ class TypedEventBus:
             queue.task_done()
         except ValueError:
             pass
+
+    @staticmethod
+    def _is_stale_subscriber(
+        subscriber: EventSubscriber,
+        *,
+        now: datetime,
+        max_idle_seconds: int,
+    ) -> bool:
+        if subscriber.last_overflow_at is None:
+            return False
+        if not subscriber.queue.full():
+            return False
+        age_seconds = (now - subscriber.last_overflow_at).total_seconds()
+        return age_seconds >= max(max_idle_seconds, 0)
 
     @staticmethod
     def _stream_reset_event(*, sequence: int, causation_id: str, dropped_events: int) -> RuntimeEventEnvelope:

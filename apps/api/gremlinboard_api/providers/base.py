@@ -32,79 +32,106 @@ class ExternalDataProvider(ABC):
         self.health = ProviderHealthSnapshot(provider_id=self.provider_id, label=self.label)
 
     async def fetch(self, *, request: ProviderRequest) -> ProviderResult:
+        cache_key = self._cache_key(request)
+        if cache_key and not request.force_refresh:
+            cached = await self.runtime.cache.get(cache_key)
+            if cached is not None:
+                self._record_provider_started()
+                health = self._build_health(status="healthy", cache_status="hit")
+                self._record_provider_finished(
+                    status=health.status,
+                    cache_status=health.cache_status,
+                    fallback_used=health.fallback_used,
+                    error=health.error,
+                )
+                return ProviderResult(
+                    provider_id=self.provider_id,
+                    label=self.label,
+                    data=cached["data"],
+                    health=health,
+                    fetched_at=cached["fetched_at"],
+                    source_url=cached.get("source_url"),
+                    cached=True,
+                )
+
+        coalesce = getattr(self.runtime, "coalesce_request", None)
+        if cache_key and callable(coalesce) and not self._provider_is_cooling_down():
+            result, coalesced = await coalesce(
+                provider_id=self.provider_id,
+                key=self._request_fingerprint(request),
+                factory=lambda: self._fetch_uncached(request=request, cache_key=cache_key),
+            )
+            if coalesced and cache_key and not result.cached and not result.fallback:
+                ttl_seconds = request.cache_ttl_seconds or self.default_ttl_seconds
+                await self.runtime.cache.set(
+                    cache_key,
+                    {
+                        "data": result.data,
+                        "source_url": result.source_url,
+                        "fetched_at": result.fetched_at,
+                    },
+                    ttl_seconds=ttl_seconds,
+                )
+            return result
+
+        return await self._fetch_uncached(request=request, cache_key=cache_key)
+
+    async def _fetch_uncached(self, *, request: ProviderRequest, cache_key: str | None) -> ProviderResult:
         self._record_provider_started()
         provider_finished = False
-        cache_key = self._cache_key(request)
         cache_status = "none"
         try:
-            if cache_key and not request.force_refresh:
-                cached = await self.runtime.cache.get(cache_key)
-                if cached is not None:
-                    health = self._build_health(status="healthy", cache_status="hit")
-                    self._record_provider_finished(
-                        status=health.status,
-                        cache_status=health.cache_status,
-                        fallback_used=health.fallback_used,
-                        error=health.error,
-                    )
-                    provider_finished = True
-                    return ProviderResult(
-                        provider_id=self.provider_id,
-                        label=self.label,
-                        data=cached["data"],
-                        health=health,
-                        fetched_at=cached["fetched_at"],
-                        source_url=cached.get("source_url"),
-                        cached=True,
-                    )
-
             last_error: Exception | None = None
-            attempts = max(self.max_retries + 1, 1)
-            for attempt in range(attempts):
-                started = time.perf_counter()
-                try:
-                    payload = await self.fetch_remote(query=request.query)
-                    fetched_at = utc_now()
-                    latency_ms = max(int((time.perf_counter() - started) * 1000), 0)
-                    ttl_seconds = request.cache_ttl_seconds or self.default_ttl_seconds
-                    if cache_key:
-                        await self.runtime.cache.set(
-                            cache_key,
-                            {
-                                "data": payload["data"],
-                                "source_url": payload.get("source_url"),
-                                "fetched_at": fetched_at,
-                            },
-                            ttl_seconds=ttl_seconds,
+            cooldown_until = None if request.force_refresh else self._provider_cooldown_until()
+            if cooldown_until is not None:
+                last_error = ProviderError(f"{self.provider_id} is cooling down until {cooldown_until.isoformat()}")
+            else:
+                attempts = max(self.max_retries + 1, 1)
+                for attempt in range(attempts):
+                    started = time.perf_counter()
+                    try:
+                        payload = await self.fetch_remote(query=request.query)
+                        fetched_at = utc_now()
+                        latency_ms = max(int((time.perf_counter() - started) * 1000), 0)
+                        ttl_seconds = request.cache_ttl_seconds or self.default_ttl_seconds
+                        if cache_key:
+                            await self.runtime.cache.set(
+                                cache_key,
+                                {
+                                    "data": payload["data"],
+                                    "source_url": payload.get("source_url"),
+                                    "fetched_at": fetched_at,
+                                },
+                                ttl_seconds=ttl_seconds,
+                            )
+                            cache_status = "miss"
+                        health = self._build_health(
+                            status="healthy",
+                            latency_ms=latency_ms,
+                            cache_status=cache_status,
                         )
-                        cache_status = "miss"
-                    health = self._build_health(
-                        status="healthy",
-                        latency_ms=latency_ms,
-                        cache_status=cache_status,
-                    )
-                    self._record_provider_finished(
-                        status=health.status,
-                        cache_status=health.cache_status,
-                        fallback_used=health.fallback_used,
-                        error=health.error,
-                    )
-                    provider_finished = True
-                    return ProviderResult(
-                        provider_id=self.provider_id,
-                        label=self.label,
-                        data=payload["data"],
-                        health=health,
-                        fetched_at=fetched_at,
-                        source_url=payload.get("source_url"),
-                    )
-                except CredentialsMissingError as exc:
-                    last_error = exc
-                    break
-                except (httpx.HTTPError, ValueError, KeyError) as exc:
-                    last_error = exc
-                    if attempt + 1 >= attempts:
+                        self._record_provider_finished(
+                            status=health.status,
+                            cache_status=health.cache_status,
+                            fallback_used=health.fallback_used,
+                            error=health.error,
+                        )
+                        provider_finished = True
+                        return ProviderResult(
+                            provider_id=self.provider_id,
+                            label=self.label,
+                            data=payload["data"],
+                            health=health,
+                            fetched_at=fetched_at,
+                            source_url=payload.get("source_url"),
+                        )
+                    except CredentialsMissingError as exc:
+                        last_error = exc
                         break
+                    except (httpx.HTTPError, ValueError, KeyError) as exc:
+                        last_error = exc
+                        if attempt + 1 >= attempts:
+                            break
 
             if cache_key:
                 stale_cached = await self.runtime.cache.peek(cache_key)
@@ -211,6 +238,10 @@ class ExternalDataProvider(ABC):
         payload = json.dumps(request.query, sort_keys=True, default=str)
         return f"{request.cache_namespace}:{self.provider_id}:{payload}"
 
+    def _request_fingerprint(self, request: ProviderRequest) -> str:
+        payload = json.dumps(request.query, sort_keys=True, default=str)
+        return f"{self.provider_id}:{payload}"
+
     def _build_health(
         self,
         *,
@@ -272,3 +303,15 @@ class ExternalDataProvider(ABC):
         recorder = getattr(self.runtime, "record_provider_aborted", None)
         if callable(recorder):
             recorder(self.provider_id, error)
+
+    def _provider_cooldown_until(self):
+        cooldown = getattr(self.runtime, "provider_cooldown_until", None)
+        if callable(cooldown):
+            return cooldown(self.provider_id)
+        return None
+
+    def _provider_is_cooling_down(self) -> bool:
+        cooldown = getattr(self.runtime, "is_provider_cooling_down", None)
+        if callable(cooldown):
+            return bool(cooldown(self.provider_id))
+        return False

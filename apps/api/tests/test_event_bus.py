@@ -85,6 +85,7 @@ async def test_event_bus_replay_is_bounded_by_sequence() -> None:
 
     assert bus.can_replay(second.sequence - 1)
     assert not bus.can_replay(first.sequence - 1)
+    assert not bus.can_replay(third.sequence + 1)
     assert [event.event_type for event in bus.replay(after_sequence=second.sequence)] == [third.event_type]
     assert bus.stats().replay_oldest_sequence == second.sequence
     assert bus.stats().latest_sequence == third.sequence
@@ -125,3 +126,43 @@ async def test_ephemeral_events_are_replayable_but_not_persistence_marked() -> N
 
     assert event.persistence == RuntimeEventPersistence.TIMELINE
     assert bus.replay(after_sequence=event.sequence - 1)[0].id == event.id
+
+
+def test_event_bus_classifies_and_counts_replay_misses() -> None:
+    bus = EventBus(history_size=2)
+
+    bus.record_replay_miss(bus.classify_replay_miss(-1))
+    bus.record_replay_miss(bus.classify_replay_miss(10))
+
+    stats = bus.stats()
+    assert stats.replay_miss_count == 2
+    assert stats.replay_miss_reasons == {
+        "future_sequence": 1,
+        "invalid_sequence": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_event_bus_prunes_stale_overflowed_subscribers() -> None:
+    bus = EventBus(default_queue_size=1)
+    websocket = bus.subscribe(kind="websocket", max_queue_size=1)
+
+    await bus.publish_event(
+        "board.snapshot",
+        category="board",
+        source={"component": "test"},
+        payload={"id": "board", "widgets": []},
+        visibility=RuntimeEventVisibility.WEBSOCKET,
+    )
+    await bus.publish_event(
+        "board.snapshot",
+        category="board",
+        source={"component": "test"},
+        payload={"id": "board", "widgets": []},
+        visibility=RuntimeEventVisibility.WEBSOCKET,
+    )
+
+    assert bus.prune_stale_subscribers(max_idle_seconds=0) == 1
+    assert bus.websocket_subscriber_count == 0
+    assert bus.stats().pruned_subscriber_count == 1
+    bus.unsubscribe(websocket)

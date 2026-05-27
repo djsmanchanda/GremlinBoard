@@ -454,11 +454,14 @@ export interface RuntimeStatus {
   latest_sequence: number;
   stream_reset_count: number;
   replay_miss_count: number;
+  replay_miss_reasons: Record<string, number>;
   snapshot_fallback_count: number;
   websocket_queue_depth: number;
   internal_queue_depth: number;
   max_subscriber_queue_depth: number;
   websocket_dropped_event_count: number;
+  stale_subscriber_count: number;
+  pruned_subscriber_count: number;
   observability_sink_error?: string | null;
   registry_size: number;
   widgets_total: number;
@@ -475,6 +478,10 @@ export interface DevtoolsSubscriber {
   queue_depth: number;
   max_queue_size: number;
   dropped_events: number;
+  stream_reset_count: number;
+  created_at: string;
+  last_enqueued_at?: string | null;
+  last_overflow_at?: string | null;
   categories: string[];
   event_types: string[];
   health: "ok" | "pressure" | "overflow";
@@ -506,6 +513,7 @@ export interface RuntimeDevtoolsSnapshot {
     latest_sequence: number;
     replay_event_count: number;
     replay_miss_count: number;
+    replay_miss_reasons: Record<string, number>;
     stream_reset_count: number;
     snapshot_fallback_count: number;
     recent_events: DevtoolsEventSummary[];
@@ -527,6 +535,8 @@ export interface RuntimeDevtoolsSnapshot {
     max_subscriber_queue_depth: number;
     dropped_event_count: number;
     websocket_dropped_event_count: number;
+    stale_subscriber_count: number;
+    pruned_subscriber_count: number;
     observability_sink_error?: string | null;
     health: "ok" | "pressure" | "overflow";
     durability_notes: Record<string, string>;
@@ -536,6 +546,8 @@ export interface RuntimeDevtoolsSnapshot {
       provider_id: string;
       active_requests: number;
       total_requests: number;
+      coalesced_requests: number;
+      cooldown_skips: number;
       cache_hits: number;
       cache_misses: number;
       stale_fallbacks: number;
@@ -545,11 +557,21 @@ export interface RuntimeDevtoolsSnapshot {
       last_error?: string | null;
       last_started_at?: string | null;
       last_finished_at?: string | null;
+      consecutive_failures: number;
+      cooldown_until?: string | null;
     }>;
+    coordination: {
+      inflight_request_count: number;
+      max_inflight_requests: number;
+      inflight_keys: string[];
+      oldest_inflight_started_at?: string | null;
+      coalesced_request_count: number;
+    };
     cache: {
       entry_count: number;
       max_entries: number;
       expired_entry_count: number;
+      stale_retention_seconds: number;
       namespace_counts: Record<string, number>;
     };
     degradation: ProviderDegradation[];

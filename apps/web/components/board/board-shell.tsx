@@ -81,6 +81,7 @@ export function BoardShell() {
     let closed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
+    let reconnectAttempt = 0;
 
     const clearReconnect = () => {
       if (reconnectTimer !== null) {
@@ -94,6 +95,18 @@ export function BoardShell() {
       const activeSocket = socket;
       socket = null;
       activeSocket?.close();
+    };
+
+    const scheduleReconnect = () => {
+      if (closed || document.visibilityState !== "visible" || reconnectTimer !== null) {
+        return;
+      }
+      const delay = Math.min(30000, 1000 * 2 ** reconnectAttempt);
+      reconnectAttempt += 1;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
     };
 
     const refreshRegistrySnapshot = () => {
@@ -148,7 +161,11 @@ export function BoardShell() {
       const streamPath = lastSequence > 0 ? `/board/stream?last_seq=${lastSequence}` : "/board/stream";
       const nextSocket = new WebSocket(apiWebSocketUrl(streamPath));
       socket = nextSocket;
+      nextSocket.onopen = () => {
+        reconnectAttempt = 0;
+      };
       nextSocket.onmessage = (event) => {
+        reconnectAttempt = 0;
         const payload = JSON.parse(event.data) as RuntimeEventMessage<BoardState | BoardPatch>;
         const projected = applyBoardEvent(projection.current, payload);
         projection.current = projected.state;
@@ -174,9 +191,7 @@ export function BoardShell() {
           return;
         }
         socket = null;
-        if (!closed && document.visibilityState === "visible") {
-          reconnectTimer = window.setTimeout(connect, 5000);
-        }
+        scheduleReconnect();
       };
     };
 

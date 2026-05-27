@@ -282,7 +282,10 @@ async def test_devtools_snapshot_exposes_replay_queue_and_provider_state() -> No
         assert probe_events[-1]["payload_keys"] == ["detail"]
         assert "durability_notes" in payload["queues"]
         assert payload["queues"]["generation_worker_running"] is True
+        assert "stale_subscriber_count" in payload["queues"]
+        assert "replay_miss_reasons" in payload["replay"]
         assert payload["providers"]["cache"]["max_entries"] >= 1
+        assert "coordination" in payload["providers"]
         assert payload["pressure"]["queue_health"] in {"ok", "pressure", "overflow"}
     finally:
         await harness.close()

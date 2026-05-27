@@ -471,11 +471,14 @@ class RuntimeStatusRead(BaseModel):
     latest_sequence: int = 0
     stream_reset_count: int = 0
     replay_miss_count: int = 0
+    replay_miss_reasons: dict[str, int] = Field(default_factory=dict)
     snapshot_fallback_count: int = 0
     websocket_queue_depth: int = 0
     internal_queue_depth: int = 0
     max_subscriber_queue_depth: int = 0
     websocket_dropped_event_count: int = 0
+    stale_subscriber_count: int = 0
+    pruned_subscriber_count: int = 0
     observability_sink_error: str | None = None
     registry_size: int
     widgets_total: int
@@ -492,6 +495,10 @@ class DevtoolsSubscriberRead(BaseModel):
     queue_depth: int = Field(ge=0)
     max_queue_size: int = Field(ge=0)
     dropped_events: int = Field(ge=0)
+    stream_reset_count: int = Field(default=0, ge=0)
+    created_at: datetime
+    last_enqueued_at: datetime | None = None
+    last_overflow_at: datetime | None = None
     categories: list[str] = Field(default_factory=list)
     event_types: list[str] = Field(default_factory=list)
     health: Literal["ok", "pressure", "overflow"]
@@ -503,6 +510,7 @@ class DevtoolsReplayRead(BaseModel):
     latest_sequence: int = Field(ge=0)
     replay_event_count: int = Field(ge=0)
     replay_miss_count: int = Field(ge=0)
+    replay_miss_reasons: dict[str, int] = Field(default_factory=dict)
     stream_reset_count: int = Field(ge=0)
     snapshot_fallback_count: int = Field(ge=0)
     recent_events: list["DevtoolsEventSummaryRead"] = Field(default_factory=list)
@@ -535,6 +543,8 @@ class DevtoolsQueueRead(BaseModel):
     max_subscriber_queue_depth: int = Field(ge=0)
     dropped_event_count: int = Field(ge=0)
     websocket_dropped_event_count: int = Field(ge=0)
+    stale_subscriber_count: int = Field(default=0, ge=0)
+    pruned_subscriber_count: int = Field(default=0, ge=0)
     observability_sink_error: str | None = None
     health: Literal["ok", "pressure", "overflow"]
     durability_notes: dict[str, str] = Field(default_factory=dict)
@@ -552,6 +562,7 @@ class DevtoolsProviderActivityRead(BaseModel):
     provider_id: str
     active_requests: int = Field(ge=0)
     total_requests: int = Field(ge=0)
+    coalesced_requests: int = Field(default=0, ge=0)
     cache_hits: int = Field(ge=0)
     cache_misses: int = Field(ge=0)
     stale_fallbacks: int = Field(ge=0)
@@ -563,16 +574,26 @@ class DevtoolsProviderActivityRead(BaseModel):
     last_finished_at: datetime | None = None
 
 
+class DevtoolsProviderCoordinationRead(BaseModel):
+    inflight_request_count: int = Field(default=0, ge=0)
+    max_inflight_requests: int = Field(default=64, ge=1)
+    inflight_keys: list[str] = Field(default_factory=list)
+    oldest_inflight_started_at: datetime | None = None
+    coalesced_request_count: int = Field(default=0, ge=0)
+
+
 class DevtoolsProviderCacheRead(BaseModel):
     entry_count: int = Field(ge=0)
     max_entries: int = Field(ge=1)
     expired_entry_count: int = Field(ge=0)
+    stale_retention_seconds: int = Field(default=600, ge=0)
     namespace_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class DevtoolsProviderRead(BaseModel):
     providers: list[DevtoolsProviderActivityRead] = Field(default_factory=list)
     cache: DevtoolsProviderCacheRead
+    coordination: DevtoolsProviderCoordinationRead = Field(default_factory=DevtoolsProviderCoordinationRead)
     degradation: list[ProviderDegradationRead] = Field(default_factory=list)
 
 

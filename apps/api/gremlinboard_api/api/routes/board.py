@@ -199,7 +199,9 @@ async def board_stream(websocket: WebSocket) -> None:
     event_bus = websocket.app.state.event_bus
     presence = getattr(websocket.app.state, "presence_manager", None)
     presence_token = await presence.websocket_connected() if presence is not None else None
-    last_seq = _parse_last_seq(websocket.query_params.get("last_seq"))
+    raw_last_seq = websocket.query_params.get("last_seq")
+    last_seq, last_seq_invalid = _parse_last_seq(raw_last_seq)
+    event_bus.prune_stale_subscribers(max_idle_seconds=300)
     queue = event_bus.subscribe(kind="websocket")
     try:
         if last_seq is not None and event_bus.can_replay(last_seq):
@@ -207,8 +209,9 @@ async def board_stream(websocket: WebSocket) -> None:
                 if not await _send_json(websocket, event.to_websocket_message()):
                     return
         else:
-            if last_seq is not None:
-                event_bus.record_replay_miss()
+            if raw_last_seq is not None:
+                reason = "invalid_sequence" if last_seq_invalid else event_bus.classify_replay_miss(last_seq or 0)
+                event_bus.record_replay_miss(reason)
             event_bus.record_snapshot_fallback()
             async with websocket.app.state.session_factory() as session:
                 snapshot = await _read_board(session)
@@ -226,7 +229,21 @@ async def board_stream(websocket: WebSocket) -> None:
                     return
 
         while True:
-            event = await queue.get()
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                if not await _send_json(
+                    websocket,
+                    {
+                        "type": "stream.heartbeat",
+                        "sequence": event_bus.latest_sequence,
+                        "category": "system",
+                        "level": "debug",
+                        "payload": {"latest_sequence": event_bus.latest_sequence},
+                    },
+                ):
+                    return
+                continue
             if event.event_type == "stream.reset":
                 event_bus.record_snapshot_fallback()
                 async with websocket.app.state.session_factory() as session:
@@ -254,14 +271,16 @@ async def board_stream(websocket: WebSocket) -> None:
             await presence.websocket_disconnected(presence_token)
 
 
-def _parse_last_seq(value: str | None) -> int | None:
+def _parse_last_seq(value: str | None) -> tuple[int | None, bool]:
     if value is None:
-        return None
+        return None, False
     try:
         parsed = int(value)
     except ValueError:
-        return None
-    return parsed if parsed >= 0 else None
+        return None, True
+    if parsed < 0:
+        return None, True
+    return parsed, False
 
 
 async def _send_json(websocket: WebSocket, payload: dict[str, object]) -> bool:
@@ -269,4 +288,8 @@ async def _send_json(websocket: WebSocket, payload: dict[str, object]) -> bool:
         await asyncio.wait_for(websocket.send_json(payload), timeout=5.0)
         return True
     except Exception:
+        try:
+            await websocket.close()
+        except Exception:
+            pass
         return False
