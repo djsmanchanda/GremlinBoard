@@ -23,7 +23,7 @@ for (const viewport of monitoringViewports) {
 
       await expect(page.getByRole("heading", { name: "GremlinBoard" })).toBeVisible();
       await expect(page.getByText(/Monitoring-station board/i)).toBeVisible();
-      await expect(page.getByText("Monitoring board")).toBeVisible();
+      await expect(page.getByText("Live board")).toBeVisible();
 
       await expect(page.getByRole("button", { name: "View" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();

@@ -130,6 +130,15 @@ class GenerationPipelineService:
             logger.info("starting generation worker")
         self._worker_task = asyncio.create_task(self._run_worker())
 
+    def queue_status(self) -> dict[str, Any]:
+        worker_running = self._worker_task is not None and not self._worker_task.done()
+        return {
+            "queue_depth": self._queue.qsize() if self._queue is not None else 0,
+            "queued_input_count": len(self._queued_inputs),
+            "worker_running": worker_running,
+            "worker_done": self._worker_task.done() if self._worker_task is not None else True,
+        }
+
     async def list_providers(self) -> list[AIProviderRead]:
         settings = await self.settings_service.read()
         items: list[AIProviderRead] = []

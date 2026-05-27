@@ -32,103 +32,144 @@ class ExternalDataProvider(ABC):
         self.health = ProviderHealthSnapshot(provider_id=self.provider_id, label=self.label)
 
     async def fetch(self, *, request: ProviderRequest) -> ProviderResult:
+        self._record_provider_started()
+        provider_finished = False
         cache_key = self._cache_key(request)
         cache_status = "none"
-        if cache_key and not request.force_refresh:
-            cached = await self.runtime.cache.get(cache_key)
-            if cached is not None:
-                health = self._build_health(status="healthy", cache_status="hit")
-                return ProviderResult(
-                    provider_id=self.provider_id,
-                    label=self.label,
-                    data=cached["data"],
-                    health=health,
-                    fetched_at=cached["fetched_at"],
-                    source_url=cached.get("source_url"),
-                    cached=True,
-                )
-
-        last_error: Exception | None = None
-        attempts = max(self.max_retries + 1, 1)
-        for attempt in range(attempts):
-            started = time.perf_counter()
-            try:
-                payload = await self.fetch_remote(query=request.query)
-                fetched_at = utc_now()
-                latency_ms = max(int((time.perf_counter() - started) * 1000), 0)
-                ttl_seconds = request.cache_ttl_seconds or self.default_ttl_seconds
-                if cache_key:
-                    await self.runtime.cache.set(
-                        cache_key,
-                        {
-                            "data": payload["data"],
-                            "source_url": payload.get("source_url"),
-                            "fetched_at": fetched_at,
-                        },
-                        ttl_seconds=ttl_seconds,
+        try:
+            if cache_key and not request.force_refresh:
+                cached = await self.runtime.cache.get(cache_key)
+                if cached is not None:
+                    health = self._build_health(status="healthy", cache_status="hit")
+                    self._record_provider_finished(
+                        status=health.status,
+                        cache_status=health.cache_status,
+                        fallback_used=health.fallback_used,
+                        error=health.error,
                     )
-                    cache_status = "miss"
-                health = self._build_health(
-                    status="healthy",
-                    latency_ms=latency_ms,
-                    cache_status=cache_status,
-                )
-                return ProviderResult(
-                    provider_id=self.provider_id,
-                    label=self.label,
-                    data=payload["data"],
-                    health=health,
-                    fetched_at=fetched_at,
-                    source_url=payload.get("source_url"),
-                )
-            except CredentialsMissingError as exc:
-                last_error = exc
-                break
-            except (httpx.HTTPError, ValueError, KeyError) as exc:
-                last_error = exc
-                if attempt + 1 >= attempts:
-                    break
+                    provider_finished = True
+                    return ProviderResult(
+                        provider_id=self.provider_id,
+                        label=self.label,
+                        data=cached["data"],
+                        health=health,
+                        fetched_at=cached["fetched_at"],
+                        source_url=cached.get("source_url"),
+                        cached=True,
+                    )
 
-        if cache_key:
-            stale_cached = await self.runtime.cache.peek(cache_key)
-            if stale_cached is not None:
+            last_error: Exception | None = None
+            attempts = max(self.max_retries + 1, 1)
+            for attempt in range(attempts):
+                started = time.perf_counter()
+                try:
+                    payload = await self.fetch_remote(query=request.query)
+                    fetched_at = utc_now()
+                    latency_ms = max(int((time.perf_counter() - started) * 1000), 0)
+                    ttl_seconds = request.cache_ttl_seconds or self.default_ttl_seconds
+                    if cache_key:
+                        await self.runtime.cache.set(
+                            cache_key,
+                            {
+                                "data": payload["data"],
+                                "source_url": payload.get("source_url"),
+                                "fetched_at": fetched_at,
+                            },
+                            ttl_seconds=ttl_seconds,
+                        )
+                        cache_status = "miss"
+                    health = self._build_health(
+                        status="healthy",
+                        latency_ms=latency_ms,
+                        cache_status=cache_status,
+                    )
+                    self._record_provider_finished(
+                        status=health.status,
+                        cache_status=health.cache_status,
+                        fallback_used=health.fallback_used,
+                        error=health.error,
+                    )
+                    provider_finished = True
+                    return ProviderResult(
+                        provider_id=self.provider_id,
+                        label=self.label,
+                        data=payload["data"],
+                        health=health,
+                        fetched_at=fetched_at,
+                        source_url=payload.get("source_url"),
+                    )
+                except CredentialsMissingError as exc:
+                    last_error = exc
+                    break
+                except (httpx.HTTPError, ValueError, KeyError) as exc:
+                    last_error = exc
+                    if attempt + 1 >= attempts:
+                        break
+
+            if cache_key:
+                stale_cached = await self.runtime.cache.peek(cache_key)
+                if stale_cached is not None:
+                    health = self._build_health(
+                        status="degraded",
+                        error=str(last_error) if last_error else None,
+                        cache_status="stale",
+                        fallback_used=True,
+                    )
+                    self._record_provider_finished(
+                        status=health.status,
+                        cache_status=health.cache_status,
+                        fallback_used=health.fallback_used,
+                        error=health.error,
+                    )
+                    provider_finished = True
+                    return ProviderResult(
+                        provider_id=self.provider_id,
+                        label=self.label,
+                        data=stale_cached["data"],
+                        health=health,
+                        fetched_at=stale_cached["fetched_at"],
+                        source_url=stale_cached.get("source_url"),
+                        cached=True,
+                        stale=True,
+                        fallback=True,
+                    )
+
+            fallback_data = self.fallback_response(query=request.query, error=last_error)
+            if fallback_data is not None:
                 health = self._build_health(
                     status="degraded",
                     error=str(last_error) if last_error else None,
-                    cache_status="stale",
+                    cache_status="fallback",
                     fallback_used=True,
                 )
+                self._record_provider_finished(
+                    status=health.status,
+                    cache_status=health.cache_status,
+                    fallback_used=health.fallback_used,
+                    error=health.error,
+                )
+                provider_finished = True
                 return ProviderResult(
                     provider_id=self.provider_id,
                     label=self.label,
-                    data=stale_cached["data"],
+                    data=fallback_data,
                     health=health,
-                    fetched_at=stale_cached["fetched_at"],
-                    source_url=stale_cached.get("source_url"),
-                    cached=True,
-                    stale=True,
+                    fetched_at=utc_now(),
                     fallback=True,
                 )
 
-        fallback_data = self.fallback_response(query=request.query, error=last_error)
-        if fallback_data is not None:
-            health = self._build_health(
-                status="degraded",
-                error=str(last_error) if last_error else None,
-                cache_status="fallback",
-                fallback_used=True,
+            message = str(last_error) if last_error else f"{self.provider_id} fetch failed"
+            self._record_provider_finished(
+                status="error",
+                cache_status=cache_status,
+                error=message,
             )
-            return ProviderResult(
-                provider_id=self.provider_id,
-                label=self.label,
-                data=fallback_data,
-                health=health,
-                fetched_at=utc_now(),
-                fallback=True,
-            )
-
-        message = str(last_error) if last_error else f"{self.provider_id} fetch failed"
-        raise ProviderError(message)
+            provider_finished = True
+            raise ProviderError(message)
+        except Exception as exc:
+            if not provider_finished:
+                self._record_provider_aborted(str(exc))
+            raise
 
     @abstractmethod
     async def fetch_remote(self, *, query: dict[str, Any]) -> dict[str, Any]:
@@ -203,3 +244,31 @@ class ExternalDataProvider(ABC):
             cache_status=self.health.cache_status,
             fallback_used=self.health.fallback_used,
         )
+
+    def _record_provider_started(self) -> None:
+        recorder = getattr(self.runtime, "record_provider_started", None)
+        if callable(recorder):
+            recorder(self.provider_id)
+
+    def _record_provider_finished(
+        self,
+        *,
+        status: str,
+        cache_status: str = "none",
+        fallback_used: bool = False,
+        error: str | None = None,
+    ) -> None:
+        recorder = getattr(self.runtime, "record_provider_finished", None)
+        if callable(recorder):
+            recorder(
+                self.provider_id,
+                status=status,
+                cache_status=cache_status,
+                fallback_used=fallback_used,
+                error=error,
+            )
+
+    def _record_provider_aborted(self, error: str) -> None:
+        recorder = getattr(self.runtime, "record_provider_aborted", None)
+        if callable(recorder):
+            recorder(self.provider_id, error)

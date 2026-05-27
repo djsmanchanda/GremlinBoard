@@ -203,7 +203,7 @@ async def board_stream(websocket: WebSocket) -> None:
     queue = event_bus.subscribe(kind="websocket")
     try:
         if last_seq is not None and event_bus.can_replay(last_seq):
-            for event in event_bus.replay(after_sequence=last_seq):
+            for event in event_bus.replay(after_sequence=last_seq, kind="websocket"):
                 if not await _send_json(websocket, event.to_websocket_message()):
                     return
         else:

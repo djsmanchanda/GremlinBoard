@@ -259,6 +259,58 @@ async def test_runtime_status_passive_probe_does_not_keep_runtime_active() -> No
 
 
 @pytest.mark.asyncio
+async def test_devtools_snapshot_exposes_replay_queue_and_provider_state() -> None:
+    harness = await RuntimeTestHarness.create()
+    try:
+        await harness.event_bus.publish_event(
+            "runtime.devtools_probe",
+            category="runtime",
+            source={"component": "test"},
+            payload={"detail": "bounded"},
+        )
+
+        response = await harness.client.get("/api/devtools/snapshot")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["runtime"]["state"] == "active"
+        assert payload["replay"]["latest_sequence"] >= 1
+        probe_events = [
+            event for event in payload["replay"]["recent_events"] if event["type"] == "runtime.devtools_probe"
+        ]
+        assert probe_events
+        assert probe_events[-1]["payload_keys"] == ["detail"]
+        assert "durability_notes" in payload["queues"]
+        assert payload["queues"]["generation_worker_running"] is True
+        assert payload["providers"]["cache"]["max_entries"] >= 1
+        assert payload["pressure"]["queue_health"] in {"ok", "pressure", "overflow"}
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
+async def test_devtools_actions_clear_replay_and_simulate_stream_reset() -> None:
+    harness = await RuntimeTestHarness.create()
+    try:
+        await harness.event_bus.publish_event(
+            "runtime.devtools_probe",
+            category="runtime",
+            source={"component": "test"},
+        )
+
+        clear_response = await harness.client.post("/api/devtools/actions/clear-replay")
+        assert clear_response.status_code == 200
+        assert clear_response.json()["detail"]["cleared_events"] >= 1
+        assert harness.event_bus.stats().history_size == 0
+
+        reset_response = await harness.client.post("/api/devtools/actions/simulate-stream-reset")
+        assert reset_response.status_code == 200
+        assert reset_response.json()["detail"]["sequence"] >= 1
+    finally:
+        await harness.close()
+
+
+@pytest.mark.asyncio
 async def test_agent_api_and_runtime_status_expose_agent_registry_snapshot() -> None:
     harness = await RuntimeTestHarness.create()
     try:

@@ -17,6 +17,14 @@ class CacheEntry:
         return self.expires_at <= datetime.now(timezone.utc)
 
 
+@dataclass(slots=True)
+class CacheStats:
+    entry_count: int
+    max_entries: int
+    expired_entry_count: int
+    namespace_counts: dict[str, int]
+
+
 class ResponseCache:
     def __init__(self, *, max_entries: int = 256) -> None:
         self._entries: dict[str, CacheEntry] = {}
@@ -52,6 +60,23 @@ class ResponseCache:
         async with self._lock:
             for key in [entry_key for entry_key in self._entries if entry_key.startswith(prefix)]:
                 self._entries.pop(key, None)
+
+    async def stats(self) -> CacheStats:
+        now = datetime.now(timezone.utc)
+        async with self._lock:
+            namespace_counts: dict[str, int] = {}
+            expired_entry_count = 0
+            for key, entry in self._entries.items():
+                namespace = key.split(":", 1)[0] if ":" in key else "default"
+                namespace_counts[namespace] = namespace_counts.get(namespace, 0) + 1
+                if entry.expires_at <= now:
+                    expired_entry_count += 1
+            return CacheStats(
+                entry_count=len(self._entries),
+                max_entries=self.max_entries,
+                expired_entry_count=expired_entry_count,
+                namespace_counts=namespace_counts,
+            )
 
     def _prune_expired(self, now: datetime) -> None:
         for key in [entry_key for entry_key, entry in self._entries.items() if entry.expires_at <= now]:

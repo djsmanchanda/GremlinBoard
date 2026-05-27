@@ -11,6 +11,8 @@ import type {
   GenerationPipelinePreview,
   JsonObject,
   ObservabilityOverview,
+  RuntimeDevtoolsSnapshot,
+  RuntimeStatus,
   SpecValidationResult,
   SystemSettings,
   TileSize,
@@ -266,4 +268,22 @@ export function deleteApiCredential(credentialId: string) {
 
 export function fetchObservabilityOverview(limit = 80) {
   return request<ObservabilityOverview>(`/observability/overview?limit=${limit}`);
+}
+
+export function fetchRuntimeStatus() {
+  return request<RuntimeStatus>("/runtime/status", {
+    headers: { "x-gremlin-presence-source": "system_panel" },
+  });
+}
+
+export function fetchRuntimeDevtoolsSnapshot(recentEvents = 80) {
+  return request<RuntimeDevtoolsSnapshot>(`/devtools/snapshot?recent_events=${recentEvents}`, {
+    headers: { "x-gremlin-presence-source": "system_panel" },
+  });
+}
+
+export function runDevtoolsAction(action: "clear-replay" | "force-snapshot" | "simulate-stream-reset") {
+  return request<{ status: "ok"; action: string; detail: JsonObject }>(`/devtools/actions/${action}`, {
+    method: "POST",
+  });
 }

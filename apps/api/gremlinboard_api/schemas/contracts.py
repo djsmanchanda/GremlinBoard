@@ -486,6 +486,121 @@ class RuntimeStatusRead(BaseModel):
     startup_recovery: RuntimeStartupRecoveryRead
 
 
+class DevtoolsSubscriberRead(BaseModel):
+    id: str
+    kind: Literal["internal", "websocket", "all"]
+    queue_depth: int = Field(ge=0)
+    max_queue_size: int = Field(ge=0)
+    dropped_events: int = Field(ge=0)
+    categories: list[str] = Field(default_factory=list)
+    event_types: list[str] = Field(default_factory=list)
+    health: Literal["ok", "pressure", "overflow"]
+
+
+class DevtoolsReplayRead(BaseModel):
+    history_size: int = Field(ge=0)
+    replay_oldest_sequence: int | None = None
+    latest_sequence: int = Field(ge=0)
+    replay_event_count: int = Field(ge=0)
+    replay_miss_count: int = Field(ge=0)
+    stream_reset_count: int = Field(ge=0)
+    snapshot_fallback_count: int = Field(ge=0)
+    recent_events: list["DevtoolsEventSummaryRead"] = Field(default_factory=list)
+
+
+class DevtoolsEventSummaryRead(BaseModel):
+    id: str
+    sequence: int = Field(ge=0)
+    type: str
+    category: RuntimeEventCategory
+    level: RuntimeEventLevel
+    visibility: RuntimeEventVisibility
+    persistence: RuntimeEventPersistence
+    replayable: bool
+    source: RuntimeEventSource
+    correlation_id: str | None = None
+    causation_id: str | None = None
+    created_at: datetime
+    payload_keys: list[str] = Field(default_factory=list)
+    payload_size: int = Field(ge=0)
+
+
+class DevtoolsQueueRead(BaseModel):
+    event_bus_queue_depth: int = Field(ge=0)
+    websocket_queue_depth: int = Field(ge=0)
+    internal_queue_depth: int = Field(ge=0)
+    generation_queue_depth: int = Field(default=0, ge=0)
+    generation_queued_input_count: int = Field(default=0, ge=0)
+    generation_worker_running: bool = False
+    max_subscriber_queue_depth: int = Field(ge=0)
+    dropped_event_count: int = Field(ge=0)
+    websocket_dropped_event_count: int = Field(ge=0)
+    observability_sink_error: str | None = None
+    health: Literal["ok", "pressure", "overflow"]
+    durability_notes: dict[str, str] = Field(default_factory=dict)
+
+
+class DevtoolsWebsocketRead(BaseModel):
+    subscriber_count: int = Field(ge=0)
+    subscribers: list[DevtoolsSubscriberRead] = Field(default_factory=list)
+    stream_reset_count: int = Field(ge=0)
+    replay_miss_count: int = Field(ge=0)
+    snapshot_fallback_count: int = Field(ge=0)
+
+
+class DevtoolsProviderActivityRead(BaseModel):
+    provider_id: str
+    active_requests: int = Field(ge=0)
+    total_requests: int = Field(ge=0)
+    cache_hits: int = Field(ge=0)
+    cache_misses: int = Field(ge=0)
+    stale_fallbacks: int = Field(ge=0)
+    fallback_responses: int = Field(ge=0)
+    errors: int = Field(ge=0)
+    last_status: str
+    last_error: str | None = None
+    last_started_at: datetime | None = None
+    last_finished_at: datetime | None = None
+
+
+class DevtoolsProviderCacheRead(BaseModel):
+    entry_count: int = Field(ge=0)
+    max_entries: int = Field(ge=1)
+    expired_entry_count: int = Field(ge=0)
+    namespace_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class DevtoolsProviderRead(BaseModel):
+    providers: list[DevtoolsProviderActivityRead] = Field(default_factory=list)
+    cache: DevtoolsProviderCacheRead
+    degradation: list[ProviderDegradationRead] = Field(default_factory=list)
+
+
+class RuntimePressureRead(BaseModel):
+    queue_health: Literal["ok", "pressure", "overflow"]
+    replay_pressure: Literal["ok", "pressure"]
+    subscriber_pressure: Literal["ok", "pressure", "overflow"]
+    provider_pressure: Literal["ok", "degraded"]
+    stale_widget_count: int = Field(ge=0)
+    error_widget_count: int = Field(ge=0)
+
+
+class RuntimeDevtoolsSnapshotRead(BaseModel):
+    observed_at: datetime
+    runtime: RuntimeStatusRead
+    replay: DevtoolsReplayRead
+    websocket: DevtoolsWebsocketRead
+    queues: DevtoolsQueueRead
+    providers: DevtoolsProviderRead
+    pressure: RuntimePressureRead
+
+
+class DevtoolsActionRead(BaseModel):
+    status: Literal["ok"]
+    action: str
+    detail: dict[str, Any] = Field(default_factory=dict)
+
+
 class RuntimeLogRead(BaseModel):
     id: str
     widget_instance_id: str | None = None

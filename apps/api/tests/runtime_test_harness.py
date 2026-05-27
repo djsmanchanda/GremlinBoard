@@ -13,9 +13,10 @@ from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from gremlinboard_api.api.routes import agents, board, observability, plugins, runtime
+from gremlinboard_api.api.routes import agents, board, devtools, observability, plugins, runtime
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base, get_session
+from gremlinboard_api.providers.registry import ExternalProviderRegistry, ProviderRuntime
 from gremlinboard_api.registry.loader import WidgetRegistry, load_registry
 from gremlinboard_api.repositories.board import BoardRepository, serialize_runtime_log, serialize_widget
 from gremlinboard_api.repositories.platform import PlatformRepository, serialize_metric
@@ -24,6 +25,7 @@ from gremlinboard_api.runtime.manager import RuntimeManager
 from gremlinboard_api.schemas.contracts import RuntimeLogRead, RuntimeMetricRead, WidgetInstanceRead
 from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.agent_registry import AgentRegistry
+from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.presence import PresenceManager
@@ -230,9 +232,12 @@ class RuntimeTestHarness:
     auth_service: AuthService
     settings_service: SystemSettingsService
     plugin_manager: PluginManagerService
+    provider_runtime: ProviderRuntime
+    provider_registry: ExternalProviderRegistry
     event_bus: EventBus
     presence_manager: PresenceManager
     agent_registry: AgentRegistry
+    generation_pipeline: GenerationPipelineService
     runtime_manager: RuntimeManager
     observability: ObservabilityService
     app: FastAPI
@@ -274,6 +279,8 @@ class RuntimeTestHarness:
             registry=registry,
         )
         await plugin_manager.sync_with_filesystem()
+        provider_runtime = ProviderRuntime(settings)
+        provider_registry = ExternalProviderRegistry(provider_runtime)
         event_bus = EventBus()
         presence_manager = PresenceManager(
             event_bus=event_bus,
@@ -281,6 +288,13 @@ class RuntimeTestHarness:
             idle_after_seconds=90,
         )
         agent_registry = AgentRegistry(event_bus=event_bus)
+        generation_pipeline = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+            agent_registry=agent_registry,
+        )
+        await generation_pipeline.start()
         runtime_manager = RuntimeManager(
             session_factory=session_factory,
             registry=registry,
@@ -311,6 +325,7 @@ class RuntimeTestHarness:
 
         app.dependency_overrides[get_session] = override_get_session
         app.state.registry = registry
+        app.state.provider_registry = provider_registry
         app.state.plugin_manager = plugin_manager
         app.state.event_bus = event_bus
         app.state.presence_manager = presence_manager
@@ -319,6 +334,7 @@ class RuntimeTestHarness:
         app.state.auth_service = auth_service
         app.state.system_settings = settings_service
         app.state.observability = observability_service
+        app.state.generation_pipeline = generation_pipeline
         app.state.session_factory = session_factory
 
         @app.middleware("http")
@@ -343,6 +359,7 @@ class RuntimeTestHarness:
         app.include_router(board.router, prefix="/api")
         app.include_router(plugins.router, prefix="/api")
         app.include_router(runtime.router, prefix="/api")
+        app.include_router(devtools.router, prefix="/api")
         app.include_router(agents.router, prefix="/api")
         app.include_router(observability.router, prefix="/api")
 
@@ -359,9 +376,12 @@ class RuntimeTestHarness:
             auth_service=auth_service,
             settings_service=settings_service,
             plugin_manager=plugin_manager,
+            provider_runtime=provider_runtime,
+            provider_registry=provider_registry,
             event_bus=event_bus,
             presence_manager=presence_manager,
             agent_registry=agent_registry,
+            generation_pipeline=generation_pipeline,
             runtime_manager=runtime_manager,
             observability=observability_service,
             app=app,
@@ -372,8 +392,10 @@ class RuntimeTestHarness:
         try:
             await self.client.aclose()
         finally:
+            await self.generation_pipeline.shutdown()
             await self.runtime_manager.shutdown()
             await self.observability.shutdown_event_sink()
+            await self.provider_runtime.close()
             await self.engine.dispose()
             if str(self.root.resolve()) in sys.path:
                 sys.path.remove(str(self.root.resolve()))

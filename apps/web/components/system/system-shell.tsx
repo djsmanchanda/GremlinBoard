@@ -293,6 +293,12 @@ export function SystemShell() {
               >
                 Studio
               </Link>
+              <Link
+                href={{ pathname: "/system/devtools" }}
+                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                Devtools
+              </Link>
             </div>
           </div>
 

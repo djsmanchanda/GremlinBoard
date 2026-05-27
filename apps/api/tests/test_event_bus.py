@@ -91,6 +91,28 @@ async def test_event_bus_replay_is_bounded_by_sequence() -> None:
 
 
 @pytest.mark.asyncio
+async def test_websocket_replay_excludes_internal_only_events() -> None:
+    bus = EventBus()
+    internal_event = await bus.publish_event(
+        "runtime.started",
+        category="runtime",
+        source={"component": "test"},
+        visibility=RuntimeEventVisibility.INTERNAL,
+    )
+    websocket_event = await bus.publish_event(
+        "board.snapshot",
+        category="board",
+        source={"component": "test"},
+        visibility=RuntimeEventVisibility.WEBSOCKET,
+        payload={"id": "board", "widgets": []},
+    )
+
+    replayed = bus.replay(after_sequence=internal_event.sequence - 1, kind="websocket")
+
+    assert [event.event_type for event in replayed] == [websocket_event.event_type]
+
+
+@pytest.mark.asyncio
 async def test_ephemeral_events_are_replayable_but_not_persistence_marked() -> None:
     bus = EventBus()
     event = await bus.publish_event(

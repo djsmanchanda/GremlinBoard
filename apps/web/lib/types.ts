@@ -100,7 +100,19 @@ export interface BoardPatch {
 
 export interface RuntimeEventMessage<TPayload = JsonObject> {
   type: string;
+  id?: string;
   sequence?: number;
+  schema_version?: number;
+  category?: string;
+  level?: string;
+  message?: string | null;
+  source?: JsonObject;
+  correlation_id?: string | null;
+  causation_id?: string | null;
+  visibility?: string;
+  persistence?: string;
+  replayable?: boolean;
+  created_at?: string;
   payload?: TPayload;
 }
 
@@ -373,4 +385,181 @@ export interface ObservabilityOverview {
   metrics: RuntimeMetric[];
   widget_health: WidgetHealth[];
   timeline: RuntimeLog[];
+}
+
+export interface PresenceSourceSnapshot {
+  source: string;
+  active: number;
+  last_seen_at?: string | null;
+}
+
+export interface PresenceSnapshot {
+  state: "active" | "idle" | "suspended" | "degraded";
+  active_sources: PresenceSourceSnapshot[];
+  active_websocket_count: number;
+  recent_interaction_at?: string | null;
+  idle_after_seconds: number;
+  suspended: boolean;
+  degraded: boolean;
+  reason?: string | null;
+  updated_at: string;
+}
+
+export interface ProviderDegradation {
+  provider_id: string;
+  label?: string | null;
+  status: string;
+  error?: string | null;
+  widget_instance_id?: string | null;
+  widget_id?: string | null;
+  fallback_used: boolean;
+  stale: boolean;
+}
+
+export interface RuntimeRunnerStatus {
+  instance_id: string;
+  widget_id: string;
+  manifest_version: string;
+  running: boolean;
+  refresh_mode: string;
+  refresh_interval_seconds: number;
+  restart_count: number;
+  consecutive_failures: number;
+  last_started_at?: string | null;
+  last_heartbeat_at?: string | null;
+  last_refresh_at?: string | null;
+}
+
+export interface RuntimeStartupRecovery {
+  recovered_widgets: number;
+  skipped_widgets: number;
+  orphan_widgets: number;
+  registry_size: number;
+  checked_at?: string | null;
+}
+
+export interface RuntimeStatus {
+  state: "active" | "idle" | "suspended" | "degraded";
+  presence?: PresenceSnapshot | null;
+  active_runners: number;
+  websocket_subscribers: number;
+  monitor_cadence_seconds: number;
+  provider_degradation: ProviderDegradation[];
+  queue_depth: number;
+  dropped_event_count: number;
+  replay_event_count: number;
+  published_event_count: number;
+  replay_history_size: number;
+  replay_oldest_sequence?: number | null;
+  latest_sequence: number;
+  stream_reset_count: number;
+  replay_miss_count: number;
+  snapshot_fallback_count: number;
+  websocket_queue_depth: number;
+  internal_queue_depth: number;
+  max_subscriber_queue_depth: number;
+  websocket_dropped_event_count: number;
+  observability_sink_error?: string | null;
+  registry_size: number;
+  widgets_total: number;
+  active_agents: number;
+  agents_waiting_for_review: number;
+  agents_failed: number;
+  runners: RuntimeRunnerStatus[];
+  startup_recovery: RuntimeStartupRecovery;
+}
+
+export interface DevtoolsSubscriber {
+  id: string;
+  kind: "internal" | "websocket" | "all";
+  queue_depth: number;
+  max_queue_size: number;
+  dropped_events: number;
+  categories: string[];
+  event_types: string[];
+  health: "ok" | "pressure" | "overflow";
+}
+
+export interface DevtoolsEventSummary {
+  id: string;
+  sequence: number;
+  type: string;
+  category: string;
+  level: string;
+  visibility: string;
+  persistence: string;
+  replayable: boolean;
+  source: JsonObject;
+  correlation_id?: string | null;
+  causation_id?: string | null;
+  created_at: string;
+  payload_keys: string[];
+  payload_size: number;
+}
+
+export interface RuntimeDevtoolsSnapshot {
+  observed_at: string;
+  runtime: RuntimeStatus;
+  replay: {
+    history_size: number;
+    replay_oldest_sequence?: number | null;
+    latest_sequence: number;
+    replay_event_count: number;
+    replay_miss_count: number;
+    stream_reset_count: number;
+    snapshot_fallback_count: number;
+    recent_events: DevtoolsEventSummary[];
+  };
+  websocket: {
+    subscriber_count: number;
+    subscribers: DevtoolsSubscriber[];
+    stream_reset_count: number;
+    replay_miss_count: number;
+    snapshot_fallback_count: number;
+  };
+  queues: {
+    event_bus_queue_depth: number;
+    websocket_queue_depth: number;
+    internal_queue_depth: number;
+    generation_queue_depth: number;
+    generation_queued_input_count: number;
+    generation_worker_running: boolean;
+    max_subscriber_queue_depth: number;
+    dropped_event_count: number;
+    websocket_dropped_event_count: number;
+    observability_sink_error?: string | null;
+    health: "ok" | "pressure" | "overflow";
+    durability_notes: Record<string, string>;
+  };
+  providers: {
+    providers: Array<{
+      provider_id: string;
+      active_requests: number;
+      total_requests: number;
+      cache_hits: number;
+      cache_misses: number;
+      stale_fallbacks: number;
+      fallback_responses: number;
+      errors: number;
+      last_status: string;
+      last_error?: string | null;
+      last_started_at?: string | null;
+      last_finished_at?: string | null;
+    }>;
+    cache: {
+      entry_count: number;
+      max_entries: number;
+      expired_entry_count: number;
+      namespace_counts: Record<string, number>;
+    };
+    degradation: ProviderDegradation[];
+  };
+  pressure: {
+    queue_health: "ok" | "pressure" | "overflow";
+    replay_pressure: "ok" | "pressure";
+    subscriber_pressure: "ok" | "pressure" | "overflow";
+    provider_pressure: "ok" | "degraded";
+    stale_widget_count: number;
+    error_widget_count: number;
+  };
 }

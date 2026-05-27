@@ -4,6 +4,7 @@ import asyncio
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from gremlinboard_api.schemas.contracts import (
@@ -46,6 +47,25 @@ class EventBusStats:
     websocket_dropped_event_count: int = 0
     replay_miss_count: int = 0
     snapshot_fallback_count: int = 0
+
+
+@dataclass(slots=True)
+class EventSubscriberSnapshot:
+    id: str
+    kind: SubscriberKind
+    queue_depth: int
+    max_queue_size: int
+    dropped_events: int
+    categories: list[str] = field(default_factory=list)
+    event_types: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class EventBusSnapshot:
+    stats: EventBusStats
+    subscribers: list[EventSubscriberSnapshot]
+    recent_events: list[RuntimeEventEnvelope]
+    observed_at: datetime
 
 
 class TypedEventBus:
@@ -184,16 +204,53 @@ class TypedEventBus:
         after_sequence: int = 0,
         categories: Iterable[RuntimeEventCategory | str] | None = None,
         event_types: Iterable[str] | None = None,
+        kind: SubscriberKind = "all",
     ) -> list[RuntimeEventEnvelope]:
         category_filter = {RuntimeEventCategory(category) for category in categories} if categories else None
         event_type_filter = set(event_types) if event_types else None
+        subscriber = EventSubscriber(
+            id="replay",
+            kind=kind,
+            queue=asyncio.Queue(maxsize=1),
+            categories=category_filter,
+            event_types=event_type_filter,
+        )
         return [
             event
             for event in self._history
             if event.sequence > after_sequence
-            and (category_filter is None or event.category in category_filter)
-            and (event_type_filter is None or event.event_type in event_type_filter)
+            and self._matches_subscriber(event, subscriber)
         ]
+
+    def recent_events(
+        self,
+        *,
+        limit: int = 100,
+        categories: Iterable[RuntimeEventCategory | str] | None = None,
+        event_types: Iterable[str] | None = None,
+        kind: SubscriberKind = "all",
+    ) -> list[RuntimeEventEnvelope]:
+        category_filter = {RuntimeEventCategory(category) for category in categories} if categories else None
+        event_type_filter = set(event_types) if event_types else None
+        subscriber = EventSubscriber(
+            id="recent",
+            kind=kind,
+            queue=asyncio.Queue(maxsize=1),
+            categories=category_filter,
+            event_types=event_type_filter,
+        )
+        bounded_limit = min(max(limit, 1), self._history.maxlen or 128)
+        matches = [
+            event
+            for event in self._history
+            if self._matches_subscriber(event, subscriber)
+        ]
+        return matches[-bounded_limit:]
+
+    def clear_replay_history(self) -> int:
+        cleared = len(self._history)
+        self._history.clear()
+        return cleared
 
     def can_replay(self, after_sequence: int) -> bool:
         if after_sequence < 0:
@@ -252,6 +309,30 @@ class TypedEventBus:
             websocket_dropped_event_count=sum(subscriber.dropped_events for subscriber in websocket_subscribers),
             replay_miss_count=self._replay_miss_count,
             snapshot_fallback_count=self._snapshot_fallback_count,
+        )
+
+    def subscriber_snapshots(self) -> list[EventSubscriberSnapshot]:
+        snapshots: list[EventSubscriberSnapshot] = []
+        for subscriber in self._subscribers.values():
+            snapshots.append(
+                EventSubscriberSnapshot(
+                    id=subscriber.id,
+                    kind=subscriber.kind,
+                    queue_depth=subscriber.queue.qsize(),
+                    max_queue_size=subscriber.queue.maxsize,
+                    dropped_events=subscriber.dropped_events,
+                    categories=sorted(category.value for category in subscriber.categories or []),
+                    event_types=sorted(subscriber.event_types or []),
+                )
+            )
+        return snapshots
+
+    def snapshot(self, *, recent_limit: int = 100) -> EventBusSnapshot:
+        return EventBusSnapshot(
+            stats=self.stats(),
+            subscribers=self.subscriber_snapshots(),
+            recent_events=self.recent_events(limit=recent_limit),
+            observed_at=datetime.now(timezone.utc),
         )
 
     def _coerce_event(

@@ -377,6 +377,13 @@ class RuntimeManager:
                 persistence=RuntimeEventPersistence.EPHEMERAL,
             )
 
+    async def force_board_snapshot(self) -> bool:
+        if self.event_bus.websocket_subscriber_count == 0:
+            return False
+        self._last_published_board = None
+        await self.publish_board_snapshot()
+        return True
+
     def note_board_snapshot(self, snapshot: BoardRead) -> None:
         self._last_published_board = snapshot
 

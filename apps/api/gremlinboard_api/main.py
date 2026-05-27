@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from gremlinboard_api.api.routes import agents, ai, board, health, observability, plugins, registry, runtime, specs, system
+from gremlinboard_api.api.routes import agents, ai, board, devtools, health, observability, plugins, registry, runtime, specs, system
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import SessionLocal, init_db
 from gremlinboard_api.providers.registry import ExternalProviderRegistry, ProviderRuntime
@@ -261,6 +261,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(registry.router, prefix="/api")
 app.include_router(plugins.router, prefix="/api")
 app.include_router(runtime.router, prefix="/api")
+app.include_router(devtools.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(observability.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
