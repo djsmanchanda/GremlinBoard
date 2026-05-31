@@ -87,6 +87,29 @@ function targetFromDuration(seconds: number) {
   return new Date(Date.now() + seconds * 1000).toISOString();
 }
 
+function parseDuration(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  const tokenPattern = /(\d+)\s*([dhms])/g;
+  let seconds = 0;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = tokenPattern.exec(normalized)) !== null) {
+    if (normalized.slice(cursor, match.index).trim()) {
+      return null;
+    }
+    const amount = Number(match[1]);
+    const unit = match[2];
+    seconds += amount * (unit === "d" ? 86_400 : unit === "h" ? 3600 : unit === "m" ? 60 : 1);
+    cursor = tokenPattern.lastIndex;
+  }
+
+  return cursor === normalized.length && seconds > 0 ? seconds : null;
+}
+
 function remainingSeconds(targetTime: string, now: number) {
   const target = new Date(targetTime).getTime();
   if (!Number.isFinite(target)) {
@@ -117,6 +140,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
   const [now, setNow] = useState(() => Date.now());
   const [draftLabel, setDraftLabel] = useState("");
   const [draftTarget, setDraftTarget] = useState(() => toDatetimeLocalValue(targetFromDuration(60 * 60)));
+  const [draftDuration, setDraftDuration] = useState("");
   const timers = useMemo(() => timersFromConfig(widget.config, widget.state, widget.title), [widget.config, widget.state, widget.title]);
   const visibleTimers = compact ? timers.slice(0, 1) : timers;
   const canAdd = timers.length < MAX_TIMERS;
@@ -180,6 +204,15 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
     setDraftLabel("");
   }
 
+  function addCustomDuration() {
+    const seconds = parseDuration(draftDuration);
+    if (seconds === null) {
+      return;
+    }
+    addTimer(seconds);
+    setDraftDuration("");
+  }
+
   function removeTimer(timerIdToRemove: string) {
     commitTimers(timers.filter((timer) => timer.id !== timerIdToRemove));
   }
@@ -211,7 +244,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
             return (
               <div
                 key={timer.id}
-                className={`group/timer border bg-cyan-400/10 ${complete ? "border-amber-300/24" : "border-cyan-400/18"} ${
+                className={`group/timer border bg-cyan-400/10 ${complete ? "border-emerald-300/70" : "border-cyan-400/18"} ${
                   compact ? "p-2" : "p-2.5"
                 }`}
               >
@@ -247,7 +280,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                 </div>
                 <p
                   className={`mt-2 font-mono font-semibold tracking-[0.12em] ${
-                    complete ? "text-amber-100" : "text-cyan-100"
+                    complete ? "text-emerald-100" : "text-cyan-100"
                   } ${compact ? "text-lg leading-6" : expanded ? "text-3xl leading-none" : "text-2xl leading-none"}`}
                 >
                   {formatRemaining(remaining, compact)}
@@ -296,6 +329,30 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                 +{duration.label}
               </button>
             ))}
+            <input
+              value={draftDuration}
+              onChange={(event) => setDraftDuration(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  addCustomDuration();
+                }
+              }}
+              aria-label="Custom countdown duration"
+              title="Custom duration, for example 30s, 18m, or 3h 4m"
+              placeholder="1m 30s"
+              disabled={!canAdd}
+              className="w-20 border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300/35 disabled:opacity-45"
+            />
+            <button
+              type="button"
+              aria-label="Add custom countdown duration"
+              title="Add custom duration"
+              disabled={!canAdd || parseDuration(draftDuration) === null}
+              onClick={addCustomDuration}
+              className="border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-45"
+            >
+              +
+            </button>
             <span className="ml-auto py-1 text-[10px] uppercase tracking-[0.14em] text-slate-500">
               {timers.length}/{MAX_TIMERS}
             </span>

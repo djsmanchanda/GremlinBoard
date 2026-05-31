@@ -2,7 +2,7 @@ import type { JsonObject, WidgetInstance, WidgetManifest, WidgetPlugin } from "@
 
 export type BoardMode = "view" | "edit";
 export type BoardDensityPreset = "wall-monitor" | "half-display" | "operator-desk";
-export type WidgetAlertLevel = "critical" | "warning" | "watch" | "nominal";
+export type WidgetAlertLevel = "critical" | "alert" | "completed" | "nominal";
 
 export interface BoardViewSettings {
   mode: BoardMode;
@@ -70,8 +70,8 @@ export const DEFAULT_BOARD_VIEW_SETTINGS: BoardViewSettings = {
 
 const ALERT_RANK: Record<WidgetAlertLevel, number> = {
   nominal: 0,
-  watch: 1,
-  warning: 2,
+  completed: 1,
+  alert: 2,
   critical: 3,
 };
 
@@ -122,12 +122,15 @@ export function getWidgetAlert(widget: WidgetInstance, manifest: WidgetManifest,
 
   if (widget.lifecycle_state === "error") {
     push("critical", "Service error");
-  } else if (widget.lifecycle_state === "paused" || widget.lifecycle_state === "expired") {
-    push("watch", widget.lifecycle_state === "paused" ? "Paused" : "Expired");
+  } else if (widget.lifecycle_state === "paused" || (widget.lifecycle_state === "expired" && widget.widget_id !== "countdown")) {
+    push("alert", widget.lifecycle_state === "paused" ? "Paused" : "Expired");
   } else if (widget.lifecycle_state === "installing") {
-    push("watch", "Installing");
+    push("alert", "Installing");
   }
 
+  if (widget.state.complete === true) {
+    push("completed", "Completed successfully");
+  }
   if (widget.last_error) {
     push("critical", "Runtime failure");
   }
@@ -137,13 +140,13 @@ export function getWidgetAlert(widget: WidgetInstance, manifest: WidgetManifest,
   if (widget.consecutive_failures >= 3) {
     push("critical", `${widget.consecutive_failures} consecutive failures`);
   } else if (widget.consecutive_failures > 0) {
-    push("warning", `${widget.consecutive_failures} recent failures`);
+    push("alert", `${widget.consecutive_failures} recent failures`);
   }
 
   const staleAfterSeconds = manifest.runtime_policy.stale_after_seconds;
   if (manifest.refresh_policy.mode === "interval" && staleAfterSeconds > 0) {
     if (!widget.freshness_at) {
-      push("warning", "No freshness sample");
+      push("alert", "No freshness sample");
     } else {
       const freshTime = new Date(widget.freshness_at).getTime();
       if (!Number.isNaN(freshTime)) {
@@ -151,7 +154,7 @@ export function getWidgetAlert(widget: WidgetInstance, manifest: WidgetManifest,
         if (ageSeconds > staleAfterSeconds * 2) {
           push("critical", "Data stale");
         } else if (ageSeconds > staleAfterSeconds) {
-          push("warning", "Data aging");
+          push("alert", "Data aging");
         }
       }
     }
@@ -160,7 +163,7 @@ export function getWidgetAlert(widget: WidgetInstance, manifest: WidgetManifest,
   if (widget.restart_count >= 5) {
     push("critical", "Restart spike");
   } else if (widget.restart_count >= 3) {
-    push("warning", "Restart elevated");
+    push("alert", "Restart elevated");
   }
 
   for (const provider of getWidgetProviderStates(widget)) {
@@ -168,7 +171,7 @@ export function getWidgetAlert(widget: WidgetInstance, manifest: WidgetManifest,
     if (provider.error || /error|fail|down|unavailable|disabled/.test(status)) {
       push("critical", `${provider.label ?? provider.provider_id ?? "Provider"} failure`);
     } else if (/degrad|warn|throttle|rate/.test(status)) {
-      push("warning", `${provider.label ?? provider.provider_id ?? "Provider"} degraded`);
+      push("alert", `${provider.label ?? provider.provider_id ?? "Provider"} degraded`);
     }
   }
 
