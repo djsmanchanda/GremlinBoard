@@ -27,3 +27,5 @@ __pycache__/
 node_modules/
 .next/
 *.log
+.codex/
+/apps/web/test-results
