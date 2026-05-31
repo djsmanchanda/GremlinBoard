@@ -103,6 +103,7 @@ Run focused suites:
 ```powershell
 & "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests\test_runtime_integration.py -q -p no:langsmith
 & "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests\test_event_bus.py apps\api\tests\test_agent_registry.py -q -p no:langsmith
+& "$env:LOCALAPPDATA\micromamba\micromamba.exe" run -n gremlinboard python -m pytest apps\api\tests\test_cli.py apps\api\tests\test_control_plane.py -q -p no:langsmith
 ```
 
 Run syntax compilation for touched backend files:

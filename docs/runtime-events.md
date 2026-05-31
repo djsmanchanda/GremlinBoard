@@ -203,6 +203,45 @@ Durability under pressure remains unchanged: domain state and timeline/state eve
 }
 ```
 
+### `operator.control.completed`
+
+```json
+{
+  "type": "operator.control.completed",
+  "category": "operator",
+  "level": "info",
+  "source": {"component": "gremlincontrol", "board_id": "default"},
+  "correlation_id": "ctrl-123",
+  "persistence": "timeline",
+  "payload": {
+    "action_id": "widgets.resize",
+    "source": "cli",
+    "destructive": false,
+    "approval_required": false,
+    "params": {"widget_instance_id": "w1", "size": "4x2"}
+  }
+}
+```
+
+### `operator.control.approval_required`
+
+```json
+{
+  "type": "operator.control.approval_required",
+  "category": "operator",
+  "level": "warning",
+  "source": {"component": "gremlincontrol", "board_id": "default"},
+  "correlation_id": "ctrl-123",
+  "persistence": "timeline",
+  "payload": {
+    "id": "approval-1",
+    "action_id": "widgets.remove",
+    "status": "pending",
+    "reason": "widgets.remove is destructive and requires approval"
+  }
+}
+```
+
 ### `generation.completed`
 
 ```json

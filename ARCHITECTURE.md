@@ -75,6 +75,7 @@ Handles:
 Preferred communication patterns:
 - websocket for board snapshots and registry update notices
 - REST for board actions, system settings, credentials, specs, plugins, and observability
+- GremlinControl for typed local operator and agent actions over the existing REST/runtime/event services
 - background tasks for scheduled widget services and generation jobs
 - local persistence for board state, settings, credentials, runtime logs, metrics, plugins, and generation records
 
@@ -114,6 +115,7 @@ Core entities:
 - Backend: pytest coverage for registry, runtime integration, providers, platform foundations, plugins, and generation pipeline.
 - Frontend: typecheck, lint, and production build.
 - Browser smoke: Playwright should validate core routes and workflows when its smoke harness is present.
+- Control plane: pytest should validate CLI routing, MCP-shaped tool schemas, action approval gates, and operator runtime events.
 - Performance-sensitive changes should at least run platform foundation tests, runtime integration tests, TypeScript typecheck, and production web build.
 
 ## Future Expansion

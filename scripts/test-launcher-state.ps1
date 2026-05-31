@@ -99,6 +99,26 @@ try {
     Assert-Equal @($saved).Count 1 "Saved state should remain valid JSON."
     Assert-Equal @($saved)[0].state_version $LauncherStateVersion "Saved state should use the current version."
 
+    Save-LauncherInstances @(
+        [pscustomobject]@{ id = "kill-stable"; mode = "stable"; apiPid = 1; webPid = 2 },
+        [pscustomobject]@{ id = "keep-dev"; mode = "dev"; apiPid = 3; webPid = 4 }
+    )
+    $script:StoppedLauncherIds = @()
+    function script:Test-ProcessAlive {
+        param([object]$PidValue)
+        return $true
+    }
+    function script:Stop-LauncherInstance {
+        param([object]$Instance)
+        $script:StoppedLauncherIds += $Instance.id
+    }
+    Stop-LauncherInstancesByMode -SelectedMode "stable"
+    $remaining = @(Get-LauncherInstances)
+    Assert-Equal $script:StoppedLauncherIds.Count 1 "Mode-scoped stop should stop one matching instance."
+    Assert-Equal $script:StoppedLauncherIds[0] "kill-stable" "Mode-scoped stop should target stable instance."
+    Assert-Equal $remaining.Count 1 "Mode-scoped stop should preserve other-mode instances."
+    Assert-Equal $remaining[0].id "keep-dev" "Mode-scoped stop should preserve dev instance."
+
     Write-Host "launcher-state-tests: passed"
 }
 finally {

@@ -51,6 +51,8 @@ Every service should report or allow the runtime to derive:
 - The board Stats toggle expands freshness, uptime, mode, and restart count without making that rail permanent chrome.
 - The System Panel shows aggregate runtime health, widget/service health, latest metrics, and timeline events.
 - Runtime cadence, metric retention, and log view limits persist in system settings.
+- GremlinControl exposes typed local control actions for CLI and agent users: inspect, add, remove, restart, pause, resume, resize, configure widgets, inspect board/runtime/job/agent state, and suspend/resume runtime.
+- Destructive GremlinControl actions require approval before execution and emit auditable operator events.
 
 ## Efficiency Rules
 

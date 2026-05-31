@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from gremlinboard_api.api.routes import agents, ai, board, devtools, health, observability, plugins, registry, runtime, specs, system
+from gremlinboard_api.api.routes import agents, ai, board, control, devtools, health, observability, plugins, registry, runtime, specs, system
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import SessionLocal, init_db
 from gremlinboard_api.providers.registry import ExternalProviderRegistry, ProviderRuntime
@@ -18,6 +18,7 @@ from gremlinboard_api.runtime.manager import RuntimeManager
 from gremlinboard_api.schemas.contracts import LifecycleState, TileSize
 from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.agent_registry import AgentRegistry
+from gremlinboard_api.services.control_plane import ControlPlaneService
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.fixtures import default_countdown_target
@@ -180,6 +181,16 @@ async def lifespan(app: FastAPI):
         settings_service=system_settings,
         agent_registry=agent_registry,
     )
+    control_plane = ControlPlaneService(
+        session_factory=SessionLocal,
+        registry=registry_loader,
+        plugin_manager=plugin_manager,
+        runtime_manager=runtime_manager,
+        event_bus=event_bus,
+        presence_manager=presence_manager,
+        generation_pipeline=generation_pipeline,
+        agent_registry=agent_registry,
+    )
 
     app.state.registry = registry_loader
     app.state.provider_registry = provider_registry
@@ -189,6 +200,7 @@ async def lifespan(app: FastAPI):
     app.state.agent_registry = agent_registry
     app.state.runtime_manager = runtime_manager
     app.state.generation_pipeline = generation_pipeline
+    app.state.control_plane = control_plane
     app.state.auth_service = auth_service
     app.state.system_settings = system_settings
     app.state.observability = observability_service
@@ -261,6 +273,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(registry.router, prefix="/api")
 app.include_router(plugins.router, prefix="/api")
 app.include_router(runtime.router, prefix="/api")
+app.include_router(control.router, prefix="/api")
 app.include_router(devtools.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
 app.include_router(observability.router, prefix="/api")

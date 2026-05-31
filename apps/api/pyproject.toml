@@ -9,12 +9,15 @@ dependencies = [
   "httpx>=0.28.0",
   "pydantic>=2.9.0",
   "pydantic-settings>=2.6.0",
+  "rich>=13.9.0",
   "sqlalchemy>=2.0.36",
   "uvicorn[standard]>=0.32.0"
 ]
 
 [project.scripts]
 gremlinboard = "gremlinboard_api.cli:main"
+gb = "gremlinboard_api.cli:main"
+gb_dev = "gremlinboard_api.cli:main"
 
 [project.optional-dependencies]
 dev = [

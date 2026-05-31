@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request, Response
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from gremlinboard_api.api.routes import agents, board, devtools, observability, plugins, runtime
+from gremlinboard_api.api.routes import agents, board, control, devtools, observability, plugins, runtime
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base, get_session
 from gremlinboard_api.providers.registry import ExternalProviderRegistry, ProviderRuntime
@@ -25,6 +25,7 @@ from gremlinboard_api.runtime.manager import RuntimeManager
 from gremlinboard_api.schemas.contracts import RuntimeLogRead, RuntimeMetricRead, WidgetInstanceRead
 from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.agent_registry import AgentRegistry
+from gremlinboard_api.services.control_plane import ControlPlaneService
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.plugin_manager import PluginManagerService
@@ -238,6 +239,7 @@ class RuntimeTestHarness:
     presence_manager: PresenceManager
     agent_registry: AgentRegistry
     generation_pipeline: GenerationPipelineService
+    control_plane: ControlPlaneService
     runtime_manager: RuntimeManager
     observability: ObservabilityService
     app: FastAPI
@@ -315,6 +317,16 @@ class RuntimeTestHarness:
             presence_manager=presence_manager,
         )
         runtime_manager.capture_metrics = observability_service.capture_runtime_snapshot
+        control_plane = ControlPlaneService(
+            session_factory=session_factory,
+            registry=registry,
+            plugin_manager=plugin_manager,
+            runtime_manager=runtime_manager,
+            event_bus=event_bus,
+            presence_manager=presence_manager,
+            generation_pipeline=generation_pipeline,
+            agent_registry=agent_registry,
+        )
         await observability_service.start_event_sink()
 
         app = FastAPI()
@@ -335,6 +347,7 @@ class RuntimeTestHarness:
         app.state.system_settings = settings_service
         app.state.observability = observability_service
         app.state.generation_pipeline = generation_pipeline
+        app.state.control_plane = control_plane
         app.state.session_factory = session_factory
 
         @app.middleware("http")
@@ -359,6 +372,7 @@ class RuntimeTestHarness:
         app.include_router(board.router, prefix="/api")
         app.include_router(plugins.router, prefix="/api")
         app.include_router(runtime.router, prefix="/api")
+        app.include_router(control.router, prefix="/api")
         app.include_router(devtools.router, prefix="/api")
         app.include_router(agents.router, prefix="/api")
         app.include_router(observability.router, prefix="/api")
@@ -382,6 +396,7 @@ class RuntimeTestHarness:
             presence_manager=presence_manager,
             agent_registry=agent_registry,
             generation_pipeline=generation_pipeline,
+            control_plane=control_plane,
             runtime_manager=runtime_manager,
             observability=observability_service,
             app=app,

@@ -2,6 +2,8 @@ param(
     [ValidateSet("stable", "dev")]
     [string]$Mode = "stable",
     [switch]$StopAll,
+    [ValidateSet("stable", "dev")]
+    [string]$StopMode,
     [switch]$List
 )
 
@@ -288,6 +290,18 @@ function Stop-LauncherInstance {
             }
         }
     }
+}
+
+function Stop-LauncherInstancesByMode {
+    param([ValidateSet("stable", "dev")][string]$SelectedMode)
+
+    $instances = @(Get-CleanLauncherInstances)
+    $matching = @($instances | Where-Object { $_.mode -eq $SelectedMode })
+    foreach ($instance in $matching) {
+        Stop-LauncherInstance $instance
+    }
+    Save-LauncherInstances @($instances | Where-Object { $_.mode -ne $SelectedMode })
+    Write-Host "Stopped $($matching.Count) managed GremlinBoard $SelectedMode instance(s)."
 }
 
 function Remove-LauncherInstance {
@@ -723,6 +737,11 @@ if ($StopAll) {
     }
     Save-LauncherInstances @()
     Write-Host "Stopped $($instances.Count) managed GremlinBoard instance(s)."
+    exit 0
+}
+
+if ($StopMode) {
+    Stop-LauncherInstancesByMode -SelectedMode $StopMode
     exit 0
 }
 
