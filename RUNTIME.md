@@ -26,7 +26,8 @@ RuntimeManager also protects the app's background footprint:
 - Each widget manifest may define runtime policy values such as timeouts, max retries, retry backoff, and stale-after seconds.
 - Failed refresh/start/stop calls are recorded as runtime logs.
 - A widget enters `error` after the retry policy is exhausted.
-- Widget and provider failures are part of the alert priority layer and should surface before routine metrics.
+- Widget status uses three visible categories: red `critical` for broken behavior, yellow `alert` for non-fatal issues, and green `completed` only for explicitly reported successful task completion.
+- Services that need a completion badge should publish `state.complete = true`. Ordinary healthy widgets remain unbadged.
 
 ## Service Contract
 

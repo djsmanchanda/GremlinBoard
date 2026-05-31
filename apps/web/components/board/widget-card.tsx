@@ -1,6 +1,6 @@
 "use client";
 
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import { useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 
 import { WidgetRenderer } from "@/components/board/renderers";
 import type { BoardDensityDefinition, WidgetAlert } from "@/lib/board-view-settings";
@@ -174,34 +174,24 @@ export function WidgetCard({
       ) : null}
 
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "gap-2" : "gap-3"}`}>
-        <header className={`min-w-0 ${editMode ? (compact ? "pr-24" : "pr-28") : ""}`}>
-          <div className="flex min-w-0 items-center gap-2">
-            <span className={`h-2 w-2 shrink-0 rounded-none ${lifecycleTone(widget.lifecycle_state)}`} />
-            <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
-              {compact ? widget.size : manifest.category}
-            </span>
-            {!compact ? (
-              <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
-                {widget.size}
+        <header className={`flex min-w-0 items-start gap-3 ${editMode ? (compact ? "pr-24" : "pr-28") : ""}`}>
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-none ${lifecycleTone(widget.lifecycle_state)}`} />
+              <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                {compact ? widget.size : manifest.category}
               </span>
-            ) : null}
+              {!compact ? (
+                <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                  {widget.size}
+                </span>
+              ) : null}
+            </div>
+
+            <h2 className={`mt-2 truncate font-semibold tracking-tight text-white ${titleClass}`}>{widget.title}</h2>
           </div>
 
-          <h2 className={`mt-2 truncate font-semibold tracking-tight text-white ${titleClass}`}>{widget.title}</h2>
-
-          {compact ? (
-            <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="truncate">{freshness}</span>
-              <span className="text-slate-600">/</span>
-              <span className="truncate">{mode}</span>
-            </div>
-          ) : (
-            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-slate-400">
-              <StatusChip label="Fresh" value={freshness} />
-              <StatusChip label="Up" value={uptime} />
-              <StatusChip label="Mode" value={mode} />
-            </div>
-          )}
+          {alert.level !== "nominal" ? <AlertCallout alert={alert} compact={compact || densityCompact} /> : null}
         </header>
 
         {showStats ? (
@@ -213,8 +203,6 @@ export function WidgetCard({
             restarts={String(widget.restart_count)}
           />
         ) : null}
-
-        {alert.level !== "nominal" ? <AlertCallout alert={alert} compact={compact || densityCompact} /> : null}
 
         {primaryProvider && !compact && tier !== "standard" ? (
           <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-slate-300">
@@ -241,11 +229,11 @@ function alertFrameClass(level: WidgetAlert["level"]) {
   if (level === "critical") {
     return "shadow-[inset_0_0_0_1px_rgba(251,113,133,0.28)]";
   }
-  if (level === "warning") {
+  if (level === "alert") {
     return "shadow-[inset_0_0_0_1px_rgba(251,191,36,0.22)]";
   }
-  if (level === "watch") {
-    return "shadow-[inset_0_0_0_1px_rgba(103,232,249,0.16)]";
+  if (level === "completed") {
+    return "shadow-[inset_0_0_0_1px_rgba(110,231,183,0.2)]";
   }
   return "";
 }
@@ -254,29 +242,55 @@ function alertBandClass(level: WidgetAlert["level"]) {
   if (level === "critical") {
     return "bg-rose-300";
   }
-  if (level === "warning") {
+  if (level === "alert") {
     return "bg-amber-300";
   }
-  return "bg-cyan-300";
+  return "bg-emerald-300";
 }
 
 function AlertCallout({ alert, compact }: { alert: WidgetAlert; compact: boolean }) {
-  const critical = alert.level === "critical";
+  const [expanded, setExpanded] = useState(false);
+  const tone =
+    alert.level === "critical"
+      ? "border-rose-300/25 bg-rose-300/10 text-rose-50"
+      : alert.level === "alert"
+        ? "border-amber-300/25 bg-amber-300/10 text-amber-50"
+        : "border-emerald-300/25 bg-emerald-300/10 text-emerald-50";
+  const iconTone =
+    alert.level === "critical"
+      ? "bg-rose-300 text-rose-950"
+      : alert.level === "alert"
+        ? "bg-amber-300 text-amber-950"
+        : "bg-emerald-300 text-emerald-950";
+
   return (
-    <div
+    <button
+      type="button"
+      aria-expanded={expanded}
+      aria-label={`${alert.level} alert details`}
+      title={expanded ? "Hide alert details" : "Show alert details"}
+      onClick={(event) => {
+        event.stopPropagation();
+        setExpanded((current) => !current);
+      }}
       className={[
-        "rounded-none border",
-        compact ? "px-2.5 py-2" : "px-3 py-2.5",
-        critical ? "border-rose-300/22 bg-rose-300/9" : "border-amber-300/20 bg-amber-300/8",
+        "shrink-0 rounded-none border px-2 py-1.5 text-left transition-colors hover:bg-white/[0.07]",
+        compact ? "max-w-44" : "max-w-64",
+        tone,
       ].join(" ")}
     >
-      <p className={`text-[10px] uppercase tracking-[0.18em] ${critical ? "text-rose-100/80" : "text-amber-100/80"}`}>
-        {alert.level}
-      </p>
-      <p className={`mt-1 ${critical ? "text-rose-50" : "text-amber-50"} ${compact ? "line-clamp-2 text-[11px] leading-4" : "line-clamp-2 text-xs leading-5"}`}>
-        {alert.reasons.join(" / ")}
-      </p>
-    </div>
+      <span className="flex items-center justify-end gap-2">
+        <span className="text-[9px] uppercase tracking-[0.18em]">{alert.level}</span>
+        <span className={`flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold leading-none ${iconTone}`}>
+          i
+        </span>
+      </span>
+      {expanded ? (
+        <span className={`mt-1.5 block text-right ${compact ? "text-[10px] leading-4" : "text-[11px] leading-4"}`}>
+          {alert.reasons.join(" / ")}
+        </span>
+      ) : null}
+    </button>
   );
 }
 
@@ -304,15 +318,6 @@ function WidgetStatsRail({
       <MetricPill compact={compact} label="Mode" value={mode} />
       <MetricPill compact={compact} label="Restarts" value={restarts} />
     </div>
-  );
-}
-
-function StatusChip({ label, value }: { label: string; value: string }) {
-  return (
-    <span className="min-w-0 rounded border border-white/10 bg-white/[0.035] px-1.5 py-0.5">
-      <span className="text-slate-500">{label}</span>
-      <span className="ml-1 text-slate-200">{value}</span>
-    </span>
   );
 }
 

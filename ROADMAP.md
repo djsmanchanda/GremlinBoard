@@ -17,7 +17,7 @@ Status: implemented for the local monitoring board.
 - Edit-only drag, resize, widget controls, and selected-widget settings
 - Board density presets
 - Stats toggle for freshness, uptime, mode, and restart count
-- Alert priority layer for runtime warnings, widget errors, provider failures, and timeline levels
+- Three-category widget alert layer: red `critical`, yellow `alert`, and explicit green `completed`
 
 Status: active product shape.
 

@@ -17,7 +17,7 @@ Handles:
 - edit-only drag, resize, start/stop, refresh, remove, and settings controls
 - persistent layout ordering and tile sizes
 - command box widget add flow
-- alert-first runtime warning display
+- alert-first widget status display with red `critical`, yellow `alert`, and explicit green `completed` categories
 - websocket lifecycle tied to tab visibility so hidden boards do not hold realtime subscriptions open
 - reduced animation and GPU-heavy styling by default
 
@@ -69,6 +69,13 @@ Handles:
 `created -> installing -> running -> paused -> expired -> removed`
 
 `error` can occur at any stage and should surface through the alert priority layer.
+
+Widget cards use three visible alert categories:
+- `critical`: red; the widget failed and is not working properly.
+- `alert`: yellow; something needs attention but the widget is still usable.
+- `completed`: green; widget-specific logic explicitly reported successful completion.
+
+Normal healthy widgets stay unbadged. Completion is opt-in and must not be inferred from ordinary running state.
 
 ## Communication
 

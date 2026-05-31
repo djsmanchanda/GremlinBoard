@@ -25,7 +25,7 @@ Maintain GremlinBoard as a monitoring-station product with:
 - Board density is persisted through the board controls with `wall monitor`, `half display`, and `operator desk` presets.
 - Stats are a toggleable rail on widgets, not a separate always-on board overlay.
 - Source settings behave as a selected-widget inspector in Edit mode.
-- Runtime warnings and widget/provider failures are the alert priority layer.
+- Widget alerts use red `critical` for broken behavior, yellow `alert` for non-fatal issues, and opt-in green `completed` for successful task completion.
 - Playwright smoke tests cover `960x1080`, `1280x720`, `1920x1080`, and `2560x1440`.
 - The control-panel runtime should be able to run without dev reloaders, access-log spam, one-second backend loops, or always-open hidden-tab streams.
 - Windows launchers provide one-button stable/dev starts, system-tray visibility, and a max-two managed instance policy.

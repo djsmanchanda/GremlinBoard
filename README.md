@@ -16,7 +16,7 @@ GremlinBoard is a monitoring-station board for registered live widgets. It keeps
 - View/Edit board modes: View locks the monitoring surface; Edit enables drag, resize, widget controls, and source settings
 - Board density presets: `wall monitor`, `half display`, and `operator desk`, persisted in the board controls
 - Side inspector: selected-widget controls and source settings stay outside the tile so tile geometry does not shift
-- Alert priority layer: runtime warnings, widget errors, provider failures, and timeline levels are surfaced before lower-priority metrics
+- Widget alert layer: `critical` failures are red, non-fatal `alert` conditions are yellow, and explicitly reported `completed` outcomes are green
 - System Panel for provider setup, credentials, runtime cadence, density, grid overlay, reduced motion, observability, and widget health
 - Spec Studio for staged AI widget creation: spec draft, validation, scaffold, codegen, review, install
 
@@ -238,5 +238,5 @@ If `npm` itself fails before it can run, reinstall Node.js 20+ or switch to a kn
 - View mode is the default monitoring posture. Edit mode enables drag from the top interaction band, bottom-right resize handles, widget controls, and the side inspector.
 - Resize previews use dashed outlines for every allowed size that fits the current column count, with the nearest target highlighted while resizing.
 - Freshness, uptime, mode, and restart count stay compact in widget chrome and can be expanded with the persistent Stats toggle.
-- Runtime warnings and widget/provider failures form the alert layer and should be easier to notice than normal metrics.
+- Widget alerts use three visible categories: red `critical` when the widget is not working properly, yellow `alert` for non-fatal issues, and green `completed` only when widget logic explicitly reports successful completion. Normal healthy widgets remain unbadged.
 - Background runtime work should scale with active operators and configured cadence, not with idle tabs or stale subscribers.

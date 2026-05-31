@@ -35,6 +35,21 @@ for (const viewport of monitoringViewports) {
       await expect(page.getByText(/\d+\s+cols/i)).toBeVisible();
 
       await expect(page.getByRole("heading").filter({ hasText: seededWidgetTitle }).first()).toBeVisible();
+      await expect(page.getByText("Fresh", { exact: true })).toHaveCount(0);
+
+      const alertDetails = page.getByRole("button", { name: "critical alert details" });
+      await expect(alertDetails).toBeVisible();
+      await expect(page.getByText("Restart spike", { exact: true })).toHaveCount(0);
+      await alertDetails.click();
+      await expect(alertDetails.getByText(/Restart spike/)).toBeVisible();
+
+      const completedDetails = page.getByRole("button", { name: "completed alert details" });
+      await expect(completedDetails).toBeVisible();
+      await completedDetails.click();
+      await expect(completedDetails.getByText("Completed successfully", { exact: true })).toBeVisible();
+
+      await page.getByRole("button", { name: "Stats" }).click();
+      await expect(page.getByText("Fresh", { exact: true })).toHaveCount(2);
 
       await page.getByRole("button", { name: "Add widget" }).click();
 
@@ -222,6 +237,35 @@ const mockBoard = {
       service_started_at: new Date(Date.now() - 60 * 60_000).toISOString(),
       service_uptime_seconds: 3600,
       restart_count: 6,
+      consecutive_failures: 0,
+    },
+    {
+      id: "widget-countdown-complete",
+      board_id: "monitor-board",
+      widget_id: "countdown",
+      title: "Completed Countdown",
+      size: "2x2",
+      position_index: 1,
+      config: {
+        timers: [
+          {
+            id: "done",
+            label: "Done",
+            target_time: new Date(Date.now() - 60_000).toISOString(),
+            duration_seconds: 60,
+          },
+        ],
+      },
+      state: { complete: true },
+      lifecycle_state: "running",
+      status_message: "complete",
+      freshness_at: new Date().toISOString(),
+      expires_at: null,
+      last_error: null,
+      last_heartbeat: new Date().toISOString(),
+      service_started_at: new Date(Date.now() - 60 * 60_000).toISOString(),
+      service_uptime_seconds: 3600,
+      restart_count: 0,
       consecutive_failures: 0,
     },
   ],

@@ -428,14 +428,14 @@ export function BoardGrid({
       </div>
       {alertSummary.highest ? (
         <div className="mb-3 grid gap-2 border border-white/10 bg-[#07090d] px-3 py-2 text-xs text-slate-300 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-          <span className={`w-fit rounded border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertSummary.highest.level === "critical" ? "border-rose-300/24 bg-rose-300/10 text-rose-50" : "border-amber-300/24 bg-amber-300/10 text-amber-50"}`}>
+          <span className={`w-fit rounded border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertToneClass(alertSummary.highest.level)}`}>
             Priority {alertSummary.highest.level}
           </span>
           <span className="min-w-0 truncate">
             {alertSummary.highestWidgetTitle}: {alertSummary.highest.reasons.join(" / ")}
           </span>
           <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-            C{alertSummary.critical} W{alertSummary.warning} Watch{alertSummary.watch}
+            C{alertSummary.critical} A{alertSummary.alert} Done{alertSummary.completed}
           </span>
         </div>
       ) : null}
@@ -656,8 +656,8 @@ interface ResizeState {
 
 interface AlertSummary {
   critical: number;
-  warning: number;
-  watch: number;
+  alert: number;
+  completed: number;
   highest: WidgetAlert | null;
   highestWidgetTitle: string;
 }
@@ -665,8 +665,8 @@ interface AlertSummary {
 function summarizeAlerts(widgets: BoardState["widgets"], alertsByWidgetId: Record<string, WidgetAlert>): AlertSummary {
   const summary: AlertSummary = {
     critical: 0,
-    warning: 0,
-    watch: 0,
+    alert: 0,
+    completed: 0,
     highest: null,
     highestWidgetTitle: "",
   };
@@ -678,10 +678,10 @@ function summarizeAlerts(widgets: BoardState["widgets"], alertsByWidgetId: Recor
     }
     if (alert.level === "critical") {
       summary.critical += 1;
-    } else if (alert.level === "warning") {
-      summary.warning += 1;
-    } else if (alert.level === "watch") {
-      summary.watch += 1;
+    } else if (alert.level === "alert") {
+      summary.alert += 1;
+    } else if (alert.level === "completed") {
+      summary.completed += 1;
     }
     if (!summary.highest || alert.rank > summary.highest.rank) {
       summary.highest = alert;
@@ -693,7 +693,7 @@ function summarizeAlerts(widgets: BoardState["widgets"], alertsByWidgetId: Recor
 }
 
 function AlertSummaryBadge({ summary }: { summary: AlertSummary }) {
-  const active = summary.critical + summary.warning + summary.watch;
+  const active = summary.critical + summary.alert + summary.completed;
   if (active === 0) {
     return (
       <span className="rounded border border-emerald-300/15 bg-emerald-300/8 px-3 py-1.5 text-emerald-100">
@@ -706,13 +706,28 @@ function AlertSummaryBadge({ summary }: { summary: AlertSummary }) {
     <span
       className={`rounded border px-3 py-1.5 ${
         summary.critical > 0
-          ? "border-rose-300/24 bg-rose-300/10 text-rose-50"
-          : "border-amber-300/24 bg-amber-300/10 text-amber-50"
+          ? alertToneClass("critical")
+          : summary.alert > 0
+            ? alertToneClass("alert")
+            : alertToneClass("completed")
       }`}
     >
-      {summary.critical} critical / {summary.warning} warning / {summary.watch} watch
+      {summary.critical} critical / {summary.alert} alert / {summary.completed} completed
     </span>
   );
+}
+
+function alertToneClass(level: WidgetAlert["level"]) {
+  if (level === "critical") {
+    return "border-rose-300/24 bg-rose-300/10 text-rose-50";
+  }
+  if (level === "alert") {
+    return "border-amber-300/24 bg-amber-300/10 text-amber-50";
+  }
+  if (level === "completed") {
+    return "border-emerald-300/20 bg-emerald-300/8 text-emerald-50";
+  }
+  return "border-white/10 bg-white/[0.04] text-slate-300";
 }
 
 function WidgetInspector({
@@ -767,9 +782,11 @@ function WidgetInspector({
           className={`border px-3 py-2.5 text-xs ${
             alert.level === "critical"
               ? "border-rose-300/22 bg-rose-300/9 text-rose-50"
-              : alert.level === "warning"
+              : alert.level === "alert"
                 ? "border-amber-300/22 bg-amber-300/9 text-amber-50"
-                : "border-cyan-300/16 bg-cyan-300/8 text-cyan-50"
+                : alert.level === "completed"
+                  ? "border-emerald-300/20 bg-emerald-300/8 text-emerald-50"
+                  : "border-cyan-300/16 bg-cyan-300/8 text-cyan-50"
           }`}
         >
           <p className="text-[10px] uppercase tracking-[0.18em] opacity-75">Alert priority</p>
