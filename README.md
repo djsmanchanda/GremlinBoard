@@ -237,6 +237,6 @@ If `npm` itself fails before it can run, reinstall Node.js 20+ or switch to a kn
 - The board persists instance order and size; the UI packs those widgets onto a strict responsive grid with 4 to 8 columns.
 - View mode is the default monitoring posture. Edit mode enables drag from the top interaction band, bottom-right resize handles, widget controls, and the side inspector.
 - Resize previews use dashed outlines for every allowed size that fits the current column count, with the nearest target highlighted while resizing.
-- Freshness, uptime, mode, and restart count stay compact in widget chrome and can be expanded with the persistent Stats toggle.
+- Freshness, uptime, mode, and restart count stay hidden by default and expand through the persistent Stats toggle.
 - Widget alerts use three visible categories: red `critical` when the widget is not working properly, yellow `alert` for non-fatal issues, and green `completed` only when widget logic explicitly reports successful completion. Normal healthy widgets remain unbadged.
 - Background runtime work should scale with active operators and configured cadence, not with idle tabs or stale subscribers.

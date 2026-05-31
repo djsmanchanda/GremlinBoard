@@ -80,5 +80,5 @@ lifecycle_policy:
 - Widgets move from the top interaction band, excluding the resize corners.
 - Widgets resize from the bottom-right corner only.
 - Resize feedback is shown with dashed outlines for allowed sizes that fit the current board width; the nearest size is highlighted while dragging.
-- Freshness, uptime, refresh mode, and restart count are compact chrome by default and expand through the board Stats toggle.
+- Freshness, uptime, refresh mode, and restart count stay hidden by default and expand through the board Stats toggle.
 - Widget alerts use three visible categories: red `critical` when the widget is not working properly, yellow `alert` for non-fatal issues, and green `completed` only when widget logic explicitly publishes `state.complete = true`.

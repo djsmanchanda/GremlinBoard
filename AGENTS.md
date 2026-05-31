@@ -113,7 +113,7 @@ Required behaviors:
 - snap to grid
 - persist layout
 - persist board appearance settings such as density presets
-- expose freshness, uptime, mode, and restart stats through compact chrome and the widget Stats toggle
+- expose freshness, uptime, mode, and restart stats only through the widget Stats toggle
 - surface widget alerts in three visible categories: red `critical` for broken behavior, yellow `alert` for non-fatal issues, and explicit green `completed` for successful task completion
 - keep permanent widget chrome minimal so widgets can show more data
 - support quick add via command box
