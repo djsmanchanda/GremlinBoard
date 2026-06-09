@@ -122,6 +122,148 @@ function ConvertTo-BoolValue {
     return $Default
 }
 
+function Add-WinUiTrayMenuRenderer {
+    if ("GremlinBoard.WinUiTrayRenderer" -as [type]) {
+        return
+    }
+
+    Add-Type -ReferencedAssemblies System.Windows.Forms,System.Drawing -TypeDefinition @"
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+
+namespace GremlinBoard {
+    public sealed class WinUiTrayColorTable : ProfessionalColorTable {
+        private readonly Color Background = Color.FromArgb(32, 32, 32);
+        private readonly Color Selected = Color.FromArgb(58, 58, 58);
+        private readonly Color Border = Color.FromArgb(68, 68, 68);
+
+        public override Color ToolStripDropDownBackground { get { return Background; } }
+        public override Color ImageMarginGradientBegin { get { return Background; } }
+        public override Color ImageMarginGradientMiddle { get { return Background; } }
+        public override Color ImageMarginGradientEnd { get { return Background; } }
+        public override Color MenuBorder { get { return Border; } }
+        public override Color MenuItemBorder { get { return Selected; } }
+        public override Color MenuItemSelected { get { return Selected; } }
+        public override Color SeparatorDark { get { return Color.FromArgb(74, 74, 74); } }
+        public override Color SeparatorLight { get { return Color.FromArgb(74, 74, 74); } }
+    }
+
+    public sealed class WinUiTrayRenderer : ToolStripProfessionalRenderer {
+        private readonly Color Background = Color.FromArgb(32, 32, 32);
+        private readonly Color Selected = Color.FromArgb(58, 58, 58);
+        private readonly Color Border = Color.FromArgb(68, 68, 68);
+        private readonly Color Text = Color.FromArgb(243, 243, 243);
+        private readonly Color Muted = Color.FromArgb(166, 166, 166);
+
+        public WinUiTrayRenderer() : base(new WinUiTrayColorTable()) {
+            RoundedEdges = false;
+        }
+
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) {
+            using (SolidBrush brush = new SolidBrush(Background)) {
+                e.Graphics.FillRectangle(brush, e.AffectedBounds);
+            }
+        }
+
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e) {
+            using (Pen pen = new Pen(Border)) {
+                Rectangle bounds = new Rectangle(Point.Empty, new Size(e.ToolStrip.Width - 1, e.ToolStrip.Height - 1));
+                e.Graphics.DrawRectangle(pen, bounds);
+            }
+        }
+
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e) {
+            Rectangle bounds = new Rectangle(Point.Empty, e.Item.Size);
+            Color fill = e.Item.Selected && e.Item.Enabled ? Selected : Background;
+            using (SolidBrush brush = new SolidBrush(fill)) {
+                e.Graphics.FillRectangle(brush, bounds);
+            }
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e) {
+            e.TextColor = e.Item.Enabled ? Text : Muted;
+            base.OnRenderItemText(e);
+        }
+
+        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e) {
+            int y = e.Item.Height / 2;
+            using (Pen pen = new Pen(Border)) {
+                e.Graphics.DrawLine(pen, 12, y, e.Item.Width - 12, y);
+            }
+        }
+    }
+}
+"@
+}
+
+function New-GremlinBoardTrayIcon {
+    $bitmap = New-Object System.Drawing.Bitmap 64, 64
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $graphics.Clear([System.Drawing.Color]::Transparent)
+
+    $background = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+        (New-Object System.Drawing.Rectangle 0, 0, 64, 64),
+        [System.Drawing.Color]::FromArgb(24, 24, 24),
+        [System.Drawing.Color]::FromArgb(39, 39, 39),
+        [System.Drawing.Drawing2D.LinearGradientMode]::ForwardDiagonal
+    )
+    $panelBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(246, 246, 246))
+    $screenBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(222, 252, 237))
+    $accentBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(76, 194, 122))
+    $dimBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(143, 171, 184))
+    $borderPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(78, 78, 78)), 2
+    $panelPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(171, 181, 190)), 2
+
+    try {
+        $graphics.FillEllipse($background, 4, 4, 56, 56)
+        $graphics.DrawEllipse($borderPen, 4, 4, 56, 56)
+        $graphics.FillRectangle($panelBrush, 16, 18, 32, 27)
+        $graphics.DrawRectangle($panelPen, 16, 18, 32, 27)
+        $graphics.FillRectangle($screenBrush, 20, 22, 15, 19)
+        $graphics.FillRectangle($dimBrush, 38, 22, 6, 19)
+        $graphics.FillRectangle($accentBrush, 22, 24, 11, 4)
+        $graphics.FillRectangle($accentBrush, 22, 31, 11, 4)
+        $graphics.FillRectangle($accentBrush, 22, 38, 11, 3)
+    }
+    finally {
+        $background.Dispose()
+        $panelBrush.Dispose()
+        $screenBrush.Dispose()
+        $accentBrush.Dispose()
+        $dimBrush.Dispose()
+        $borderPen.Dispose()
+        $panelPen.Dispose()
+        $graphics.Dispose()
+    }
+
+    $handle = $bitmap.GetHicon()
+    $icon = [System.Drawing.Icon]::FromHandle($handle).Clone()
+    $bitmap.Dispose()
+    return $icon
+}
+
+function Set-WinUiTrayMenuItemStyle {
+    param([System.Windows.Forms.ToolStripItem]$Item)
+
+    $Item.ForeColor = [System.Drawing.Color]::FromArgb(243, 243, 243)
+    $Item.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 32)
+    $Item.Padding = New-Object System.Windows.Forms.Padding 10, 3, 14, 3
+    $Item.Margin = New-Object System.Windows.Forms.Padding 0, 1, 0, 1
+}
+
+function Update-TrayStatusText {
+    param(
+        [object]$Instance,
+        [System.Windows.Forms.ToolStripMenuItem]$StatusItem,
+        [System.Windows.Forms.NotifyIcon]$Notify
+    )
+
+    $StatusItem.Text = "Status  API $($Instance.apiLive)  Web $($Instance.webLive)  Runtime $($Instance.powerState)  Widgets $($Instance.activeWidgetCount)  Errors $($Instance.recentErrorCount)"
+    $Notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
+}
+
 function Normalize-LauncherInstance {
     param([object]$Instance)
 
@@ -663,14 +805,23 @@ function Start-Tray {
 
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
+    Add-WinUiTrayMenuRenderer
     [System.Windows.Forms.Application]::EnableVisualStyles()
 
     $notify = New-Object System.Windows.Forms.NotifyIcon
     $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.boardUrl)"
-    $notify.Icon = [System.Drawing.SystemIcons]::Application
+    $trayIcon = New-GremlinBoardTrayIcon
+    $notify.Icon = $trayIcon
     $notify.Visible = $true
 
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    $menu.Renderer = New-Object GremlinBoard.WinUiTrayRenderer
+    $menu.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 32)
+    $menu.ForeColor = [System.Drawing.Color]::FromArgb(243, 243, 243)
+    $menu.Font = New-Object System.Drawing.Font "Segoe UI", 10
+    $menu.ShowImageMargin = $false
+    $menu.ShowCheckMargin = $false
+    $menu.Padding = New-Object System.Windows.Forms.Padding 8, 8, 8, 8
     $openBoard = New-Object System.Windows.Forms.ToolStripMenuItem("Open Board")
     $openSystem = New-Object System.Windows.Forms.ToolStripMenuItem("Open System Panel")
     $statusItem = New-Object System.Windows.Forms.ToolStripMenuItem("Status: starting")
@@ -680,20 +831,28 @@ function Start-Tray {
     $separator = New-Object System.Windows.Forms.ToolStripSeparator
     $stopExit = New-Object System.Windows.Forms.ToolStripMenuItem("Stop Services and Exit")
 
+    foreach ($item in @($openBoard, $openSystem, $statusItem, $openLogs, $refreshStatus, $stopExit)) {
+        Set-WinUiTrayMenuItemStyle -Item $item
+    }
+    $statusItem.ForeColor = [System.Drawing.Color]::FromArgb(166, 166, 166)
+    $stopExit.ForeColor = [System.Drawing.Color]::FromArgb(255, 153, 164)
+    $separator.BackColor = [System.Drawing.Color]::FromArgb(32, 32, 32)
+    $separator.ForeColor = [System.Drawing.Color]::FromArgb(74, 74, 74)
+
     $openBoard.add_Click({ Start-Process $Instance.boardUrl })
     $openSystem.add_Click({ Start-Process $Instance.systemUrl })
     $openLogs.add_Click({ Start-Process explorer.exe $StateDir })
     $refreshStatus.add_Click({
         Update-LauncherInstanceStatus -Instance $Instance -Passive $false | Out-Null
         Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
-        $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
-        $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
+        Update-TrayStatusText -Instance $Instance -StatusItem $statusItem -Notify $notify
     })
     $stopExit.add_Click({
         Stop-LauncherInstance $Instance
         Remove-LauncherInstance $Instance.id
         $notify.Visible = $false
         $notify.Dispose()
+        $trayIcon.Dispose()
         [System.Windows.Forms.Application]::Exit()
     })
 
@@ -713,8 +872,7 @@ function Start-Tray {
     $timer.add_Tick({
         Update-LauncherInstanceStatus -Instance $Instance -Passive $true | Out-Null
         Save-LauncherInstances @(Get-LauncherInstances | ForEach-Object { if ($_.id -eq $Instance.id) { $Instance } else { $_ } })
-        $statusItem.Text = "Status: API=$($Instance.apiLive) Web=$($Instance.webLive) Runtime=$($Instance.powerState) Widgets=$($Instance.activeWidgetCount) Errors=$($Instance.recentErrorCount)"
-        $notify.Text = "GremlinBoard $($Instance.mode) - $($Instance.powerState)"
+        Update-TrayStatusText -Instance $Instance -StatusItem $statusItem -Notify $notify
     })
     $timer.Start()
     $refreshStatus.PerformClick()
@@ -727,6 +885,7 @@ function Start-Tray {
         $timer.Dispose()
         $notify.Visible = $false
         $notify.Dispose()
+        $trayIcon.Dispose()
     }
 }
 
