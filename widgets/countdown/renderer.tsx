@@ -83,8 +83,8 @@ function fromDatetimeLocalValue(value: string) {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
-function targetFromDuration(seconds: number) {
-  return new Date(Date.now() + seconds * 1000).toISOString();
+function targetFromDuration(seconds: number, now = Date.now()) {
+  return new Date(now + seconds * 1000).toISOString();
 }
 
 function parseDuration(value: string) {
@@ -129,8 +129,8 @@ function formatRemaining(seconds: number, compact: boolean) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
 }
 
-function durationFromNow(targetTime: string) {
-  return Math.max(Math.floor((new Date(targetTime).getTime() - Date.now()) / 1000), 1);
+function durationFromNow(targetTime: string, now = Date.now()) {
+  return Math.max(Math.floor((new Date(targetTime).getTime() - now) / 1000), 1);
 }
 
 export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProps) {
@@ -163,6 +163,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
       }
     };
 
+    tick();
     const interval = window.setInterval(tick, 1000);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
@@ -188,7 +189,9 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
     if (!canAdd) {
       return;
     }
-    const targetTime = seconds ? targetFromDuration(seconds) : fromDatetimeLocalValue(draftTarget);
+    const startedAt = Date.now();
+    setNow(startedAt);
+    const targetTime = seconds ? targetFromDuration(seconds, startedAt) : fromDatetimeLocalValue(draftTarget);
     if (!targetTime) {
       return;
     }
@@ -198,7 +201,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
         id: timerId(),
         label: draftLabel.trim() || `Timer ${timers.length + 1}`,
         target_time: targetTime,
-        duration_seconds: seconds ?? durationFromNow(targetTime),
+        duration_seconds: seconds ?? durationFromNow(targetTime, startedAt),
       },
     ]);
     setDraftLabel("");
@@ -218,12 +221,14 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
   }
 
   function restartTimer(timer: CountdownTimer) {
+    const restartedAt = Date.now();
+    setNow(restartedAt);
     commitTimers(
       timers.map((item) =>
         item.id === timer.id
           ? {
               ...item,
-              target_time: targetFromDuration(item.duration_seconds ?? durationFromNow(item.target_time)),
+              target_time: targetFromDuration(item.duration_seconds ?? durationFromNow(item.target_time, restartedAt), restartedAt),
             }
           : item,
       ),
