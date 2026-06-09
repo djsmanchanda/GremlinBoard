@@ -29,6 +29,7 @@ import type {
 } from "@/lib/types";
 
 const allowedWidgetSizes = ["1x1", "1x2", "2x2", "4x2", "2x4", "4x4"] as const satisfies TileSize[];
+const defaultWidgetSize: TileSize = "4x2";
 
 type FeedbackCategoryId = "name" | "sizing" | "ui" | "feature";
 
@@ -104,6 +105,7 @@ export function SpecStudio() {
   const [jobHistory, setJobHistory] = useState<GenerationJob[]>([]);
   const [currentJob, setCurrentJob] = useState<GenerationJob | null>(null);
   const [currentTestBox, setCurrentTestBox] = useState<GenerationTestBox | null>(null);
+  const [selectedWidgetSize, setSelectedWidgetSize] = useState<TileSize | null>(null);
   const [easyJobId, setEasyJobId] = useState<string | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
@@ -215,6 +217,8 @@ export function SpecStudio() {
     () => buildWidgetBrief(currentJob, manifestArtifact, specArtifact, currentTestBox),
     [currentJob, currentTestBox, manifestArtifact, specArtifact],
   );
+  const activeWidgetSize: TileSize =
+    selectedWidgetSize ?? (isAllowedWidgetSize(widgetBrief.preferredSize) ? widgetBrief.preferredSize : defaultWidgetSize);
   const generationSettled = Boolean(currentJob && !["queued", "running"].includes(currentJob.status));
   const generatedGridIssue = Boolean(generationSettled && (!widgetBrief.preferredSize || !widgetBrief.sizeAllowed));
   const files = useMemo(() => currentTestBox?.files ?? codeArtifact?.files ?? [], [codeArtifact, currentTestBox]);
@@ -281,7 +285,7 @@ export function SpecStudio() {
           provider_id: selectedProvider,
           model_id: selectedModel || undefined,
           fallback_provider_ids: fallbackProviders,
-          idea: idea.trim(),
+          idea: buildIdeaWithSelectedSize(idea.trim(), activeWidgetSize),
         })
           .then((response) => {
             setCurrentJob(response.job);
@@ -325,6 +329,12 @@ export function SpecStudio() {
           setError(requestError instanceof Error ? requestError.message : "Generation failed");
         });
     });
+  };
+
+  const selectWidgetSize = (size: TileSize) => {
+    setSelectedWidgetSize(size);
+    setFeedbackCategory("sizing");
+    setEasyFeedback(buildSizeFeedback(size));
   };
 
   const submitFeedback = () => {
@@ -440,8 +450,8 @@ export function SpecStudio() {
 
             <div className="rounded-[18px] border border-white/10 bg-[#07090d] p-4">
               <p className="text-sm font-medium text-white">Strict size choices</p>
-              <p className="mt-1 text-xs leading-5 text-slate-400">Easy mode can refine size, but only to these board footprints.</p>
-              <AllowedSizeGrid activeSize={widgetBrief.preferredSize} />
+              <p className="mt-1 text-xs leading-5 text-slate-400">Choose the board footprint for the next widget draft.</p>
+              <AllowedSizeGrid activeSize={activeWidgetSize} onSelect={selectWidgetSize} />
             </div>
           </div>
 
@@ -1158,20 +1168,29 @@ function EmptyState({
   );
 }
 
-function AllowedSizeGrid({ activeSize }: { activeSize: string | null }) {
+function AllowedSizeGrid({
+  activeSize,
+  onSelect,
+}: {
+  activeSize: TileSize;
+  onSelect: (size: TileSize) => void;
+}) {
   return (
     <div className="mt-3 grid grid-cols-3 gap-2">
       {allowedWidgetSizes.map((size) => (
-        <span
+        <button
           key={size}
-          className={`rounded-[10px] border px-3 py-2 text-center text-xs font-medium ${
+          type="button"
+          aria-pressed={activeSize === size}
+          onClick={() => onSelect(size)}
+          className={`rounded-[10px] border px-3 py-2 text-center text-xs font-medium transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200 ${
             activeSize === size
               ? "border-cyan-300/30 bg-cyan-300/12 text-cyan-50"
-              : "border-white/10 bg-white/[0.04] text-slate-300"
+              : "border-white/10 bg-white/[0.04] text-slate-300 hover:border-cyan-300/20 hover:bg-cyan-300/8 hover:text-cyan-50"
           }`}
         >
           {size}
-        </span>
+        </button>
       ))}
     </div>
   );
@@ -1523,6 +1542,15 @@ function normalizeFeedbackCategory(category: string | null): FeedbackCategoryId 
 
 function inferFeedbackCategory(feedback: string): FeedbackCategoryId {
   return normalizeFeedbackCategory(feedback) ?? "feature";
+}
+
+function buildSizeFeedback(size: TileSize) {
+  return `Switch the preferred size to ${size}.`;
+}
+
+function buildIdeaWithSelectedSize(trimmedIdea: string, size: TileSize) {
+  const sizeInstruction = `Use ${size} as the preferred widget size.`;
+  return trimmedIdea ? `${trimmedIdea} ${sizeInstruction}` : sizeInstruction;
 }
 
 function formatCategoryLabel(category: string) {
