@@ -77,6 +77,14 @@ To stop all managed GremlinBoard services:
 Stop-GremlinBoard.bat
 ```
 
+To start the stable tray launcher automatically when you sign in to Windows:
+
+```bat
+Install-GremlinBoard-Autostart.bat
+```
+
+This creates a current-user Startup shortcut that launches `scripts\gremlinboard-tray.ps1` in hidden PowerShell STA mode. Remove it with `Uninstall-GremlinBoard-Autostart.bat`.
+
 Launcher state and logs live under `data/launcher/` and are intentionally ignored by Git.
 
 Stable mode uses the custom local web/API ports `7555`/`2555`. Dev mode uses the adjacent `7556`/`2556` pair. The launcher checks those ports before starting and refuses to attach to an unmanaged listener.

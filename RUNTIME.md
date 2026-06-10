@@ -70,6 +70,7 @@ Every service should report or allow the runtime to derive:
 - Utility mode: `npm run start:api` plus `npm run build && npm run start:web`. Use this when evaluating the app as a lightweight local control panel.
 - API start helpers in `scripts/start-api.ps1` and `scripts/start-api.sh` run without reload and without access logs.
 - Windows tray utility mode: `Start-GremlinBoard.bat` starts the production API/web pair and keeps a tray icon for open/stop actions.
+- Windows tray autostart: `Install-GremlinBoard-Autostart.bat` installs a current-user Startup shortcut for the stable tray launcher. It starts after Windows sign-in, not as a pre-login service.
 - Windows tray port allocation: stable web/API use `7555`/`2555`; dev web/API use `7556`/`2556`.
 - Windows tray dev mode: `Start-GremlinBoard-Dev.bat` starts the reload-enabled API/web pair on ports `7556`/`2556`.
 - The launcher checks selected ports before starting. If a port is already used by a process the launcher does not manage, startup fails instead of silently binding to the wrong stack.
