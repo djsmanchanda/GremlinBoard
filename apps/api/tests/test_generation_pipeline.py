@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from gremlinboard_api.config import settings
 from gremlinboard_api.db import Base
+from gremlinboard_api.ai.providers import ClaudeProvider, CodexProvider
 from gremlinboard_api.registry.loader import load_registry
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.schemas.contracts import (
@@ -41,6 +42,22 @@ async def wait_for_generation(
         if asyncio.get_running_loop().time() >= deadline:
             raise AssertionError(f"generation job {job_id} did not complete; last status={job.status}")
         await asyncio.sleep(0.05)
+
+
+@pytest.mark.asyncio
+async def test_ai_provider_fallback_catalog_exposes_current_model_metadata() -> None:
+    codex_options, codex_source, codex_status = await CodexProvider().list_model_options(credentials={})
+    claude_options, claude_source, claude_status = await ClaudeProvider().list_model_options(credentials={})
+
+    assert codex_source == "fallback"
+    assert codex_status == "fallback"
+    assert codex_options[0]["id"] == "gpt-5.5"
+    assert codex_options[0]["reasoning_effort_options"] == ["none", "low", "medium", "high", "xhigh"]
+
+    assert claude_source == "fallback"
+    assert claude_status == "fallback"
+    assert claude_options[0]["id"] == "claude-fable-5"
+    assert {option["speed_level"] for option in claude_options} >= {"moderate", "fast", "fastest"}
 
 
 @pytest.mark.asyncio

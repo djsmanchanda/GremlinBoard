@@ -162,6 +162,18 @@ export interface AIProvider {
   supports_idea_to_spec: boolean;
   supported_model_ids: string[];
   default_model_id?: string | null;
+  model_options: AIModelOption[];
+  model_catalog_source: string;
+  model_catalog_status: string;
+}
+
+export interface AIModelOption {
+  id: string;
+  label?: string | null;
+  intelligence_level?: string | null;
+  speed_level?: string | null;
+  reasoning_effort_options: string[];
+  source: string;
 }
 
 export interface GenerationPipelinePreview {
@@ -247,6 +259,7 @@ export interface GenerationFeedbackRequest {
   feedback: string;
   provider_id?: string;
   model_id?: string;
+  reasoning_effort?: string;
   fallback_provider_ids?: string[];
 }
 

@@ -708,6 +708,15 @@ class WidgetPluginRollbackRequest(BaseModel):
     version: str
 
 
+class AIModelOptionRead(BaseModel):
+    id: str
+    label: str | None = None
+    intelligence_level: str | None = None
+    speed_level: str | None = None
+    reasoning_effort_options: list[str] = Field(default_factory=list)
+    source: str = "fallback"
+
+
 class AIProviderRead(BaseModel):
     provider_id: str
     label: str
@@ -717,6 +726,9 @@ class AIProviderRead(BaseModel):
     supports_idea_to_spec: bool
     supported_model_ids: list[str] = Field(default_factory=list)
     default_model_id: str | None = None
+    model_options: list[AIModelOptionRead] = Field(default_factory=list)
+    model_catalog_source: str = "fallback"
+    model_catalog_status: str = "fallback"
 
 
 class GenerationJobStatus(str, Enum):
@@ -733,6 +745,7 @@ class GenerationJobStatus(str, Enum):
 class GenerationJobCreateRequest(BaseModel):
     provider_id: str | None = None
     model_id: str | None = None
+    reasoning_effort: str | None = None
     fallback_provider_ids: list[str] = Field(default_factory=list)
     stage_id: str | None = None
     idea: str | None = None
@@ -755,6 +768,7 @@ class GenerationJobFeedbackRequest(BaseModel):
     feedback: str = Field(min_length=1)
     provider_id: str | None = None
     model_id: str | None = None
+    reasoning_effort: str | None = None
     fallback_provider_ids: list[str] = Field(default_factory=list)
 
     @field_validator("feedback")
@@ -767,6 +781,7 @@ class EasyGenerationCreateRequest(BaseModel):
     idea: str = Field(min_length=1)
     provider_id: str | None = None
     model_id: str | None = None
+    reasoning_effort: str | None = None
     fallback_provider_ids: list[str] = Field(default_factory=list)
     version: str | None = None
 

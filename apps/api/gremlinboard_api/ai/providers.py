@@ -1,7 +1,10 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import re
+import time
 from typing import Any
+
+import httpx
 
 from gremlinboard_api.ai.prompts import (
     render_codegen_prompt,
@@ -17,6 +20,10 @@ class AIProvider(ABC):
     label: str
     supported_model_ids: tuple[str, ...] = ()
     default_model_id: str | None = None
+    fallback_model_options: tuple[dict[str, Any], ...] = ()
+    model_api_credential_providers: tuple[str, ...] = ()
+    model_cache_ttl_seconds = 600
+    _model_cache: tuple[list[dict[str, Any]], str, str, float, str] | None = None
 
     @property
     def supports_idea_to_spec(self) -> bool:
@@ -62,12 +69,100 @@ class AIProvider(ABC):
     ) -> dict[str, Any]:
         raise NotImplementedError
 
+    async def list_model_options(self, *, credentials: dict[str, str]) -> tuple[list[dict[str, Any]], str, str]:
+        api_key = self._credential_for(credentials)
+        cache_key = "credential" if api_key else "fallback"
+        cached = self._model_cache
+        if cached is not None and cached[3] > time.monotonic() and cached[4] == cache_key:
+            return [dict(option) for option in cached[0]], cached[1], cached[2]
+
+        if api_key:
+            try:
+                options = await self._fetch_model_options(api_key=api_key)
+            except (httpx.HTTPError, ValueError, KeyError, TypeError):
+                options = []
+            if options:
+                self._model_cache = (options, "provider_api", "live", time.monotonic() + self.model_cache_ttl_seconds, cache_key)
+                return options, "provider_api", "live"
+        fallback = [dict(option) for option in self.fallback_model_options]
+        if fallback:
+            self._model_cache = (fallback, "fallback", "fallback", time.monotonic() + self.model_cache_ttl_seconds, cache_key)
+            return fallback, "fallback", "fallback"
+        options = [{"id": model_id, "label": model_id, "source": "fallback"} for model_id in self.supported_model_ids]
+        self._model_cache = (options, "fallback", "fallback", time.monotonic() + self.model_cache_ttl_seconds, cache_key)
+        return options, "fallback", "fallback"
+
+    async def _fetch_model_options(self, *, api_key: str) -> list[dict[str, Any]]:
+        return []
+
+    def _credential_for(self, credentials: dict[str, str]) -> str | None:
+        for provider_id in self.model_api_credential_providers:
+            secret = credentials.get(provider_id)
+            if secret:
+                return secret
+        return None
+
 
 class CodexProvider(AIProvider):
     provider_id = "codex"
     label = "Codex"
-    supported_model_ids = ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex")
-    default_model_id = "gpt-5.3-codex"
+    supported_model_ids = ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex")
+    default_model_id = "gpt-5.5"
+    model_api_credential_providers = ("codex", "openai")
+    fallback_model_options = (
+        {
+            "id": "gpt-5.5",
+            "label": "GPT-5.5",
+            "intelligence_level": "highest",
+            "speed_level": "fast",
+            "reasoning_effort_options": ["none", "low", "medium", "high", "xhigh"],
+            "source": "fallback",
+        },
+        {
+            "id": "gpt-5.4",
+            "label": "GPT-5.4",
+            "intelligence_level": "high",
+            "speed_level": "fast",
+            "reasoning_effort_options": ["none", "low", "medium", "high", "xhigh"],
+            "source": "fallback",
+        },
+        {
+            "id": "gpt-5.4-mini",
+            "label": "GPT-5.4 mini",
+            "intelligence_level": "medium",
+            "speed_level": "faster",
+            "reasoning_effort_options": ["none", "low", "medium", "high", "xhigh"],
+            "source": "fallback",
+        },
+        {
+            "id": "gpt-5.4-nano",
+            "label": "GPT-5.4 nano",
+            "intelligence_level": "low",
+            "speed_level": "fastest",
+            "reasoning_effort_options": ["none", "low", "medium", "high", "xhigh"],
+            "source": "fallback",
+        },
+        {
+            "id": "gpt-5.3-codex",
+            "label": "GPT-5.3 Codex",
+            "intelligence_level": "coding",
+            "speed_level": "balanced",
+            "reasoning_effort_options": ["low", "medium", "high", "xhigh"],
+            "source": "fallback",
+        },
+    )
+
+    async def _fetch_model_options(self, *, api_key: str) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(4.0)) as client:
+            response = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
+            response.raise_for_status()
+        data = response.json().get("data", [])
+        available_ids = {
+            str(item.get("id"))
+            for item in data
+            if isinstance(item, dict) and isinstance(item.get("id"), str) and _is_generation_model_id(item["id"])
+        }
+        return _merge_known_model_metadata(available_ids, self.fallback_model_options)
 
     async def health(self) -> dict[str, Any]:
         return {"status": "shell", "provider_id": self.provider_id, "mode": "deterministic-placeholder"}
@@ -138,8 +233,61 @@ class CodexProvider(AIProvider):
 class ClaudeProvider(AIProvider):
     provider_id = "claude"
     label = "Claude"
-    supported_model_ids = ("claude-sonnet-4.5", "claude-haiku-4.5")
-    default_model_id = "claude-sonnet-4.5"
+    supported_model_ids = ("claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5")
+    default_model_id = "claude-fable-5"
+    model_api_credential_providers = ("claude", "anthropic")
+    fallback_model_options = (
+        {
+            "id": "claude-fable-5",
+            "label": "Claude Fable 5",
+            "intelligence_level": "highest",
+            "speed_level": "moderate",
+            "source": "fallback",
+        },
+        {
+            "id": "claude-opus-4-8",
+            "label": "Claude Opus 4.8",
+            "intelligence_level": "high",
+            "speed_level": "moderate",
+            "reasoning_effort_options": ["low", "medium", "high"],
+            "source": "fallback",
+        },
+        {
+            "id": "claude-sonnet-4-6",
+            "label": "Claude Sonnet 4.6",
+            "intelligence_level": "high",
+            "speed_level": "fast",
+            "reasoning_effort_options": ["low", "medium", "high"],
+            "source": "fallback",
+        },
+        {
+            "id": "claude-haiku-4-5",
+            "label": "Claude Haiku 4.5",
+            "intelligence_level": "near-frontier",
+            "speed_level": "fastest",
+            "reasoning_effort_options": ["low", "medium", "high"],
+            "source": "fallback",
+        },
+    )
+
+    async def _fetch_model_options(self, *, api_key: str) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(4.0)) as client:
+            response = await client.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            response.raise_for_status()
+        data = response.json().get("data", [])
+        available_ids = {
+            str(item.get("id"))
+            for item in data
+            if isinstance(item, dict) and isinstance(item.get("id"), str)
+        }
+        merged = _merge_known_model_metadata(available_ids, self.fallback_model_options)
+        names = {str(item.get("id")): str(item.get("display_name")) for item in data if isinstance(item, dict) and item.get("display_name")}
+        for option in merged:
+            option["label"] = names.get(option["id"], option.get("label") or option["id"])
+        return merged
 
     async def health(self) -> dict[str, Any]:
         return {"status": "shell", "provider_id": self.provider_id, "mode": "deterministic-placeholder"}
@@ -209,6 +357,22 @@ def provider_from_id(provider_id: str, providers: dict[str, AIProvider]) -> AIPr
     if provider is None:
         raise ValueError(f"unknown provider '{provider_id}'")
     return provider
+
+
+def _is_generation_model_id(model_id: str) -> bool:
+    prefixes = ("gpt-5", "gpt-4.1", "o3", "o4")
+    return model_id.startswith(prefixes) and not any(fragment in model_id for fragment in ("audio", "transcribe", "tts", "image", "realtime"))
+
+
+def _merge_known_model_metadata(available_ids: set[str], fallback_options: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
+    known = {str(option["id"]): dict(option) | {"source": "provider_api"} for option in fallback_options}
+    ordered = [known[model_id] for model_id in known if model_id in available_ids]
+    unknown = [
+        {"id": model_id, "label": model_id, "source": "provider_api"}
+        for model_id in sorted(available_ids)
+        if model_id not in known
+    ]
+    return ordered + unknown
 
 
 def _draft_spec_payload(*, idea: str, provider_label: str) -> dict[str, Any]:

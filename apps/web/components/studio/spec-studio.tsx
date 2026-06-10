@@ -18,6 +18,7 @@ import {
   submitGenerationFeedback,
 } from "@/lib/api";
 import type {
+  AIModelOption,
   AIProvider,
   GenerationArtifact,
   GenerationJob,
@@ -101,6 +102,7 @@ export function SpecStudio() {
   const [providers, setProviders] = useState<AIProvider[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("codex");
   const [selectedModel, setSelectedModel] = useState<string>("");
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<string>("");
   const [generationPreview, setGenerationPreview] = useState<GenerationPipelinePreview | null>(null);
   const [jobHistory, setJobHistory] = useState<GenerationJob[]>([]);
   const [currentJob, setCurrentJob] = useState<GenerationJob | null>(null);
@@ -130,7 +132,9 @@ export function SpecStudio() {
         const activeProvider =
           providerItems.find((provider) => provider.provider_id === selectedProvider) ?? providerItems[0] ?? null;
         if (activeProvider) {
-          setSelectedModel(activeProvider.default_model_id ?? activeProvider.supported_model_ids[0] ?? "");
+          const defaultModelId = getDefaultModelId(activeProvider);
+          setSelectedModel(defaultModelId);
+          setSelectedReasoningEffort(getDefaultReasoningEffort(activeProvider, defaultModelId));
         }
       })
       .catch((loadError) => {
@@ -193,7 +197,18 @@ export function SpecStudio() {
   }, [currentJob, easyJobId]);
 
   const selectedProviderDetails = providers.find((provider) => provider.provider_id === selectedProvider) ?? null;
-  const modelOptions = selectedProviderDetails?.supported_model_ids ?? [];
+  const modelOptions = useMemo(
+    () => (selectedProviderDetails ? getProviderModelOptions(selectedProviderDetails) : []),
+    [selectedProviderDetails],
+  );
+  const selectedModelDetails = useMemo(
+    () => modelOptions.find((model) => model.id === selectedModel) ?? modelOptions[0] ?? null,
+    [modelOptions, selectedModel],
+  );
+  const reasoningEffortOptions = useMemo(
+    () => selectedModelDetails?.reasoning_effort_options ?? [],
+    [selectedModelDetails],
+  );
   const fallbackProviders = providers
     .filter((provider) => provider.provider_id !== selectedProvider)
     .map((provider) => provider.provider_id);
@@ -224,6 +239,18 @@ export function SpecStudio() {
   const files = useMemo(() => currentTestBox?.files ?? codeArtifact?.files ?? [], [codeArtifact, currentTestBox]);
   const selectedFile = files.find((file) => file.path === selectedFilePath) ?? files[0] ?? null;
   const normalizedFeedbackCategory = normalizeFeedbackCategory(feedbackCategory);
+
+  useEffect(() => {
+    if (reasoningEffortOptions.length === 0) {
+      if (selectedReasoningEffort) {
+        setSelectedReasoningEffort("");
+      }
+      return;
+    }
+    if (!reasoningEffortOptions.includes(selectedReasoningEffort)) {
+      setSelectedReasoningEffort(reasoningEffortOptions.includes("medium") ? "medium" : reasoningEffortOptions[0]);
+    }
+  }, [reasoningEffortOptions, selectedReasoningEffort]);
 
   useEffect(() => {
     if (!selectedFile && files[0]) {
@@ -284,6 +311,7 @@ export function SpecStudio() {
         void createEasyGenerationJob({
           provider_id: selectedProvider,
           model_id: selectedModel || undefined,
+          reasoning_effort: selectedReasoningEffort || undefined,
           fallback_provider_ids: fallbackProviders,
           idea: buildIdeaWithSelectedSize(idea.trim(), activeWidgetSize),
         })
@@ -306,12 +334,14 @@ export function SpecStudio() {
           ? {
               provider_id: selectedProvider,
               model_id: selectedModel || undefined,
+              reasoning_effort: selectedReasoningEffort || undefined,
               fallback_provider_ids: fallbackProviders,
               regenerate_from_job_id: currentJob.id,
             }
           : {
               provider_id: selectedProvider,
               model_id: selectedModel || undefined,
+              reasoning_effort: selectedReasoningEffort || undefined,
               fallback_provider_ids: fallbackProviders,
               stage_id: result?.stage_id,
             };
@@ -347,6 +377,7 @@ export function SpecStudio() {
         feedback: easyFeedback.trim(),
         provider_id: selectedProvider,
         model_id: selectedModel || undefined,
+        reasoning_effort: selectedReasoningEffort || undefined,
         fallback_provider_ids: fallbackProviders,
       })
         .then((response) => {
@@ -463,8 +494,10 @@ export function SpecStudio() {
                 onChange={(event) => {
                   const providerId = event.target.value;
                   const provider = providers.find((item) => item.provider_id === providerId);
+                  const defaultModelId = provider ? getDefaultModelId(provider) : "";
                   setSelectedProvider(providerId);
-                  setSelectedModel(provider?.default_model_id ?? provider?.supported_model_ids[0] ?? "");
+                  setSelectedModel(defaultModelId);
+                  setSelectedReasoningEffort(provider ? getDefaultReasoningEffort(provider, defaultModelId) : "");
                 }}
                 className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
               >
@@ -484,9 +517,25 @@ export function SpecStudio() {
                   onChange={(event) => setSelectedModel(event.target.value)}
                   className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
                 >
-                  {modelOptions.map((modelId) => (
-                    <option key={modelId} value={modelId}>
-                      {modelId}
+                  {modelOptions.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {formatModelOptionLabel(model)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {reasoningEffortOptions.length > 0 ? (
+              <label className="grid gap-2">
+                <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Intelligence</span>
+                <select
+                  value={selectedReasoningEffort}
+                  onChange={(event) => setSelectedReasoningEffort(event.target.value)}
+                  className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
+                >
+                  {reasoningEffortOptions.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {formatControlLabel(effort)}
                     </option>
                   ))}
                 </select>
@@ -572,8 +621,10 @@ export function SpecStudio() {
                   onChange={(event) => {
                     const providerId = event.target.value;
                     const provider = providers.find((item) => item.provider_id === providerId);
+                    const defaultModelId = provider ? getDefaultModelId(provider) : "";
                     setSelectedProvider(providerId);
-                    setSelectedModel(provider?.default_model_id ?? provider?.supported_model_ids[0] ?? "");
+                    setSelectedModel(defaultModelId);
+                    setSelectedReasoningEffort(provider ? getDefaultReasoningEffort(provider, defaultModelId) : "");
                   }}
                   className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
                 >
@@ -593,9 +644,25 @@ export function SpecStudio() {
                     onChange={(event) => setSelectedModel(event.target.value)}
                     className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
                   >
-                    {modelOptions.map((modelId) => (
-                      <option key={modelId} value={modelId}>
-                        {modelId}
+                    {modelOptions.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {formatModelOptionLabel(model)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
+              {reasoningEffortOptions.length > 0 ? (
+                <label className="grid gap-2">
+                  <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Intelligence</span>
+                  <select
+                    value={selectedReasoningEffort}
+                    onChange={(event) => setSelectedReasoningEffort(event.target.value)}
+                    className="rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
+                  >
+                    {reasoningEffortOptions.map((effort) => (
+                      <option key={effort} value={effort}>
+                        {formatControlLabel(effort)}
                       </option>
                     ))}
                   </select>
@@ -1247,6 +1314,53 @@ function RefinementStatus({
 function replaceJob(items: GenerationJob[], nextJob: GenerationJob) {
   const remaining = items.filter((item) => item.id !== nextJob.id);
   return [nextJob, ...remaining];
+}
+
+function getProviderModelOptions(provider: AIProvider): AIModelOption[] {
+  if (provider.model_options?.length) {
+    return provider.model_options;
+  }
+  return provider.supported_model_ids.map((id) => ({
+    id,
+    label: id,
+    intelligence_level: null,
+    speed_level: null,
+    reasoning_effort_options: [],
+    source: "fallback",
+  }));
+}
+
+function getDefaultModelId(provider: AIProvider): string {
+  const options = getProviderModelOptions(provider);
+  if (provider.default_model_id && options.some((option) => option.id === provider.default_model_id)) {
+    return provider.default_model_id;
+  }
+  return options[0]?.id ?? "";
+}
+
+function getDefaultReasoningEffort(provider: AIProvider, modelId: string): string {
+  const model = getProviderModelOptions(provider).find((option) => option.id === modelId);
+  const options = model?.reasoning_effort_options ?? [];
+  if (options.includes("medium")) {
+    return "medium";
+  }
+  return options[0] ?? "";
+}
+
+function formatModelOptionLabel(model: AIModelOption): string {
+  const details = [model.intelligence_level, model.speed_level]
+    .filter((value): value is string => Boolean(value))
+    .map(formatControlLabel);
+  const label = model.label || model.id;
+  return details.length ? `${label} (${details.join(" / ")})` : label;
+}
+
+function formatControlLabel(value: string): string {
+  return value
+    .split(/[-_ ]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function GeneratedTestBox({

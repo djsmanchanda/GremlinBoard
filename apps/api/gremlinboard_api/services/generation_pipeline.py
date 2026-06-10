@@ -141,10 +141,16 @@ class GenerationPipelineService:
 
     async def list_providers(self) -> list[AIProviderRead]:
         settings = await self.settings_service.read()
+        credential_secrets = await self.settings_service.list_credential_secrets_by_provider()
         items: list[AIProviderRead] = []
         for provider in self.providers.values():
             health = await provider.health()
             enabled = provider.provider_id in settings.ai.enabled_provider_ids
+            model_options, model_catalog_source, model_catalog_status = await provider.list_model_options(
+                credentials=credential_secrets,
+            )
+            model_ids = [str(option["id"]) for option in model_options]
+            default_model_id = provider.default_model_id if provider.default_model_id in model_ids else (model_ids[0] if model_ids else None)
             items.append(
                 AIProviderRead(
                     provider_id=provider.provider_id,
@@ -153,8 +159,11 @@ class GenerationPipelineService:
                     supports_codegen=provider.supports_codegen,
                     supports_review=provider.supports_review,
                     supports_idea_to_spec=provider.supports_idea_to_spec,
-                    supported_model_ids=list(provider.supported_model_ids),
-                    default_model_id=provider.default_model_id,
+                    supported_model_ids=model_ids,
+                    default_model_id=default_model_id,
+                    model_options=model_options,
+                    model_catalog_source=model_catalog_source,
+                    model_catalog_status=model_catalog_status,
                 )
             )
         return items

@@ -71,6 +71,12 @@ class SystemSettingsService:
             repository = PlatformRepository(session)
             return [serialize_credential(record) for record in await repository.list_credentials()]
 
+    async def list_credential_secrets_by_provider(self) -> dict[str, str]:
+        async with self.session_factory() as session:
+            repository = PlatformRepository(session)
+            credentials = await repository.list_credentials()
+            return {record.provider: record.value_secret for record in credentials}
+
     async def upsert_credential(
         self,
         payload: ApiCredentialUpsertRequest,

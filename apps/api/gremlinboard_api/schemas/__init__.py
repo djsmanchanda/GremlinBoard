@@ -1,4 +1,5 @@
 from gremlinboard_api.schemas.contracts import (
+    AIModelOptionRead,
     AIProviderRead,
     BoardRead,
     GenerationPipelinePreviewRead,
@@ -22,6 +23,7 @@ from gremlinboard_api.schemas.contracts import (
 )
 
 __all__ = [
+    "AIModelOptionRead",
     "AIProviderRead",
     "BoardRead",
     "GenerationPipelinePreviewRead",

@@ -167,6 +167,7 @@ export function fetchGenerationJob(jobId: string) {
 export function createGenerationJob(payload: {
   provider_id?: string;
   model_id?: string;
+  reasoning_effort?: string;
   fallback_provider_ids?: string[];
   stage_id?: string;
   idea?: string;
@@ -183,6 +184,7 @@ export function createEasyGenerationJob(payload: {
   idea: string;
   provider_id?: string;
   model_id?: string;
+  reasoning_effort?: string;
   fallback_provider_ids?: string[];
   version?: string;
 }) {
