@@ -8,7 +8,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import httpx
@@ -585,7 +585,7 @@ def _start_launcher(mode: str) -> int:
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            str(launcher),
+            _windows_launcher_arg(launcher),
             "-Mode",
             mode,
         ],
@@ -606,7 +606,7 @@ def _stop_launcher(*, mode: str | None = None) -> int:
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        str(launcher),
+        _windows_launcher_arg(launcher),
     ]
     command.extend(["-StopMode", mode] if mode is not None else ["-StopAll"])
     completed = subprocess.run(
@@ -626,6 +626,10 @@ def _launcher_path() -> Path:
     if not launcher.exists():
         raise CliError(f"launcher script was not found at {launcher}")
     return launcher
+
+
+def _windows_launcher_arg(path: Path) -> str:
+    return str(PureWindowsPath(path))
 
 
 if __name__ == "__main__":
