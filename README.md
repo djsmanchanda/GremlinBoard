@@ -139,6 +139,27 @@ npm run test:e2e:smoke
 
 The smoke suite starts the web dev server, mocks the board API, and checks `960x1080`, `1280x720`, `1920x1080`, and `2560x1440` for board load, View/Edit mode, density controls, alert priority, and the side inspector.
 
+## CI/CD
+
+GitHub Actions runs `.github/workflows/ci-cd.yml` for every pushed commit, pull request, and manual dispatch. The workflow validates the Python 3.12 backend, loads the widget registry, typechecks, lints, and builds the frontend, then runs the Playwright smoke suite.
+
+After a pushed commit or manual dispatch passes every gate, the workflow builds and publishes two OCI images to GitHub Container Registry:
+
+```text
+ghcr.io/<owner>/<repository>-api:sha-<commit>
+ghcr.io/<owner>/<repository>-web:sha-<commit>
+```
+
+Branch and semantic-version tags are published as convenience aliases. The immutable SHA tag is the deployment and rollback reference.
+
+For local container validation, copy `.env.example` to `.env` and run:
+
+```bash
+docker compose up --build
+```
+
+The container stack serves the board at `http://localhost:3000` and the API at `http://localhost:8000/api`.
+
 ## Codex Worktree Environment
 
 Use this setup script for Codex worktree creation. The API package is installed from `apps/api/pyproject.toml`; this repo does not use a root `requirements.txt`.

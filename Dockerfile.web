@@ -1,16 +1,41 @@
-FROM node:22-alpine
+FROM node:22-alpine AS dependencies
 
 WORKDIR /app
 
 COPY package.json package-lock.json /app/
 COPY apps/web/package.json /app/apps/web/package.json
 
-RUN npm install
+RUN npm ci
 
+FROM node:22-alpine AS builder
+WORKDIR /app
+
+ARG NEXT_PUBLIC_GREMLINBOARD_API_URL=http://localhost:8000/api
+ENV NEXT_PUBLIC_GREMLINBOARD_API_URL=${NEXT_PUBLIC_GREMLINBOARD_API_URL}
+
+COPY --from=dependencies /app/node_modules /app/node_modules
 COPY . /app
 
 RUN npm run build
 
+FROM node:22-alpine AS runtime
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
+
+RUN addgroup -S nodejs \
+    && adduser -S -G nodejs nextjs
+
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone /app
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static /app/apps/web/.next/static
+
+USER nextjs
+
 EXPOSE 3000
 
-CMD ["npm", "--workspace", "apps/web", "run", "start"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
+
+CMD ["node", "apps/web/server.js"]

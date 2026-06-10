@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   typedRoutes: true,
   outputFileTracingRoot: repoRoot,
   experimental: {

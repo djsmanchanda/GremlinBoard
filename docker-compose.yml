@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   api:
     build:
@@ -20,12 +18,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_GREMLINBOARD_API_URL: ${NEXT_PUBLIC_GREMLINBOARD_API_URL:-http://localhost:8000/api}
     env_file:
       - .env
     environment:
-      NEXT_PUBLIC_GREMLINBOARD_API_URL: http://localhost:8000/api
+      NEXT_PUBLIC_GREMLINBOARD_API_URL: ${NEXT_PUBLIC_GREMLINBOARD_API_URL:-http://localhost:8000/api}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - "3000:3000"
 

@@ -563,6 +563,7 @@ class DevtoolsProviderActivityRead(BaseModel):
     active_requests: int = Field(ge=0)
     total_requests: int = Field(ge=0)
     coalesced_requests: int = Field(default=0, ge=0)
+    cooldown_skips: int = Field(default=0, ge=0)
     cache_hits: int = Field(ge=0)
     cache_misses: int = Field(ge=0)
     stale_fallbacks: int = Field(ge=0)
@@ -572,6 +573,8 @@ class DevtoolsProviderActivityRead(BaseModel):
     last_error: str | None = None
     last_started_at: datetime | None = None
     last_finished_at: datetime | None = None
+    consecutive_failures: int = Field(default=0, ge=0)
+    cooldown_until: datetime | None = None
 
 
 class DevtoolsProviderCoordinationRead(BaseModel):
