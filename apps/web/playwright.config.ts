@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const configDir = __dirname;
@@ -11,7 +11,9 @@ const webPort = Number(process.env.GREMLINBOARD_E2E_WEB_PORT ?? (startManagedWeb
 const apiPort = Number(process.env.GREMLINBOARD_E2E_API_PORT ?? 2555);
 const webBaseURL = process.env.GREMLINBOARD_WEB_URL ?? process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${webPort}`;
 const apiBaseURL = process.env.NEXT_PUBLIC_GREMLINBOARD_API_URL ?? `http://127.0.0.1:${apiPort}/api`;
-const e2eDatabasePath = join(repoRoot, "data", "gremlinboard-e2e.db").replace(/\\/g, "/");
+const e2eDatabaseDir = join(repoRoot, "data");
+mkdirSync(e2eDatabaseDir, { recursive: true });
+const e2eDatabasePath = join(e2eDatabaseDir, "gremlinboard-e2e.db").replace(/\\/g, "/");
 const apiPythonCommand = process.env.GREMLINBOARD_E2E_API_PYTHON_COMMAND ?? "python";
 
 function findSystemBrowserChannel() {

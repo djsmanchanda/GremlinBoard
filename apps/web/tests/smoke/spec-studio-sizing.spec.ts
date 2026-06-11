@@ -80,7 +80,7 @@ async function mockSpecStudioApi(page: Page, onEasyGeneration: (idea: string) =>
       body: JSON.stringify(mockSpecPreview),
     }),
   );
-  await page.route("**/api/ai/generation/preview", (route) =>
+  await page.route("**/api/ai/generation/preview**", (route) =>
     route.fulfill({
       status: 200,
       contentType: "application/json",
