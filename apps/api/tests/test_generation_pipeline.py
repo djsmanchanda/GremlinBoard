@@ -274,7 +274,7 @@ async def test_easy_generation_returns_test_box_and_feedback_refinement_metadata
         assert easy_done.test_box.size == "4x2"
         assert easy_done.test_box.install_blocked is True
         assert easy_done.test_box.review_required is True
-        assert easy_done.test_box.renderer["module"] == "@widgets/sprint_risk/renderer"
+        assert easy_done.test_box.renderer == {"kind": "blueprint", "blueprint": "view.blueprint.json"}
         assert "query" in easy_done.test_box.config_schema["properties"]
         assert {"alert", "trend"}.issubset(easy_done.test_box.initial_state["output"])
 

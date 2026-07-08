@@ -76,12 +76,23 @@ class WidgetPermission(str, Enum):
     PASSIVE_WIDGET = "passive_widget"
 
 
-class RendererTarget(BaseModel):
+class ModuleRendererTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["module"] = "module"
     target: Literal["react"] = "react"
     module: str
     export_name: str
+
+
+class BlueprintRendererTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["blueprint"]
+    blueprint: Literal["view.blueprint.json"]
+
+
+RendererTarget = Annotated[ModuleRendererTarget | BlueprintRendererTarget, Field(discriminator="kind")]
 
 
 class ServiceTarget(BaseModel):
@@ -110,6 +121,16 @@ class WidgetManifest(BaseModel):
     service: ServiceTarget
     config_schema: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def default_renderer_kind(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            renderer = data.get("renderer")
+            if isinstance(renderer, dict) and "kind" not in renderer:
+                data = dict(data)
+                data["renderer"] = {"kind": "module", **renderer}
+        return data
+
     @field_validator("id")
     @classmethod
     def validate_id(cls, value: str) -> str:
@@ -125,10 +146,11 @@ class WidgetManifest(BaseModel):
         if any(size.value not in ALLOWED_TILE_SIZES for size in self.allowed_sizes):
             raise ValueError("manifest includes unsupported tile sizes")
         self.service.module = widget_service_module(self.id)
-        if self.renderer.module != f"@widgets/{self.id}/renderer":
-            raise ValueError("renderer.module must point at the widget package renderer entry")
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.renderer.export_name):
-            raise ValueError("renderer.export_name must be a valid identifier")
+        if isinstance(self.renderer, ModuleRendererTarget):
+            if self.renderer.module != f"@widgets/{self.id}/renderer":
+                raise ValueError("renderer.module must point at the widget package renderer entry")
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", self.renderer.export_name):
+                raise ValueError("renderer.export_name must be a valid identifier")
         return self
 
 
@@ -178,6 +200,7 @@ class WidgetInstanceRead(BaseModel):
     service_uptime_seconds: int = 0
     restart_count: int = 0
     consecutive_failures: int = 0
+    blueprint: dict[str, Any] | None = None
 
 
 class WidgetPluginRead(BaseModel):
@@ -219,6 +242,7 @@ class BoardPatchRead(BaseModel):
 class WidgetRegistryEntry(BaseModel):
     manifest: WidgetManifest
     config_schema: dict[str, Any]
+    blueprint: dict[str, Any] | None = None
     plugin: WidgetPluginRead | None = None
 
 
@@ -688,7 +712,8 @@ class WidgetPackagePayload(BaseModel):
     manifest: dict[str, Any]
     config_schema: dict[str, Any]
     backend_source: str
-    renderer_source: str
+    renderer_source: str | None = None
+    blueprint: dict[str, Any] | None = None
 
 
 class WidgetPluginInstallRequest(BaseModel):

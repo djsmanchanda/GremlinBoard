@@ -218,7 +218,13 @@ def write_widget_package(widgets_dir: Path, widget_id: str, package: dict[str, A
         encoding="utf-8",
     )
     (widget_root / "backend.py").write_text(package["backend_source"], encoding="utf-8")
-    (widget_root / "renderer.tsx").write_text(package["renderer_source"], encoding="utf-8")
+    if package.get("blueprint") is not None:
+        (widget_root / "view.blueprint.json").write_text(
+            json.dumps(package["blueprint"], indent=2) + "\n",
+            encoding="utf-8",
+        )
+    else:
+        (widget_root / "renderer.tsx").write_text(str(package["renderer_source"]), encoding="utf-8")
     (widget_root / "__init__.py").write_text('"""Test widget package."""\n', encoding="utf-8")
 
 

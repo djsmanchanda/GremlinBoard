@@ -1136,8 +1136,17 @@ def _build_package_diff_preview(
             _normalize_json((baseline or {}).get("config_schema")),
         ),
         ("backend.py", candidate["backend_source"], ((baseline or {}).get("backend_source") or "")),
-        ("renderer.tsx", candidate["renderer_source"], ((baseline or {}).get("renderer_source") or "")),
     ]
+    if candidate.get("blueprint") is not None:
+        files.append(
+            (
+                "view.blueprint.json",
+                _normalize_json(candidate["blueprint"]),
+                _normalize_json((baseline or {}).get("blueprint")),
+            )
+        )
+    else:
+        files.append(("renderer.tsx", candidate.get("renderer_source") or "", ((baseline or {}).get("renderer_source") or "")))
     diff_items: list[GenerationArtifactDiffRead] = []
     for path, new_text, old_text in files:
         diff_lines = list(

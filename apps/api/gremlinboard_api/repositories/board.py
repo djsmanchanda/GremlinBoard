@@ -212,7 +212,7 @@ class BoardRepository:
         return list(result.scalars())
 
 
-def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
+def serialize_widget(record: WidgetInstanceRecord, *, blueprint: dict[str, Any] | None = None) -> WidgetInstanceRead:
     return WidgetInstanceRead(
         id=record.id,
         board_id=record.board_id,
@@ -233,15 +233,22 @@ def serialize_widget(record: WidgetInstanceRecord) -> WidgetInstanceRead:
         service_uptime_seconds=record.service_uptime_seconds,
         restart_count=record.restart_count,
         consecutive_failures=record.consecutive_failures,
+        blueprint=blueprint,
     )
 
 
-def serialize_board(board: BoardRecord, widgets: list[WidgetInstanceRecord]) -> BoardRead:
+def serialize_board(
+    board: BoardRecord,
+    widgets: list[WidgetInstanceRecord],
+    *,
+    blueprints_by_widget_id: dict[str, dict[str, Any]] | None = None,
+) -> BoardRead:
+    blueprints = blueprints_by_widget_id or {}
     return BoardRead(
         id=board.id,
         name=board.name,
         owner_user_id=board.owner_user_id,
-        widgets=[serialize_widget(widget) for widget in widgets],
+        widgets=[serialize_widget(widget, blueprint=blueprints.get(widget.widget_id)) for widget in widgets],
     )
 
 

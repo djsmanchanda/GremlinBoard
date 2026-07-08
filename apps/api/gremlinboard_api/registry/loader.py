@@ -7,7 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from gremlinboard_api.schemas.contracts import WidgetManifest, WidgetRegistryEntry
+from gremlinboard_api.schemas.blueprint import collect_binding_paths, validate_blueprint
+from gremlinboard_api.schemas.contracts import (
+    BlueprintRendererTarget,
+    ModuleRendererTarget,
+    WidgetManifest,
+    WidgetRegistryEntry,
+)
 from gremlinboard_api.specs.widget_ids import sanitize_widget_id, widget_service_module
 
 DANGEROUS_BACKEND_IMPORTS = {"os", "pathlib", "socket", "subprocess", "sys"}
@@ -36,6 +42,7 @@ class LoadedWidget:
     manifest: WidgetManifest
     root_dir: Path
     config_schema: dict[str, Any]
+    blueprint: dict[str, Any] | None = None
 
 
 class WidgetRegistry:
@@ -49,30 +56,32 @@ class WidgetRegistry:
             widget_root, raw_manifest = self._normalize_widget_package(manifest_path.parent)
             manifest = WidgetManifest.model_validate(raw_manifest)
             schema_path = widget_root / raw_manifest["config_schema"]
-            renderer_path = widget_root / "renderer.tsx"
             backend_path = widget_root / "backend.py"
 
             if not schema_path.exists():
                 raise FileNotFoundError(f"missing config schema for widget {manifest.id}")
-            if not renderer_path.exists():
-                raise FileNotFoundError(f"missing renderer.tsx for widget {manifest.id}")
             if not backend_path.exists():
                 raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
-            renderer_source = renderer_path.read_text(encoding="utf-8")
             backend_source = backend_path.read_text(encoding="utf-8")
-            validate_widget_package_source(
-                backend_source=backend_source,
-                renderer_source=renderer_source,
-                widget_id=manifest.id,
-            )
-            if not _renderer_exports_symbol(renderer_source, manifest.renderer.export_name):
-                raise ValueError(f"renderer.tsx for widget {manifest.id} must export '{manifest.renderer.export_name}'")
+            _reject_dangerous_backend_imports(backend_source, manifest.id)
+            blueprint: dict[str, Any] | None = None
+            if isinstance(manifest.renderer, BlueprintRendererTarget):
+                blueprint = _load_widget_blueprint(widget_root, manifest_id=manifest.id)
+            elif isinstance(manifest.renderer, ModuleRendererTarget):
+                renderer_path = widget_root / "renderer.tsx"
+                if not renderer_path.exists():
+                    raise FileNotFoundError(f"missing renderer.tsx for widget {manifest.id}")
+                renderer_source = renderer_path.read_text(encoding="utf-8")
+                _reject_dangerous_renderer_imports(renderer_source, manifest.id)
+                if not _renderer_exports_symbol(renderer_source, manifest.renderer.export_name):
+                    raise ValueError(f"renderer.tsx for widget {manifest.id} must export '{manifest.renderer.export_name}'")
 
             config_schema = json.loads(schema_path.read_text(encoding="utf-8"))
             entries[manifest.id] = LoadedWidget(
                 manifest=manifest,
                 root_dir=widget_root,
                 config_schema=config_schema,
+                blueprint=blueprint,
             )
 
         self._entries = entries
@@ -99,9 +108,16 @@ class WidgetRegistry:
 
     def as_response(self) -> dict[str, WidgetRegistryEntry]:
         return {
-            widget_id: WidgetRegistryEntry(manifest=entry.manifest, config_schema=entry.config_schema)
+            widget_id: WidgetRegistryEntry(
+                manifest=entry.manifest,
+                config_schema=entry.config_schema,
+                blueprint=entry.blueprint,
+            )
             for widget_id, entry in self._entries.items()
         }
+
+    def blueprints_by_widget_id(self) -> dict[str, dict[str, Any]]:
+        return {widget_id: entry.blueprint for widget_id, entry in self._entries.items() if entry.blueprint is not None}
 
     @property
     def size(self) -> int:
@@ -141,15 +157,37 @@ def validate_widget_manifest_paths(
     renderer = raw_manifest.get("renderer")
     if not isinstance(renderer, dict):
         raise ValueError(f"widget {canonical_id} manifest must include a renderer target")
-    expected_renderer_module = f"@widgets/{canonical_id}/renderer"
-    if renderer.get("module") != expected_renderer_module:
-        raise ValueError(f"renderer.module for widget {canonical_id} must be '{expected_renderer_module}'")
+    renderer_kind = renderer.get("kind", "module")
+    if renderer_kind == "module":
+        expected_renderer_module = f"@widgets/{canonical_id}/renderer"
+        if renderer.get("module") != expected_renderer_module:
+            raise ValueError(f"renderer.module for widget {canonical_id} must be '{expected_renderer_module}'")
+    elif renderer_kind == "blueprint":
+        if renderer.get("blueprint") != "view.blueprint.json":
+            raise ValueError(f"renderer.blueprint for widget {canonical_id} must be 'view.blueprint.json'")
+    else:
+        raise ValueError(f"renderer.kind for widget {canonical_id} must be 'module' or 'blueprint'")
 
     if raw_manifest.get("config_schema") != "config.schema.json":
         raise ValueError(f"config_schema for widget {canonical_id} must be 'config.schema.json'")
 
     return canonical_id
 
+
+
+def _load_widget_blueprint(widget_root: Path, *, manifest_id: str) -> dict[str, Any]:
+    blueprint_path = widget_root / "view.blueprint.json"
+    if not blueprint_path.exists():
+        raise FileNotFoundError(f"missing view.blueprint.json for widget {manifest_id}")
+    try:
+        raw_blueprint = json.loads(blueprint_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"view.blueprint.json for widget {manifest_id} must be valid JSON") from exc
+    blueprint = validate_blueprint(raw_blueprint)
+    if blueprint.widget_id != manifest_id:
+        raise ValueError(f"view.blueprint.json widget_id must match manifest id '{manifest_id}'")
+    collect_binding_paths(blueprint)
+    return blueprint.model_dump(mode="json", exclude_none=True)
 
 def validate_widget_package_source(*, backend_source: str, renderer_source: str, widget_id: str) -> None:
     _reject_dangerous_backend_imports(backend_source, widget_id)

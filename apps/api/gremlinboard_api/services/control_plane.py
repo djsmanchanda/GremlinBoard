@@ -358,7 +358,7 @@ class ControlPlaneService:
                 raise ControlPlaneError("requested size is not supported by this widget")
             updated = await repository.update_widget(record, size=payload.size)
         await self.runtime_manager.publish_board_snapshot()
-        return serialize_widget(updated)
+        return serialize_widget(updated, blueprint=self.registry.get(updated.widget_id).blueprint)
 
     async def _widgets_configure(self, params: BaseModel, context: ControlExecutionContext) -> Any:
         payload = WidgetConfigUpdate.model_validate(params.model_dump(exclude={"widget_instance_id"}))
@@ -381,7 +381,7 @@ class ControlPlaneService:
                 config=normalized_config,
             )
         await self.runtime_manager.update_widget_config(widget_instance_id, normalized_config)
-        return serialize_widget(updated)
+        return serialize_widget(updated, blueprint=self.registry.get(updated.widget_id).blueprint)
 
     async def _board_snapshot(self, params: BaseModel, context: ControlExecutionContext) -> Any:
         return await self._read_board()
@@ -424,7 +424,7 @@ class ControlPlaneService:
             repository = BoardRepository(session)
             board = await repository.ensure_board(settings.default_board_id, "GremlinBoard")
             widgets = await repository.list_widgets(settings.default_board_id)
-            return serialize_board(board, widgets)
+            return serialize_board(board, widgets, blueprints_by_widget_id=self.registry.blueprints_by_widget_id())
 
     async def _widget_payload(self, widget_instance_id: str) -> Any:
         async with self.session_factory() as session:
@@ -432,7 +432,7 @@ class ControlPlaneService:
             record = await repository.get_widget(widget_instance_id)
             if record is None:
                 raise ControlPlaneError("widget instance not found")
-            return serialize_widget(record)
+            return serialize_widget(record, blueprint=self.registry.get(record.widget_id).blueprint)
 
     async def _request_approval(
         self,

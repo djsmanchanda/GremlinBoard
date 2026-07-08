@@ -25,11 +25,15 @@ from gremlinboard_api.validation.config_schema import ConfigValidationError, nor
 router = APIRouter(prefix="/board", tags=["board"])
 
 
-async def _read_board(session: AsyncSession) -> BoardRead:
+async def _read_board(session: AsyncSession, connection: Request | WebSocket) -> BoardRead:
     repository = BoardRepository(session)
     board = await repository.ensure_board(settings.default_board_id, "GremlinBoard")
     widgets = await repository.list_widgets(settings.default_board_id)
-    return serialize_board(board, widgets)
+    return serialize_board(
+        board,
+        widgets,
+        blueprints_by_widget_id=connection.app.state.registry.blueprints_by_widget_id(),
+    )
 
 
 @router.get("", response_model=BoardRead)
@@ -40,7 +44,7 @@ async def get_board(
     presence = getattr(request.app.state, "presence_manager", None)
     if presence is not None:
         await presence.record_activity(PresenceSource.BOARD_FETCH)
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.post("/widgets", response_model=WidgetInstanceRead)
@@ -89,7 +93,7 @@ async def add_widget(
     fresh = await repository.get_widget(record.id)
     if fresh is None:
         raise HTTPException(status_code=500, detail="widget was created but could not be reloaded")
-    return serialize_widget(fresh)
+    return serialize_widget(fresh, blueprint=registry.get(fresh.widget_id).blueprint)
 
 
 @router.patch("/widgets/reorder", response_model=BoardRead)
@@ -101,7 +105,7 @@ async def reorder_widgets(
     repository = BoardRepository(session)
     await repository.reorder_widgets(settings.default_board_id, payload.ordered_ids)
     await request.app.state.runtime_manager.publish_board_snapshot()
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.patch("/widgets/{widget_instance_id}/size", response_model=WidgetInstanceRead)
@@ -122,7 +126,10 @@ async def resize_widget(
 
     updated = await repository.update_widget(record, size=payload.size)
     await request.app.state.runtime_manager.publish_board_snapshot()
-    return serialize_widget(updated)
+    return serialize_widget(
+        updated,
+        blueprint=request.app.state.registry.get(updated.widget_id).blueprint,
+    )
 
 
 @router.patch("/widgets/{widget_instance_id}", response_model=WidgetInstanceRead)
@@ -150,7 +157,10 @@ async def update_widget(
         config=normalized_config,
     )
     await request.app.state.runtime_manager.update_widget_config(widget_instance_id, normalized_config)
-    return serialize_widget(updated)
+    return serialize_widget(
+        updated,
+        blueprint=request.app.state.registry.get(updated.widget_id).blueprint,
+    )
 
 
 @router.post("/widgets/{widget_instance_id}/start", response_model=BoardRead)
@@ -160,7 +170,7 @@ async def start_widget(
     session: AsyncSession = Depends(get_session),
 ) -> BoardRead:
     await request.app.state.runtime_manager.start_widget(widget_instance_id)
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.post("/widgets/{widget_instance_id}/stop", response_model=BoardRead)
@@ -170,7 +180,7 @@ async def stop_widget(
     session: AsyncSession = Depends(get_session),
 ) -> BoardRead:
     await request.app.state.runtime_manager.stop_widget(widget_instance_id)
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.post("/widgets/{widget_instance_id}/refresh", response_model=BoardRead)
@@ -180,7 +190,7 @@ async def refresh_widget(
     session: AsyncSession = Depends(get_session),
 ) -> BoardRead:
     await request.app.state.runtime_manager.refresh_widget(widget_instance_id)
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.delete("/widgets/{widget_instance_id}", response_model=BoardRead)
@@ -190,7 +200,7 @@ async def remove_widget(
     session: AsyncSession = Depends(get_session),
 ) -> BoardRead:
     await request.app.state.runtime_manager.stop_widget(widget_instance_id, removed=True)
-    return await _read_board(session)
+    return await _read_board(session, request)
 
 
 @router.websocket("/stream")
@@ -214,7 +224,7 @@ async def board_stream(websocket: WebSocket) -> None:
                 event_bus.record_replay_miss(reason)
             event_bus.record_snapshot_fallback()
             async with websocket.app.state.session_factory() as session:
-                snapshot = await _read_board(session)
+                snapshot = await _read_board(session, websocket)
                 runtime = getattr(websocket.app.state, "runtime_manager", None)
                 if runtime is not None:
                     runtime.note_board_snapshot(snapshot)
@@ -247,7 +257,7 @@ async def board_stream(websocket: WebSocket) -> None:
             if event.event_type == "stream.reset":
                 event_bus.record_snapshot_fallback()
                 async with websocket.app.state.session_factory() as session:
-                    snapshot = await _read_board(session)
+                    snapshot = await _read_board(session, websocket)
                     runtime = getattr(websocket.app.state, "runtime_manager", None)
                     if runtime is not None:
                         runtime.note_board_snapshot(snapshot)
