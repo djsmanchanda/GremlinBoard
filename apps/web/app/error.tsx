@@ -17,7 +17,7 @@ export default function Error({
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4 py-8">
-      <div className="glass-panel accent-border w-full max-w-2xl rounded-[34px] p-6 md:p-7">
+      <div className="w-full max-w-2xl rounded-[34px] border border-white/10 bg-[#090b0f] p-6 md:p-7">
         <p className="text-xs uppercase tracking-[0.24em] text-rose-200/80">Route Error</p>
         <h1 className="mt-3 text-3xl font-semibold text-white">This page failed to load.</h1>
         <p className="mt-3 text-sm leading-6 text-rose-50/90">

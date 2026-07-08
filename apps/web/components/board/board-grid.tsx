@@ -351,7 +351,7 @@ export function BoardGrid({
   }, [board.widgets, cellWidth, committedLayout.placements, onResize, resizeState, rowHeight]);
 
   return (
-    <div className="glass-panel-strong premium-ring relative overflow-x-auto rounded-none p-3">
+    <div className="relative overflow-x-auto rounded-tile border border-edge bg-surface-inset p-3">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Monitoring board</p>
@@ -362,7 +362,7 @@ export function BoardGrid({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-          <div className="grid grid-cols-2 overflow-hidden rounded border border-white/10 bg-white/[0.04] p-0.5">
+          <div className="grid grid-cols-2 overflow-hidden rounded-control border border-edge bg-surface-raised p-0.5">
             <button
               type="button"
               aria-pressed={!isEditMode}
@@ -384,7 +384,7 @@ export function BoardGrid({
               Edit
             </button>
           </div>
-          <div className="grid grid-cols-3 overflow-hidden rounded border border-white/10 bg-white/[0.04] p-0.5">
+          <div className="grid grid-cols-3 overflow-hidden rounded-control border border-edge bg-surface-raised p-0.5">
             {(Object.keys(BOARD_DENSITY_PRESETS) as BoardDensityPreset[]).map((density) => (
               <button
                 key={density}
@@ -406,29 +406,29 @@ export function BoardGrid({
             type="button"
             aria-pressed={viewSettings.showStats}
             onClick={() => updateViewSettings({ showStats: !viewSettings.showStats })}
-            className={`rounded border px-3 py-1.5 transition ${
+            className={`rounded-control border px-3 py-1.5 transition ${
               viewSettings.showStats
                 ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-50"
-                : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
+                : "border-edge bg-surface-raised text-slate-300 hover:bg-white/[0.08]"
             }`}
           >
             Stats
           </button>
-          <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded-panel border border-edge bg-surface-raised px-3 py-1.5">
             {displayWidgets.length} widgets
           </span>
-          <span className="rounded border border-white/10 bg-white/[0.04] px-3 py-1.5">
+          <span className="rounded-panel border border-edge bg-surface-raised px-3 py-1.5">
             {columnCount} cols
           </span>
           <AlertSummaryBadge summary={alertSummary} />
-          <span className="rounded border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+          <span className="rounded-panel border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
             {isEditMode ? (selectedId ? `Selected ${selectedId}` : "No tile selected") : "Layout locked"}
           </span>
         </div>
       </div>
       {alertSummary.highest ? (
-        <div className="mb-3 grid gap-2 border border-white/10 bg-[#07090d] px-3 py-2 text-xs text-slate-300 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-          <span className={`w-fit rounded border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertToneClass(alertSummary.highest.level)}`}>
+        <div className="mb-3 grid gap-2 rounded-panel border border-edge bg-surface-inset px-3 py-2 text-xs text-slate-300 lg:grid-cols-[auto_1fr_auto] lg:items-center">
+          <span className={`w-fit rounded-panel border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertToneClass(alertSummary.highest.level)}`}>
             Priority {alertSummary.highest.level}
           </span>
           <span className="min-w-0 truncate">
@@ -441,7 +441,7 @@ export function BoardGrid({
       ) : null}
       <div
         ref={containerRef}
-        className="relative min-w-[760px] overflow-hidden rounded-none border border-white/8 bg-[#06080b]"
+        className="relative min-w-[760px] overflow-hidden rounded-tile border border-edge bg-surface-inset"
         style={{ height: boardHeight, minWidth: densityDefinition.gridMinWidthPx }}
       >
         {Array.from({ length: visibleRows }).map((_, row) =>
@@ -452,7 +452,7 @@ export function BoardGrid({
             return (
               <div
                 key={key}
-                className={`absolute rounded-none border ${
+                className={`absolute rounded-tile border ${
                   previewCellKeys.has(key)
                     ? "border-cyan-300/35 bg-cyan-300/12 shadow-[0_0_0_1px_rgba(103,232,249,0.14)]"
                     : occupiedCellKeys.has(key)
@@ -696,7 +696,7 @@ function AlertSummaryBadge({ summary }: { summary: AlertSummary }) {
   const active = summary.critical + summary.alert + summary.completed;
   if (active === 0) {
     return (
-      <span className="rounded border border-emerald-300/15 bg-emerald-300/8 px-3 py-1.5 text-emerald-100">
+      <span className="rounded-panel border border-emerald-300/15 bg-emerald-300/8 px-3 py-1.5 text-emerald-100">
         Alerts clear
       </span>
     );
@@ -704,7 +704,7 @@ function AlertSummaryBadge({ summary }: { summary: AlertSummary }) {
 
   return (
     <span
-      className={`rounded border px-3 py-1.5 ${
+      className={`rounded-panel border px-3 py-1.5 ${
         summary.critical > 0
           ? alertToneClass("critical")
           : summary.alert > 0
@@ -727,7 +727,7 @@ function alertToneClass(level: WidgetAlert["level"]) {
   if (level === "completed") {
     return "border-emerald-300/20 bg-emerald-300/8 text-emerald-50";
   }
-  return "border-white/10 bg-white/[0.04] text-slate-300";
+  return "border-edge bg-surface-raised text-slate-300";
 }
 
 function WidgetInspector({
@@ -755,8 +755,8 @@ function WidgetInspector({
   const running = widget.lifecycle_state === "running" || widget.lifecycle_state === "created";
 
   return (
-    <aside className="fixed bottom-5 right-5 top-5 z-50 flex w-[390px] flex-col overflow-hidden border border-white/12 bg-[#080b10] shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
-      <div className="border-b border-white/10 px-4 py-3">
+    <aside className="fixed bottom-5 right-5 top-5 z-50 flex w-[390px] flex-col overflow-hidden rounded-panel border border-edge bg-surface-raised shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
+      <div className="border-b border-edge px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Side inspector</p>
@@ -770,7 +770,7 @@ function WidgetInspector({
             aria-label="Close inspector"
             title="Close"
             onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center border border-white/10 bg-white/[0.04] text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-control border border-edge bg-surface-raised text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
           >
             x
           </button>
@@ -779,7 +779,7 @@ function WidgetInspector({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <div
-          className={`border px-3 py-2.5 text-xs ${
+          className={`rounded-panel border px-3 py-2.5 text-xs ${
             alert.level === "critical"
               ? "border-rose-300/22 bg-rose-300/9 text-rose-50"
               : alert.level === "alert"
@@ -809,18 +809,18 @@ function WidgetInspector({
             providerStates={providerStates}
           />
         ) : (
-          <div className="mt-4 border border-rose-300/18 bg-rose-300/8 px-3 py-3 text-sm text-rose-50">
+          <div className="mt-4 rounded-panel border border-rose-300/18 bg-rose-300/8 px-3 py-3 text-sm text-rose-50">
             This tile cannot be configured because its manifest is not registered.
           </div>
         )}
       </div>
 
-      <div className={`grid gap-2 border-t border-white/10 p-3 ${canRefresh ? "grid-cols-3" : "grid-cols-2"}`}>
+      <div className={`grid gap-2 border-t border-edge p-3 ${canRefresh ? "grid-cols-3" : "grid-cols-2"}`}>
         {canRefresh ? (
           <button
             type="button"
             onClick={onRefresh}
-            className="border border-white/10 bg-white/[0.04] px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-200 transition hover:bg-white/[0.08]"
+            className="rounded-control border border-edge bg-surface-raised px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-200 transition hover:bg-white/[0.08]"
           >
             Refresh
           </button>
@@ -828,14 +828,14 @@ function WidgetInspector({
         <button
           type="button"
           onClick={onToggleRun}
-          className="border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
+          className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
         >
           {running ? "Pause" : "Start"}
         </button>
         <button
           type="button"
           onClick={onRemove}
-          className="border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+          className="rounded-control border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
         >
           Remove
         </button>
@@ -846,7 +846,7 @@ function WidgetInspector({
 
 function InspectorMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border border-white/10 bg-black/20 px-3 py-2">
+    <div className="rounded-panel border border-edge bg-surface-inset px-3 py-2">
       <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-1 truncate text-sm font-medium text-white">{value}</p>
     </div>
@@ -875,16 +875,16 @@ function UnavailableWidgetCard({
   return (
     <div
       className={[
-        "flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-none border bg-[#0a0d11] p-4",
+        "flex h-full min-h-0 flex-col justify-between overflow-hidden rounded-tile border bg-surface p-4",
         selected ? "border-rose-300/35" : "border-rose-300/18",
       ].join(" ")}
       onClick={onSelect}
     >
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="h-2 w-2 shrink-0 rounded-none bg-rose-300" />
+          <span className="h-2 w-2 shrink-0 rounded-tile bg-rose-300" />
           <span className="truncate text-[10px] uppercase tracking-[0.18em] text-rose-100/70">Unavailable</span>
-          <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+          <span className="rounded-panel border border-edge px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
             {size}
           </span>
         </div>
@@ -892,7 +892,7 @@ function UnavailableWidgetCard({
         <p className="mt-1 truncate text-xs text-slate-400">{widgetId}</p>
       </div>
 
-      <div className="my-4 rounded-[14px] border border-rose-300/18 bg-rose-300/8 px-3 py-2.5">
+      <div className="my-4 rounded-panel border border-rose-300/18 bg-rose-300/8 px-3 py-2.5">
         <p className="text-[10px] uppercase tracking-[0.18em] text-rose-100/80">Registry issue</p>
         <p className="mt-1 line-clamp-3 text-xs leading-5 text-rose-50">{error}</p>
       </div>
@@ -904,7 +904,7 @@ function UnavailableWidgetCard({
             event.stopPropagation();
             onRemove();
           }}
-          className="w-fit rounded border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+          className="w-fit rounded-control border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
         >
           Remove tile
         </button>

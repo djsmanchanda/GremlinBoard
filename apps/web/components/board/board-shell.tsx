@@ -366,16 +366,16 @@ export function BoardShell() {
   const boardCount = board?.widgets.length ?? 0;
 
   return (
-    <main className="min-h-screen bg-[#05070a] px-2.5 py-4 md:px-4 md:py-5 2xl:px-5">
+    <main className="min-h-screen bg-bg px-2.5 py-4 md:px-4 md:py-5 2xl:px-5">
       <section className="mx-auto w-full max-w-[2520px]">
-        <header className="mb-5 rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+        <header className="mb-5 rounded-panel border border-edge bg-surface p-5 md:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
                   Live board
                 </span>
-                <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
                   Strict grid
                 </span>
               </div>
@@ -388,20 +388,20 @@ export function BoardShell() {
             <div className="flex flex-wrap gap-2">
               <Link
                 href={"/system" as Route}
-                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
               >
                 System
               </Link>
               <Link
                 href="/studio"
-                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
               >
                 Spec studio
               </Link>
               <button
                 type="button"
                 onClick={() => setCommandOpen(true)}
-                className="rounded-[12px] border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
+                className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
               >
                 Add widget
               </button>
@@ -416,14 +416,14 @@ export function BoardShell() {
         </header>
 
         {error ? (
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-rose-300/18 bg-rose-300/8 px-4 py-3 text-sm text-rose-50">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-panel border border-rose-300/18 bg-rose-300/8 px-4 py-3 text-sm text-rose-50">
             <div>
               <p className="text-[10px] uppercase tracking-[0.18em] text-rose-200/80">Runtime warning</p>
               <p className="mt-1">{error}</p>
             </div>
             <Link
               href={"/system" as Route}
-              className="rounded-[10px] border border-white/10 bg-white/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white transition hover:bg-white/15"
+              className="rounded-control border border-edge bg-white/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-white transition hover:bg-white/15"
             >
               Open system panel
             </Link>
@@ -431,7 +431,7 @@ export function BoardShell() {
         ) : null}
 
         {loading || !board ? (
-          <div className="rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+          <div className="rounded-panel border border-edge bg-surface p-5 md:p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Board boot</p>
@@ -448,13 +448,13 @@ export function BoardShell() {
                 <button
                   type="button"
                   onClick={() => window.location.reload()}
-                  className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                  className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
                 >
                   Retry
                 </button>
                 <Link
                   href={"/system" as Route}
-                  className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                  className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
                 >
                   System panel
                 </Link>
@@ -463,16 +463,16 @@ export function BoardShell() {
 
             <div className="mt-6 grid gap-3 md:grid-cols-3">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="shimmer rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="h-3 w-20 rounded bg-white/10" />
-                  <div className="mt-4 h-6 w-2/3 rounded bg-white/10" />
-                  <div className="mt-5 h-28 rounded-[14px] bg-white/[0.05]" />
+                <div key={index} className="shimmer rounded-panel border border-edge bg-surface-raised p-4">
+                  <div className="h-3 w-20 rounded-panel bg-white/10" />
+                  <div className="mt-4 h-6 w-2/3 rounded-panel bg-white/10" />
+                  <div className="mt-5 h-28 rounded-panel bg-white/[0.05]" />
                 </div>
               ))}
             </div>
           </div>
         ) : board.widgets.length === 0 ? (
-          <div className="rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+          <div className="rounded-panel border border-edge bg-surface p-5 md:p-6">
             <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
               <div>
                 <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Empty board</p>
@@ -484,20 +484,20 @@ export function BoardShell() {
                   <button
                     type="button"
                     onClick={() => setCommandOpen(true)}
-                    className="rounded-[12px] border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
+                    className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
                   >
                     Open command box
                   </button>
                   <Link
                     href="/studio"
-                    className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                    className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
                   >
                     Open Spec Studio
                   </Link>
                 </div>
               </div>
 
-              <div className="rounded-[18px] border border-white/10 bg-[#07090d] p-4">
+              <div className="rounded-panel border border-edge bg-surface-inset p-4">
                 <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Onboarding</p>
                 <div className="mt-4 space-y-3">
                   <StepCard index="01" title="Add a core widget" body="Use the command box to place a registered tile on the grid." />
@@ -522,7 +522,7 @@ export function BoardShell() {
       </section>
 
       {removedWidget ? (
-        <div className="fixed bottom-4 left-1/2 z-40 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-[16px] border border-white/10 bg-[#0b0f14] px-4 py-3 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
+        <div className="fixed bottom-4 left-1/2 z-40 w-[min(420px,calc(100vw-2rem))] -translate-x-1/2 rounded-panel border border-edge bg-surface-raised px-4 py-3 shadow-[0_24px_60px_rgba(2,6,23,0.45)]">
           <div className="flex items-center justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm font-medium text-white">{removedWidget.preset.title} removed</p>
@@ -532,14 +532,14 @@ export function BoardShell() {
               <button
                 type="button"
                 onClick={handleUndoRemove}
-                className="rounded-[10px] border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
+                className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
               >
                 Undo
               </button>
               <button
                 type="button"
                 onClick={() => setRemovedWidget(null)}
-                className="rounded-[10px] border border-white/10 bg-white/[0.04] px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-300 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-300 transition hover:bg-white/[0.08]"
               >
                 Dismiss
               </button>
@@ -560,7 +560,7 @@ export function BoardShell() {
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+    <div className="rounded-panel border border-edge bg-surface-inset px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-medium text-white">{value}</p>
       <p className="mt-1 text-xs text-slate-400">{hint}</p>
@@ -570,7 +570,7 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
 
 function StepCard({ index, title, body }: { index: string; title: string; body: string }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-4">
+    <div className="rounded-panel border border-edge bg-surface-raised p-4">
       <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{index}</p>
       <p className="mt-2 text-sm font-medium text-white">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-400">{body}</p>

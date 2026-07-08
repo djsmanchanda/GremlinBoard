@@ -191,7 +191,7 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="glass-panel-strong accent-border w-full max-w-3xl rounded-[14px] border border-white/10 bg-[#080c10] p-4 shadow-2xl sm:p-5"
+        className="w-full max-w-3xl rounded-panel border border-edge bg-surface-raised p-4 shadow-2xl sm:p-5"
       >
         <div className="flex items-center justify-between gap-4">
           <div>
@@ -206,7 +206,7 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
           <button
             type="button"
             onClick={onClose}
-            className="rounded-[8px] border border-white/10 px-3 py-2 text-sm text-slate-300 transition duration-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300/70"
+            className="rounded-control border border-edge px-3 py-2 text-sm text-slate-300 transition duration-200 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300/70"
           >
             Close
           </button>
@@ -224,12 +224,12 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
             placeholder="Search by widget, category, provider, source..."
             autoComplete="off"
             aria-controls={listId}
-            className="w-full rounded-[8px] border border-cyan-300/20 bg-[#05070a] px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
+            className="w-full rounded-control border border-cyan-300/20 bg-bg px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500 transition focus:border-cyan-300/60 focus:ring-2 focus:ring-cyan-300/20"
           />
         </div>
         <div id={listId} className="mt-4 grid max-h-[min(58vh,560px)] gap-2 overflow-y-auto pr-1">
           {presets.length === 0 ? (
-            <div className="rounded-[10px] border border-dashed border-white/12 bg-white/[0.03] p-6 text-center">
+            <div className="rounded-panel border border-dashed border-edge bg-surface-raised p-6 text-center">
               <p className="text-sm font-medium text-white">No preset matched that search.</p>
               <p className="mt-2 text-sm text-slate-400">Try widget ids like news, sports, or countdown.</p>
             </div>
@@ -240,7 +240,7 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
                 type="button"
                 onClick={() => handleSelect(preset)}
                 className={cn(
-                  "group rounded-[10px] border border-white/10 bg-white/[0.035] p-4 text-left transition duration-200",
+                  "group rounded-control border border-edge bg-surface-raised p-4 text-left transition duration-200",
                   "hover:border-cyan-300/40 hover:bg-cyan-300/10 focus-visible:border-cyan-300/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300/60",
                 )}
               >
@@ -248,10 +248,10 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="text-sm font-medium text-white">{preset.label}</p>
-                      <span className="rounded border border-cyan-300/20 bg-cyan-300/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
+                      <span className="rounded-panel border border-cyan-300/20 bg-cyan-300/8 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-cyan-100">
                         {preset.category}
                       </span>
-                      <span className="rounded border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-slate-400">
+                      <span className="rounded-panel border border-edge px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-slate-400">
                         {preset.size} tile
                       </span>
                     </div>
@@ -280,7 +280,7 @@ export function CommandPalette({ open, registry, onClose, onSelect }: CommandPal
 
 function PaletteMetric({ label, value }: { label: string; value: string }) {
   return (
-    <span className="flex min-w-0 items-center justify-between gap-3 rounded-[8px] border border-white/8 bg-black/20 px-2.5 py-1.5">
+    <span className="flex min-w-0 items-center justify-between gap-3 rounded-panel border border-edge bg-surface-inset px-2.5 py-1.5">
       <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</span>
       <span className="truncate text-slate-200">{value}</span>
     </span>

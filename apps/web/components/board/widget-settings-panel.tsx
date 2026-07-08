@@ -143,7 +143,7 @@ export function WidgetSettingsPanel({
   }
 
   return (
-    <details className="mt-4 overflow-hidden rounded-[24px] border border-white/10 bg-white/[0.03]">
+    <details className="mt-4 overflow-hidden rounded-panel border border-edge bg-surface-raised">
       <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/[0.04]">
         <span className="flex items-center justify-between gap-3">
           <span>Source settings</span>
@@ -152,13 +152,13 @@ export function WidgetSettingsPanel({
           </span>
         </span>
       </summary>
-      <div className="space-y-4 border-t border-white/10 px-4 py-4">
+      <div className="space-y-4 border-t border-edge px-4 py-4">
         {providerStates.length > 0 ? (
           <div className="grid gap-2">
             {providerStates.map((provider) => (
               <div
                 key={`${provider.provider_id}-${provider.label}`}
-                className="rounded-[20px] border border-white/10 bg-black/20 px-3 py-2.5 text-xs text-slate-300"
+                className="rounded-panel border border-edge bg-surface-inset px-3 py-2.5 text-xs text-slate-300"
               >
                 <div className="flex items-center justify-between gap-3">
                   <span>{provider.label ?? provider.provider_id ?? "provider"}</span>
@@ -205,7 +205,7 @@ export function WidgetSettingsPanel({
                   </div>
                   <div className="space-y-2">
                     {objectValues.map((item, index) => (
-                      <div key={`${key}-${index}`} className="border border-white/10 bg-black/16 p-2">
+                      <div key={`${key}-${index}`} className="rounded-panel border border-edge bg-surface-inset p-2">
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <span className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
                             {label} {index + 1}
@@ -218,7 +218,7 @@ export function WidgetSettingsPanel({
                                 [key]: objectValues.filter((_, itemIndex) => itemIndex !== index),
                               }))
                             }
-                            className="flex h-6 w-6 items-center justify-center border border-white/10 bg-white/[0.04] text-xs text-slate-300 transition hover:border-rose-300/25 hover:bg-rose-300/12 hover:text-rose-100"
+                            className="flex h-6 w-6 items-center justify-center rounded-control border border-edge bg-surface-raised text-xs text-slate-300 transition hover:border-rose-300/25 hover:bg-rose-300/12 hover:text-rose-100"
                           >
                             x
                           </button>
@@ -263,7 +263,7 @@ export function WidgetSettingsPanel({
                                     }
                                     updateItem(event.target.value);
                                   }}
-                                  className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                                  className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                                 />
                               </label>
                             );
@@ -281,7 +281,7 @@ export function WidgetSettingsPanel({
                         [key]: [...objectValues, defaultObjectItem(itemProperties)],
                       }))
                     }
-                    className="border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-45"
+                    className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-45"
                   >
                     Add {label.toLowerCase()}
                   </button>
@@ -307,10 +307,10 @@ export function WidgetSettingsPanel({
                                 : [...values, option],
                             }))
                           }
-                          className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                          className={`rounded-control border px-3 py-1.5 text-xs transition ${
                             selected
                               ? "border-cyan-300/30 bg-cyan-300/15 text-cyan-50"
-                              : "border-white/10 bg-white/5 text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
+                              : "border-edge bg-surface-raised text-slate-300 hover:-translate-y-0.5 hover:bg-white/10"
                           }`}
                         >
                           {option}
@@ -337,7 +337,7 @@ export function WidgetSettingsPanel({
                     }))
                   }
                   rows={4}
-                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                  className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 />
               </label>
             );
@@ -350,7 +350,7 @@ export function WidgetSettingsPanel({
                 <select
                   value={typeof currentValue === "string" ? currentValue : String(property.default ?? property.enum[0])}
                   onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                  className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 >
                   {property.enum.map((option) => (
                     <option key={option} value={option}>
@@ -377,7 +377,7 @@ export function WidgetSettingsPanel({
                       [key]: Number(event.target.value),
                     }))
                   }
-                  className="rounded-[20px] border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                  className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 />
               </label>
             );
@@ -396,7 +396,7 @@ export function WidgetSettingsPanel({
                       [key]: fromDatetimeLocalValue(event.target.value),
                     }))
                   }
-                  className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                  className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
                 />
               </label>
             );
@@ -409,7 +409,7 @@ export function WidgetSettingsPanel({
                 type="text"
                 value={typeof currentValue === "string" ? currentValue : String(property.default ?? "")}
                 onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))}
-                className="rounded-none border border-white/10 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
+                className="rounded-control border border-edge bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/35"
               />
             </label>
           );
@@ -420,14 +420,14 @@ export function WidgetSettingsPanel({
             type="button"
             onClick={() => void handleSave()}
             disabled={saving}
-            className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs text-cyan-100 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:opacity-60"
+            className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs text-cyan-100 transition duration-200 hover:-translate-y-0.5 hover:bg-cyan-300/20 disabled:opacity-60"
           >
             {saving ? "Saving..." : "Apply settings"}
           </button>
           <button
             type="button"
             onClick={() => setDraft(value)}
-            className="rounded-full border border-white/10 px-4 py-2 text-xs text-slate-300 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
+            className="rounded-control border border-edge px-4 py-2 text-xs text-slate-300 transition duration-200 hover:-translate-y-0.5 hover:bg-white/10"
           >
             Reset
           </button>

@@ -109,16 +109,16 @@ export function WidgetCard({
   return (
     <div
       className={[
-        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-none border bg-[#0a0d11] transition-[border-color,background-color] duration-150",
+        "group relative flex h-full min-h-0 flex-col overflow-hidden rounded-tile border bg-surface transition-[border-color,background-color] duration-150",
         paddingClass,
         alertFrameClass(alert.level),
         ghost
-          ? "border-white/18 bg-[#0d1116] shadow-[0_18px_50px_rgba(2,6,23,0.45)]"
+          ? "border-edge-strong bg-surface-raised shadow-[0_18px_50px_rgba(2,6,23,0.45)]"
           : selected
             ? "border-cyan-300/35 shadow-[0_0_0_1px_rgba(103,232,249,0.08)]"
             : hovered
-              ? "border-white/18 bg-[#0c1015]"
-              : "border-white/10",
+              ? "border-edge-strong bg-surface-raised"
+              : "border-edge",
       ].join(" ")}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => {
@@ -177,12 +177,12 @@ export function WidgetCard({
         <header className={`flex min-w-0 items-start gap-3 ${editMode ? (compact ? "pr-24" : "pr-28") : ""}`}>
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
-              <span className={`h-2 w-2 shrink-0 rounded-none ${lifecycleTone(widget.lifecycle_state)}`} />
+              <span className={`h-2 w-2 shrink-0 rounded-tile ${lifecycleTone(widget.lifecycle_state)}`} />
               <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
                 {compact ? widget.size : manifest.category}
               </span>
               {!compact ? (
-                <span className="rounded border border-white/10 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                <span className="rounded-panel border border-edge px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
                   {widget.size}
                 </span>
               ) : null}
@@ -205,13 +205,13 @@ export function WidgetCard({
         ) : null}
 
         {primaryProvider && !compact && tier !== "standard" ? (
-          <div className="rounded-[14px] border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-slate-300">
+          <div className="rounded-panel border border-edge bg-surface-inset px-3 py-2 text-[11px] text-slate-300">
             <span className="text-slate-500">Source</span>
             <span className="ml-2 text-white">{primaryProvider}</span>
           </div>
         ) : null}
 
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-none border border-white/8 bg-[#05070a]">
+        <div className="relative min-h-0 flex-1 overflow-hidden rounded-tile border border-edge bg-bg">
           <div className={`h-full ${compact ? "p-2.5" : "p-3"}`}>
             <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
           </div>
@@ -274,7 +274,7 @@ function AlertCallout({ alert, compact }: { alert: WidgetAlert; compact: boolean
         setExpanded((current) => !current);
       }}
       className={[
-        "shrink-0 rounded-none border px-2 py-1.5 text-left transition-colors hover:bg-white/[0.07]",
+        "shrink-0 rounded-panel border px-2 py-1.5 text-left transition-colors hover:bg-white/[0.07]",
         compact ? "max-w-44" : "max-w-64",
         tone,
       ].join(" ")}
@@ -309,7 +309,7 @@ function WidgetStatsRail({
 }) {
   return (
     <div
-      className={`grid gap-1.5 rounded-none border border-cyan-200/18 bg-[#05070a] p-2 ${
+      className={`grid gap-1.5 rounded-tile border border-cyan-200/18 bg-bg p-2 ${
         compact ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-4"
       }`}
     >
@@ -323,7 +323,7 @@ function WidgetStatsRail({
 
 function MetricPill({ label, value, compact }: { label: string; value: string; compact: boolean }) {
   return (
-    <div className={`rounded-none border border-white/10 bg-black/24 ${compact ? "px-2 py-1" : "px-3 py-2"}`}>
+    <div className={`rounded-tile border border-edge bg-black/24 ${compact ? "px-2 py-1" : "px-3 py-2"}`}>
       <p className={`${compact ? "text-[8px]" : "text-[10px]"} uppercase tracking-[0.16em] text-slate-500`}>{label}</p>
       <p className={`mt-1 truncate font-medium text-white ${compact ? "text-[10px]" : "text-sm"}`}>{value}</p>
     </div>
@@ -357,10 +357,10 @@ function IconButton({
         onPointerDown?.(event);
       }}
       className={[
-        "pointer-events-auto flex h-7 w-7 items-center justify-center rounded border transition-colors",
+        "pointer-events-auto flex h-7 w-7 items-center justify-center rounded-control border transition-colors",
         tone === "danger"
           ? "border-rose-300/18 bg-rose-300/10 text-rose-100 hover:bg-rose-300/16"
-          : "border-white/10 bg-[#0c1015] text-slate-200 hover:bg-[#121821]",
+          : "border-edge bg-surface-raised text-slate-200 hover:bg-white/[0.08]",
       ].join(" ")}
     >
       {children}

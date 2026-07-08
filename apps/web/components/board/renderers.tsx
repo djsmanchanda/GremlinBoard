@@ -18,7 +18,7 @@ function getRendererLoadError(error: unknown) {
 
 function UnsupportedWidgetRenderer({ manifest, reason }: { manifest: WidgetManifest; reason: string }) {
   return (
-    <div className="flex h-full min-h-[180px] items-center justify-center rounded-[22px] border border-dashed border-amber-300/20 bg-amber-300/8 p-5 text-center">
+    <div className="flex h-full min-h-[180px] items-center justify-center rounded-panel border border-dashed border-amber-300/20 bg-amber-300/8 p-5 text-center">
       <div>
         <p className="text-[11px] uppercase tracking-[0.2em] text-amber-100/75">Renderer unavailable</p>
         <p className="mt-3 text-sm font-medium text-white">{reason}</p>
@@ -32,7 +32,7 @@ function UnsupportedWidgetRenderer({ manifest, reason }: { manifest: WidgetManif
 
 function LoadingWidgetRenderer({ manifest }: { manifest: WidgetManifest }) {
   return (
-    <div className="flex h-full min-h-[180px] items-center justify-center rounded-[22px] border border-dashed border-white/10 p-5 text-center">
+    <div className="flex h-full min-h-[180px] items-center justify-center rounded-panel border border-dashed border-edge p-5 text-center">
       <div>
         <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Renderer loading</p>
         <p className="mt-3 text-sm text-slate-300">Loading renderer for {manifest.name}...</p>

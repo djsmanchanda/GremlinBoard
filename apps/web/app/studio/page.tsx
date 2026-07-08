@@ -7,7 +7,7 @@ export default function StudioPage() {
   return (
     <main className="min-h-screen px-4 py-6 md:px-6 md:py-8">
       <div className="mx-auto max-w-6xl">
-        <section className="glass-panel accent-border premium-ring rounded-[34px] p-6 md:p-7">
+        <section className="rounded-[34px] border border-white/10 bg-[#090b0f] p-6 md:p-7">
           <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
             <div className="max-w-3xl">
               <div className="flex flex-wrap items-center gap-3">
@@ -19,7 +19,7 @@ export default function StudioPage() {
                 </span>
               </div>
               <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white md:text-5xl">
-                <span className="text-gradient">Idea to Widget Test Box</span>
+                <span className="text-white">Idea to Widget Test Box</span>
               </h1>
               <p className="mt-3 text-sm leading-6 text-slate-300">
                 Start with a plain-language idea, let the agent propose name, parameters, strict grid size, and renderer output, then test and refine before the staged review/install gate.
