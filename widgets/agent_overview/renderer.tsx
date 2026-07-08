@@ -136,28 +136,28 @@ export function AgentOverviewRenderer({ widget }: WidgetRendererProps) {
   const summary = useMemo(() => summarizeAgents(flattenTree(snapshot.tree.roots, {})), [snapshot.tree.roots]);
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col gap-3 overflow-hidden">
-      <div className="grid grid-cols-4 gap-2">
-        <Counter label="Active" value={summary.active} tone="cyan" />
-        <Counter label="Queued" value={summary.queued} tone="slate" />
-        <Counter label="Review" value={summary.review} tone="amber" />
-        <Counter label="Failed" value={summary.failed} tone="rose" />
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+        <Stat label="Active" value={summary.active} tone="accent" />
+        <Stat label="Queued" value={summary.queued} tone="slate" />
+        <Stat label="Review" value={summary.review} tone="warn" />
+        <Stat label="Failed" value={summary.failed} tone="critical" />
       </div>
 
       {error ? (
-        <div className="rounded border border-rose-300/20 bg-rose-300/8 p-3 text-sm text-rose-100">{error}</div>
+        <div className="rounded-panel border border-critical/30 bg-critical/10 p-3 text-sm text-critical">{error}</div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded border border-white/10 bg-black/10">
+      <div className="min-h-0 flex-1 overflow-auto">
         {visibleNodes.length === 0 ? (
           <div className="flex h-full items-center justify-center p-6 text-sm text-slate-400">No agent activity</div>
         ) : (
-          <div className="h-full overflow-auto p-2">
+          <div className="divide-y divide-edge">
             {visibleNodes.map(({ agent, depth, hasChildren }) => (
               <div
                 key={agent.id}
-                className="mb-1 grid grid-cols-[minmax(0,1fr)_70px_44px] items-center gap-2 rounded border border-white/8 bg-white/[0.035] px-2.5 py-2 text-xs"
-                style={{ paddingLeft: `${10 + depth * 16}px` }}
+                className="grid grid-cols-[minmax(0,1fr)_70px_44px] items-center gap-2 py-2 text-xs"
+                style={{ paddingLeft: `${depth * 16}px` }}
               >
                 <button
                   type="button"
@@ -169,9 +169,9 @@ export function AgentOverviewRenderer({ widget }: WidgetRendererProps) {
                   <span className="truncate align-middle font-medium">{agent.name}</span>
                   <span className="ml-2 text-slate-500">{agent.type}</span>
                 </button>
-                <StatusPill status={agent.status} />
+                <StatusText status={agent.status} />
                 <span className="text-right text-slate-300">{agent.progress}%</span>
-                <div className="col-span-3 h-1 overflow-hidden rounded bg-white/10">
+                <div className="col-span-3 h-1 overflow-hidden rounded-full bg-edge">
                   <div className={progressClass(agent.status)} style={{ width: `${agent.progress}%` }} />
                 </div>
               </div>
@@ -181,14 +181,14 @@ export function AgentOverviewRenderer({ widget }: WidgetRendererProps) {
       </div>
 
       {includeTimeline ? (
-        <div className="h-28 overflow-hidden rounded border border-white/10 bg-black/10">
+        <div className="shrink-0 border-t border-edge pt-2">
           {snapshot.events.length === 0 ? (
-            <div className="flex h-full items-center px-3 text-xs text-slate-500">No recent agent events</div>
+            <p className="px-1 text-xs text-slate-500">No recent agent events</p>
           ) : (
-            <div className="h-full overflow-auto p-2">
+            <div className="max-h-24 divide-y divide-edge overflow-auto">
               {snapshot.events.slice(-5).map((event) => (
                 <div key={event.id} className="flex items-center gap-2 py-1 text-xs">
-                  <span className={event.level === "error" ? "text-rose-300" : event.level === "warning" ? "text-amber-200" : "text-cyan-200"}>
+                  <span className={event.level === "error" ? "text-critical" : event.level === "warning" ? "text-warn" : "text-accent"}>
                     {event.type}
                   </span>
                   <span className="min-w-0 truncate text-slate-400">{event.message ?? ""}</span>
@@ -235,40 +235,40 @@ function summarizeAgents(rows: Array<{ agent: AgentEntity }>) {
   );
 }
 
-function Counter({ label, value, tone }: { label: string; value: number; tone: "cyan" | "slate" | "amber" | "rose" }) {
-  const toneClass = {
-    cyan: "border-cyan-300/18 bg-cyan-300/8 text-cyan-100",
-    slate: "border-white/10 bg-white/[0.04] text-slate-100",
-    amber: "border-amber-300/20 bg-amber-300/8 text-amber-100",
-    rose: "border-rose-300/20 bg-rose-300/8 text-rose-100",
+function Stat({ label, value, tone }: { label: string; value: number; tone: "accent" | "slate" | "warn" | "critical" }) {
+  const valueClass = {
+    accent: "text-accent",
+    slate: "text-slate-100",
+    warn: "text-warn",
+    critical: "text-critical",
   }[tone];
   return (
-    <div className={`rounded border px-3 py-2 ${toneClass}`}>
-      <p className="text-[10px] uppercase text-slate-400">{label}</p>
-      <p className="mt-1 text-lg font-semibold">{value}</p>
+    <div className="flex items-baseline gap-1.5">
+      <span className={`text-lg font-semibold ${valueClass}`}>{value}</span>
+      <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">{label}</span>
     </div>
   );
 }
 
-function StatusPill({ status }: { status: AgentStatus }) {
+function StatusText({ status }: { status: AgentStatus }) {
   const className =
     status === "failed"
-      ? "border-rose-300/20 bg-rose-300/8 text-rose-100"
+      ? "text-critical"
       : status === "waiting_for_review"
-        ? "border-amber-300/20 bg-amber-300/8 text-amber-100"
+        ? "text-warn"
         : status === "running"
-          ? "border-cyan-300/20 bg-cyan-300/8 text-cyan-100"
-          : "border-white/10 bg-white/[0.04] text-slate-300";
-  return <span className={`truncate rounded border px-2 py-1 text-center ${className}`}>{status.replaceAll("_", " ")}</span>;
+          ? "text-accent"
+          : "text-slate-400";
+  return <span className={`truncate text-center ${className}`}>{status.replaceAll("_", " ")}</span>;
 }
 
 function progressClass(status: AgentStatus) {
-  const base = "h-full rounded transition-[width] duration-300 ";
+  const base = "h-full rounded-full transition-[width] duration-300 ";
   if (status === "failed") {
-    return `${base}bg-rose-300/70`;
+    return `${base}bg-critical/70`;
   }
   if (status === "waiting_for_review") {
-    return `${base}bg-amber-200/75`;
+    return `${base}bg-warn/70`;
   }
-  return `${base}bg-cyan-200/70`;
+  return `${base}bg-accent/70`;
 }

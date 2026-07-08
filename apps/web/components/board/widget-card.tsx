@@ -176,46 +176,37 @@ export function WidgetCard({
       <div className={`flex min-h-0 flex-1 flex-col ${compact ? "gap-2" : "gap-3"}`}>
         <header className={`flex min-w-0 items-start gap-3 ${editMode ? (compact ? "pr-24" : "pr-28") : ""}`}>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 items-center gap-2">
-              <span className={`h-2 w-2 shrink-0 rounded-tile ${lifecycleTone(widget.lifecycle_state)}`} />
-              <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                {compact ? widget.size : manifest.category}
-              </span>
-              {!compact ? (
-                <span className="rounded-panel border border-edge px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
-                  {widget.size}
+            {editMode ? (
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                  {compact ? widget.size : manifest.category}
                 </span>
-              ) : null}
-            </div>
+                {!compact ? (
+                  <span className="rounded-panel border border-edge px-1.5 py-0.5 text-[9px] uppercase tracking-[0.14em] text-slate-400">
+                    {widget.size}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
 
-            <h2 className={`mt-2 truncate font-semibold tracking-tight text-white ${titleClass}`}>{widget.title}</h2>
+            <div className={`flex min-w-0 items-center gap-2 ${editMode ? "mt-2" : ""}`}>
+              <span className={`h-2 w-2 shrink-0 rounded-tile ${lifecycleTone(widget.lifecycle_state)}`} />
+              <h2 className={`truncate font-semibold tracking-tight text-white ${titleClass}`}>{widget.title}</h2>
+            </div>
           </div>
 
           {alert.level !== "nominal" ? <AlertCallout alert={alert} compact={compact || densityCompact} /> : null}
         </header>
 
         {showStats ? (
-          <WidgetStatsRail
-            compact={compact}
-            freshness={freshness}
-            uptime={uptime}
-            mode={mode}
-            restarts={String(widget.restart_count)}
-          />
+          <p className="truncate text-[11px] text-slate-500">
+            {freshness} · up {uptime} · {mode} · {widget.restart_count} restarts
+            {primaryProvider ? ` · via ${primaryProvider}` : ""}
+          </p>
         ) : null}
 
-        {primaryProvider && !compact && tier !== "standard" ? (
-          <div className="rounded-panel border border-edge bg-surface-inset px-3 py-2 text-[11px] text-slate-300">
-            <span className="text-slate-500">Source</span>
-            <span className="ml-2 text-white">{primaryProvider}</span>
-          </div>
-        ) : null}
-
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-tile border border-edge bg-bg">
-          <div className={`h-full ${compact ? "p-2.5" : "p-3"}`}>
-            <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
-          </div>
-
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <WidgetRenderer widget={widget} manifest={manifest} onUpdateConfig={onUpdateConfig} />
         </div>
 
         {widget.status_message && !compact ? <p className="text-xs leading-5 text-slate-400">{widget.status_message}</p> : null}
@@ -291,42 +282,6 @@ function AlertCallout({ alert, compact }: { alert: WidgetAlert; compact: boolean
         </span>
       ) : null}
     </button>
-  );
-}
-
-function WidgetStatsRail({
-  compact,
-  freshness,
-  uptime,
-  mode,
-  restarts,
-}: {
-  compact: boolean;
-  freshness: string;
-  uptime: string;
-  mode: string;
-  restarts: string;
-}) {
-  return (
-    <div
-      className={`grid gap-1.5 rounded-tile border border-cyan-200/18 bg-bg p-2 ${
-        compact ? "grid-cols-2" : "grid-cols-2 xl:grid-cols-4"
-      }`}
-    >
-      <MetricPill compact={compact} label="Fresh" value={freshness} />
-      <MetricPill compact={compact} label="Uptime" value={uptime} />
-      <MetricPill compact={compact} label="Mode" value={mode} />
-      <MetricPill compact={compact} label="Restarts" value={restarts} />
-    </div>
-  );
-}
-
-function MetricPill({ label, value, compact }: { label: string; value: string; compact: boolean }) {
-  return (
-    <div className={`rounded-tile border border-edge bg-black/24 ${compact ? "px-2 py-1" : "px-3 py-2"}`}>
-      <p className={`${compact ? "text-[8px]" : "text-[10px]"} uppercase tracking-[0.16em] text-slate-500`}>{label}</p>
-      <p className={`mt-1 truncate font-medium text-white ${compact ? "text-[10px]" : "text-sm"}`}>{value}</p>
-    </div>
   );
 }
 

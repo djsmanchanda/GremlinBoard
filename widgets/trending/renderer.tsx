@@ -14,9 +14,9 @@ export function TrendingRenderer({ widget }: WidgetRendererProps) {
 
   return (
     <div className="flex h-full flex-col gap-2">
-      <div className="grid gap-2">
+      <div className="divide-y divide-edge">
         {visibleSections.map((section) => (
-          <section key={section.source} className="rounded-none border border-white/10 bg-white/[0.04] p-2.5">
+          <section key={section.source} className="py-2.5 first:pt-0">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[10px] uppercase tracking-[0.14em] text-slate-400">{section.source}</p>
             </div>

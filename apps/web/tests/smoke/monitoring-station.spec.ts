@@ -35,7 +35,7 @@ for (const viewport of monitoringViewports) {
       await expect(page.getByText(/\d+\s+cols/i)).toBeVisible();
 
       await expect(page.getByRole("heading").filter({ hasText: seededWidgetTitle }).first()).toBeVisible();
-      await expect(page.getByText("Fresh", { exact: true })).toHaveCount(0);
+      await expect(page.getByText(/\d+ restarts/)).toHaveCount(0);
 
       const alertDetails = page.getByRole("button", { name: "critical alert details" });
       await expect(alertDetails).toBeVisible();
@@ -49,7 +49,7 @@ for (const viewport of monitoringViewports) {
       await expect(completedDetails.getByText("Completed successfully", { exact: true })).toBeVisible();
 
       await page.getByRole("button", { name: "Stats" }).click();
-      await expect(page.getByText("Fresh", { exact: true })).toHaveCount(2);
+      await expect(page.getByText(/\d+ restarts/)).toHaveCount(2);
 
       await page.getByRole("button", { name: "Add widget" }).click();
 

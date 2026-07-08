@@ -237,9 +237,9 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+      <div className="min-h-0 flex-1 divide-y divide-edge overflow-y-auto pr-1">
         {visibleTimers.length === 0 ? (
-          <div className="flex h-full items-center justify-center border border-dashed border-white/12 bg-white/[0.03] p-3 text-center text-xs text-slate-400">
+          <div className="flex h-full items-center justify-center p-3 text-center text-xs text-slate-400">
             Add up to four countdowns.
           </div>
         ) : (
@@ -247,12 +247,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
             const remaining = remainingSeconds(timer.target_time, now);
             const complete = remaining === 0;
             return (
-              <div
-                key={timer.id}
-                className={`group/timer border bg-cyan-400/10 ${complete ? "border-emerald-300/70" : "border-cyan-400/18"} ${
-                  compact ? "p-2" : "p-2.5"
-                }`}
-              >
+              <div key={timer.id} className={`group/timer ${compact ? "py-2" : "py-2.5"}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="truncate text-[11px] font-medium text-slate-100">{timer.label}</p>
@@ -267,7 +262,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                       <button
                         type="button"
                         onClick={() => restartTimer(timer)}
-                        className="border border-cyan-300/20 bg-cyan-300/10 px-2 py-1 text-[10px] text-cyan-100 transition hover:bg-cyan-300/18"
+                        className="rounded-control border border-edge bg-accent/10 px-2 py-1 text-[10px] text-accent transition hover:bg-accent/20"
                       >
                         Restart
                       </button>
@@ -277,7 +272,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                       aria-label={`Remove ${timer.label}`}
                       title="Remove"
                       onClick={() => removeTimer(timer.id)}
-                      className="flex h-5 w-5 items-center justify-center border border-white/10 bg-black/20 text-[11px] text-slate-300 transition hover:border-rose-300/25 hover:bg-rose-300/12 hover:text-rose-100"
+                      className="flex h-5 w-5 items-center justify-center rounded-control text-[11px] text-slate-400 transition hover:bg-critical/10 hover:text-critical"
                     >
                       x
                     </button>
@@ -285,7 +280,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                 </div>
                 <p
                   className={`mt-2 font-mono font-semibold tracking-[0.12em] ${
-                    complete ? "text-emerald-100" : "text-cyan-100"
+                    complete ? "text-ok" : "text-accent"
                   } ${compact ? "text-lg leading-6" : expanded ? "text-3xl leading-none" : "text-2xl leading-none"}`}
                 >
                   {formatRemaining(remaining, compact)}
@@ -297,27 +292,27 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
       </div>
 
       {!compact ? (
-        <div className="shrink-0 border border-white/10 bg-black/16 p-2">
+        <div className="shrink-0 rounded-panel border border-edge bg-surface-inset p-2">
           <div className="flex flex-wrap gap-1.5">
             <input
               value={draftLabel}
               onChange={(event) => setDraftLabel(event.target.value)}
               placeholder="Label"
               disabled={!canAdd}
-              className="min-w-[96px] flex-1 border border-white/10 bg-slate-950/70 px-2 py-1.5 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-cyan-300/35 disabled:opacity-45"
+              className="min-w-[96px] flex-1 rounded-control border border-edge bg-bg px-2 py-1.5 text-xs text-slate-100 outline-none placeholder:text-slate-500 focus:border-accent disabled:opacity-45"
             />
             <input
               type="datetime-local"
               value={draftTarget}
               onChange={(event) => setDraftTarget(event.target.value)}
               disabled={!canAdd}
-              className="min-w-[142px] flex-1 border border-white/10 bg-slate-950/70 px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-cyan-300/35 disabled:opacity-45"
+              className="min-w-[142px] flex-1 rounded-control border border-edge bg-bg px-2 py-1.5 text-xs text-slate-100 outline-none focus:border-accent disabled:opacity-45"
             />
             <button
               type="button"
               onClick={() => addTimer()}
               disabled={!canAdd}
-              className="border border-cyan-300/20 bg-cyan-300/10 px-2.5 py-1.5 text-xs text-cyan-100 transition hover:bg-cyan-300/18 disabled:opacity-45"
+              className="rounded-control border border-edge bg-accent/10 px-2.5 py-1.5 text-xs text-accent transition hover:bg-accent/20 disabled:opacity-45"
             >
               Add
             </button>
@@ -329,7 +324,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
                 type="button"
                 disabled={!canAdd}
                 onClick={() => addTimer(duration.seconds)}
-                className="border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-45"
+                className="rounded-control border border-edge bg-surface-raised px-2 py-1 text-[10px] text-slate-300 transition hover:border-edge-strong disabled:opacity-45"
               >
                 +{duration.label}
               </button>
@@ -346,7 +341,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
               title="Custom duration, for example 30s, 18m, or 3h 4m"
               placeholder="1m 30s"
               disabled={!canAdd}
-              className="w-20 border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300/35 disabled:opacity-45"
+              className="w-20 rounded-control border border-edge bg-bg px-2 py-1 text-[10px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-accent disabled:opacity-45"
             />
             <button
               type="button"
@@ -354,7 +349,7 @@ export function CountdownRenderer({ widget, onUpdateConfig }: WidgetRendererProp
               title="Add custom duration"
               disabled={!canAdd || parseDuration(draftDuration) === null}
               onClick={addCustomDuration}
-              className="border border-white/10 bg-white/[0.04] px-2 py-1 text-[10px] text-slate-300 transition hover:bg-white/[0.08] disabled:opacity-45"
+              className="rounded-control border border-edge bg-surface-raised px-2 py-1 text-[10px] text-slate-300 transition hover:border-edge-strong disabled:opacity-45"
             >
               +
             </button>

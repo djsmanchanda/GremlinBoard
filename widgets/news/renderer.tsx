@@ -20,18 +20,16 @@ export function NewsRenderer({ widget }: WidgetRendererProps) {
       {!compact ? (
         <div className="flex items-center justify-between gap-3">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Headlines</p>
-          <span className="rounded-none border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">{topic}</span>
+          <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">{topic}</span>
         </div>
       ) : null}
 
-      <div className="grid gap-2">
-        {visibleHeadlines.length === 0 ? (
-          <div className="rounded-none border border-dashed border-white/12 bg-white/[0.03] p-3 text-xs text-slate-400">
-            Awaiting headlines.
-          </div>
-        ) : (
-          visibleHeadlines.map((item, index) => (
-            <article key={`${item.title}-${index}`} className="rounded-none border border-white/10 bg-white/[0.04] p-2.5">
+      {visibleHeadlines.length === 0 ? (
+        <p className="p-3 text-xs text-slate-400">Awaiting headlines.</p>
+      ) : (
+        <div className="divide-y divide-edge">
+          {visibleHeadlines.map((item, index) => (
+            <article key={`${item.title}-${index}`} className="py-2.5 first:pt-0">
               <p className={`font-medium text-slate-100 ${compact ? "line-clamp-3 text-xs leading-5" : "line-clamp-2 text-sm leading-5"}`}>
                 {item.title}
               </p>
@@ -40,9 +38,9 @@ export function NewsRenderer({ widget }: WidgetRendererProps) {
                 {item.source} / {item.published_at}
               </p>
             </article>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
