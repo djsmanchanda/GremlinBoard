@@ -1,0 +1,296 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gremlinboard.local/schemas/widget-blueprint.schema.json",
+  "title": "GremlinBoard Widget View Blueprint",
+  "type": "object",
+  "required": ["blueprint_version", "widget_id", "layouts"],
+  "properties": {
+    "blueprint_version": {"const": "1"},
+    "widget_id": {"type": "string", "minLength": 1},
+    "layouts": {
+      "type": "object",
+      "required": ["medium"],
+      "properties": {
+        "compact": {"$ref": "#/$defs/node"},
+        "medium": {"$ref": "#/$defs/node"},
+        "wide": {"$ref": "#/$defs/node"},
+        "tall": {"$ref": "#/$defs/node"},
+        "large": {"$ref": "#/$defs/node"}
+      },
+      "additionalProperties": false
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/node"}
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "dotPath": {
+      "type": "string",
+      "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*(\\[[0-9]+\\])?(\\.[a-zA-Z_][a-zA-Z0-9_]*(\\[[0-9]+\\])?)*$"
+    },
+    "showIf": {
+      "type": "object",
+      "required": ["path", "op"],
+      "properties": {
+        "path": {"$ref": "#/$defs/dotPath"},
+        "op": {"enum": ["exists", "eq", "gt", "lt"]},
+        "value": true
+      },
+      "additionalProperties": false
+    },
+    "gap": {"enum": ["none", "sm", "md"]},
+    "statusColor": {"enum": ["critical", "warn", "ok", "neutral"]},
+    "statusMap": {
+      "type": "object",
+      "additionalProperties": {"$ref": "#/$defs/statusColor"}
+    },
+    "layoutChildren": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"},
+      "minItems": 1
+    },
+    "stackNode": {
+      "type": "object",
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"const": "stack"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "gap": {"$ref": "#/$defs/gap"},
+        "children": {"$ref": "#/$defs/layoutChildren"}
+      },
+      "additionalProperties": false
+    },
+    "rowNode": {
+      "type": "object",
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"const": "row"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "gap": {"$ref": "#/$defs/gap"},
+        "children": {"$ref": "#/$defs/layoutChildren"}
+      },
+      "additionalProperties": false
+    },
+    "gridNode": {
+      "type": "object",
+      "required": ["type", "columns", "children"],
+      "properties": {
+        "type": {"const": "grid"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "gap": {"$ref": "#/$defs/gap"},
+        "columns": {"type": "integer", "minimum": 2, "maximum": 4},
+        "children": {"$ref": "#/$defs/layoutChildren"}
+      },
+      "additionalProperties": false
+    },
+    "scrollNode": {
+      "type": "object",
+      "required": ["type", "children"],
+      "properties": {
+        "type": {"const": "scroll"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "gap": {"$ref": "#/$defs/gap"},
+        "children": {"$ref": "#/$defs/layoutChildren"}
+      },
+      "additionalProperties": false
+    },
+    "statNode": {
+      "type": "object",
+      "required": ["type", "label", "value_path"],
+      "properties": {
+        "type": {"const": "stat"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "label": {"type": "string", "minLength": 1},
+        "value_path": {"$ref": "#/$defs/dotPath"},
+        "unit": {"type": "string"},
+        "emphasis": {"enum": ["primary", "secondary"]},
+        "trend_path": {"$ref": "#/$defs/dotPath"},
+        "status_path": {"$ref": "#/$defs/dotPath"},
+        "status_map": {"$ref": "#/$defs/statusMap"}
+      },
+      "additionalProperties": false
+    },
+    "textNode": {
+      "type": "object",
+      "required": ["type", "variant"],
+      "properties": {
+        "type": {"const": "text"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "value_path": {"$ref": "#/$defs/dotPath"},
+        "literal": {"type": "string"},
+        "variant": {"enum": ["title", "body", "caption", "mono"]}
+      },
+      "oneOf": [
+        {"required": ["value_path"], "not": {"required": ["literal"]}},
+        {"required": ["literal"], "not": {"required": ["value_path"]}}
+      ],
+      "additionalProperties": false
+    },
+    "badgeRowNode": {
+      "type": "object",
+      "required": ["type", "items"],
+      "properties": {
+        "type": {"const": "badge_row"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "items": {"type": "array", "items": {"$ref": "#/$defs/badgeItem"}, "minItems": 1}
+      },
+      "additionalProperties": false
+    },
+    "badgeItem": {
+      "type": "object",
+      "properties": {
+        "label_path": {"$ref": "#/$defs/dotPath"},
+        "literal": {"type": "string"},
+        "status_path": {"$ref": "#/$defs/dotPath"},
+        "status_map": {"$ref": "#/$defs/statusMap"}
+      },
+      "oneOf": [
+        {"required": ["label_path"], "not": {"required": ["literal"]}},
+        {"required": ["literal"], "not": {"required": ["label_path"]}}
+      ],
+      "additionalProperties": false
+    },
+    "listNode": {
+      "type": "object",
+      "required": ["type", "items_path", "item"],
+      "properties": {
+        "type": {"const": "list"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "items_path": {"$ref": "#/$defs/dotPath"},
+        "limit": {"type": "integer", "minimum": 1},
+        "item": {"$ref": "#/$defs/listItem"}
+      },
+      "additionalProperties": false
+    },
+    "listItem": {
+      "type": "object",
+      "required": ["primary_path"],
+      "properties": {
+        "primary_path": {"$ref": "#/$defs/dotPath"},
+        "secondary_path": {"$ref": "#/$defs/dotPath"},
+        "meta_path": {"$ref": "#/$defs/dotPath"},
+        "status_path": {"$ref": "#/$defs/dotPath"},
+        "status_map": {"$ref": "#/$defs/statusMap"}
+      },
+      "additionalProperties": false
+    },
+    "tableNode": {
+      "type": "object",
+      "required": ["type", "items_path", "columns"],
+      "properties": {
+        "type": {"const": "table"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "items_path": {"$ref": "#/$defs/dotPath"},
+        "limit": {"type": "integer", "minimum": 1},
+        "columns": {"type": "array", "items": {"$ref": "#/$defs/tableColumn"}, "minItems": 1}
+      },
+      "additionalProperties": false
+    },
+    "tableColumn": {
+      "type": "object",
+      "required": ["header", "value_path"],
+      "properties": {
+        "header": {"type": "string", "minLength": 1},
+        "value_path": {"$ref": "#/$defs/dotPath"},
+        "align": {"enum": ["left", "center", "right"]}
+      },
+      "additionalProperties": false
+    },
+    "keyValueNode": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "key_value"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "entries": {"type": "array", "items": {"$ref": "#/$defs/keyValueEntry"}, "minItems": 1},
+        "entries_path": {"$ref": "#/$defs/dotPath"}
+      },
+      "oneOf": [
+        {"required": ["entries"], "not": {"required": ["entries_path"]}},
+        {"required": ["entries_path"], "not": {"required": ["entries"]}}
+      ],
+      "additionalProperties": false
+    },
+    "keyValueEntry": {
+      "type": "object",
+      "required": ["label", "value_path"],
+      "properties": {
+        "label": {"type": "string", "minLength": 1},
+        "value_path": {"$ref": "#/$defs/dotPath"}
+      },
+      "additionalProperties": false
+    },
+    "progressNode": {
+      "type": "object",
+      "required": ["type", "value_path"],
+      "properties": {
+        "type": {"const": "progress"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "value_path": {"$ref": "#/$defs/dotPath"},
+        "max_path": {"$ref": "#/$defs/dotPath"},
+        "max_literal": {"type": "number"},
+        "label": {"type": "string"}
+      },
+      "not": {"required": ["max_path", "max_literal"]},
+      "additionalProperties": false
+    },
+    "sparklineNode": {
+      "type": "object",
+      "required": ["type", "values_path"],
+      "properties": {
+        "type": {"const": "sparkline"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "values_path": {"$ref": "#/$defs/dotPath"},
+        "label": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "timerNode": {
+      "type": "object",
+      "required": ["type", "target_path", "direction"],
+      "properties": {
+        "type": {"const": "timer"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "target_path": {"$ref": "#/$defs/dotPath"},
+        "direction": {"enum": ["down", "up"]},
+        "label_path": {"$ref": "#/$defs/dotPath"}
+      },
+      "additionalProperties": false
+    },
+    "emptyStateNode": {
+      "type": "object",
+      "required": ["type", "message", "show_if_empty_path"],
+      "properties": {
+        "type": {"const": "empty_state"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "message": {"type": "string", "minLength": 1},
+        "show_if_empty_path": {"$ref": "#/$defs/dotPath"}
+      },
+      "additionalProperties": false
+    },
+    "node": {
+      "oneOf": [
+        {"$ref": "#/$defs/stackNode"},
+        {"$ref": "#/$defs/rowNode"},
+        {"$ref": "#/$defs/gridNode"},
+        {"$ref": "#/$defs/scrollNode"},
+        {"$ref": "#/$defs/statNode"},
+        {"$ref": "#/$defs/textNode"},
+        {"$ref": "#/$defs/badgeRowNode"},
+        {"$ref": "#/$defs/listNode"},
+        {"$ref": "#/$defs/tableNode"},
+        {"$ref": "#/$defs/keyValueNode"},
+        {"$ref": "#/$defs/progressNode"},
+        {"$ref": "#/$defs/sparklineNode"},
+        {"$ref": "#/$defs/timerNode"},
+        {"$ref": "#/$defs/emptyStateNode"}
+      ]
+    }
+  }
+}
+
+
+
+
