@@ -61,6 +61,9 @@ async def _run_migrations(connection) -> None:
         "generation_jobs",
         {
             "progress": "ALTER TABLE generation_jobs ADD COLUMN progress INTEGER NOT NULL DEFAULT 0",
+            "queued_input_json": "ALTER TABLE generation_jobs ADD COLUMN queued_input_json TEXT",
+            "generation_mode": "ALTER TABLE generation_jobs ADD COLUMN generation_mode VARCHAR(32)",
+            "model_id": "ALTER TABLE generation_jobs ADD COLUMN model_id VARCHAR(128)",
         },
     )
 

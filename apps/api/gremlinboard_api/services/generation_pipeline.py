@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from gremlinboard_api.ai.clients import AIClientError
 from gremlinboard_api.ai.providers import AIProvider, ClaudeProvider, CodexProvider, provider_from_id
 from gremlinboard_api.models.tables import StagedWidgetSpecRecord
 from gremlinboard_api.repositories.board import BoardRepository
@@ -19,6 +20,7 @@ from gremlinboard_api.repositories.generation import (
     decode_artifact_payload,
     serialize_job,
 )
+from gremlinboard_api.schemas.blueprint import collect_binding_paths, validate_blueprint
 from gremlinboard_api.schemas.contracts import (
     AIProviderRead,
     EasyGenerationCreateRequest,
@@ -31,12 +33,15 @@ from gremlinboard_api.schemas.contracts import (
     GenerationJobRead,
     GenerationJobStatus,
     GenerationTestBoxRead,
+    RuntimeEventPersistence,
+    RuntimeEventVisibility,
     GenerationPipelinePreviewRead,
     WidgetPackagePayload,
     WidgetPluginInstallRequest,
     WidgetPluginUpdateRequest,
     WidgetSpecDraft,
 )
+from gremlinboard_api.services.backend_sandbox import dry_run_backend
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.scaffold_generator import WidgetScaffoldGenerator
 from gremlinboard_api.services.system_settings import SystemSettingsService
@@ -70,11 +75,13 @@ class GenerationPipelineService:
         plugin_manager: PluginManagerService,
         settings_service: SystemSettingsService,
         agent_registry: "AgentRegistry | None" = None,
+        event_bus: Any | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.plugin_manager = plugin_manager
         self.settings_service = settings_service
         self.agent_registry = agent_registry
+        self.event_bus = event_bus or getattr(agent_registry, "event_bus", None)
         self.scaffold_generator = WidgetScaffoldGenerator()
         self.providers: dict[str, AIProvider] = {
             "codex": CodexProvider(),
@@ -91,7 +98,9 @@ class GenerationPipelineService:
             if self._worker_task is not None and not self._worker_task.done():
                 logger.info("generation worker already running")
                 return
-            await self._fail_interrupted_jobs()
+            if self._queue is None:
+                self._queue = asyncio.Queue()
+            await self._recover_interrupted_jobs_locked()
             self._ensure_worker_started_locked()
         await self.reconcile_agents()
 
@@ -134,7 +143,7 @@ class GenerationPipelineService:
         worker_running = self._worker_task is not None and not self._worker_task.done()
         return {
             "queue_depth": self._queue.qsize() if self._queue is not None else 0,
-            "queued_input_count": len(self._queued_inputs),
+            "queued_input_count": (self._queue.qsize() if self._queue is not None else 0),
             "worker_running": worker_running,
             "worker_done": self._worker_task.done() if self._worker_task is not None else True,
         }
@@ -223,16 +232,22 @@ class GenerationPipelineService:
                         "progress": 0,
                     },
                 )
+                queued_input = QueuedGenerationInput(
+                    job_id=job.id,
+                    spec=spec,
+                    provider_id=provider.provider_id,
+                    model_id=payload.model_id,
+                    idea_prompt=idea_prompt,
+                )
+                job.queued_input_json = _serialize_queued_input(queued_input)
+                job.model_id = _resolve_provider_model(provider, payload.model_id)
+                job.generation_mode = await self._provider_generation_mode(provider)
+                await session.commit()
 
-        self._queued_inputs[job.id] = QueuedGenerationInput(
-            job_id=job.id,
-            spec=spec,
-            provider_id=provider.provider_id,
-            model_id=payload.model_id,
-            idea_prompt=idea_prompt,
-        )
+        self._queued_inputs[job.id] = queued_input
         queued_job = await self.get_job(job_id=job.id)
         await self._sync_agent_job(job_id=job.id)
+        await self._publish_generation_event(job_id=job.id, stage="queued", progress=0, generation_mode=queued_job.generation_mode)
         await self._queue_job(job.id)
         return queued_job
 
@@ -272,6 +287,7 @@ class GenerationPipelineService:
         payload: GenerationJobFeedbackRequest,
     ) -> GenerationJobFeedbackRead:
         category = _categorize_feedback(payload.feedback)
+        tags: list[str] = [category]
         metadata: dict[str, Any]
         async with self.session_factory() as session:
             generation_repository = GenerationRepository(session)
@@ -287,11 +303,23 @@ class GenerationPipelineService:
                 raise ValueError("feedback requires a previous job with a normalized spec artifact")
             artifact_payload = decode_artifact_payload(artifact)
             previous_spec = WidgetSpecDraft.model_validate(artifact_payload.get("spec"))
-            refined_spec = _refine_spec_from_feedback(
-                spec=previous_spec,
-                feedback=payload.feedback,
-                category=category,
+            package_artifact = await generation_repository.get_latest_artifact(
+                job_id=job_id,
+                stage="codegen",
+                artifact_type="package",
             )
+            current_blueprint = _artifact_blueprint(package_artifact)
+            provider = await self._select_provider(payload.provider_id or source_job.provider_id, payload.fallback_provider_ids)
+            refined_spec, refinement_details = await self._refine_spec_with_provider(
+                provider=provider,
+                spec=previous_spec,
+                blueprint=current_blueprint,
+                feedback=payload.feedback,
+                model_id=payload.model_id,
+            )
+            changed_fields = _changed_spec_fields(previous_spec, refined_spec)
+            tags = _derive_feedback_tags(changed_fields=changed_fields, feedback=payload.feedback)
+            category = _primary_feedback_category(tags)
             notes = validate_widget_spec(refined_spec)
             if notes:
                 raise ValueError("; ".join(notes))
@@ -311,6 +339,7 @@ class GenerationPipelineService:
                 message="Generation feedback captured for refinement.",
                 context={
                     "category": category,
+                    "tags": tags,
                     "feedback": payload.feedback,
                     "next_stage_id": stage.id,
                 },
@@ -320,8 +349,12 @@ class GenerationPipelineService:
                 "source_artifact_version": artifact.artifact_version,
                 "refined_stage_id": stage.id,
                 "category": category,
+                "tags": tags,
+                "changed_fields": changed_fields,
+                "diff_summary": _format_spec_diff_summary(changed_fields),
                 "feedback": payload.feedback,
                 "refined_spec": refined_spec.model_dump(mode="json"),
+                "refinement": refinement_details,
             }
 
         queued_job = await self.create_job(
@@ -352,6 +385,7 @@ class GenerationPipelineService:
         refined_job = await self.get_job(job_id=queued_job.id)
         return GenerationJobFeedbackRead(
             category=category,
+            tags=tags,
             metadata=metadata,
             job=refined_job,
             test_box=_build_test_box_payload(refined_job),
@@ -375,7 +409,7 @@ class GenerationPipelineService:
                     logger.info("generation worker picked job %s", job_id)
                     queued_input = self._queued_inputs.pop(job_id, None)
                     if queued_input is None:
-                        raise ValueError("queued generation input is no longer available")
+                        queued_input = await self._load_queued_input(job_id)
                     provider = provider_from_id(queued_input.provider_id, self.providers)
                     await self._execute_job(
                         job_id=queued_input.job_id,
@@ -424,15 +458,46 @@ class GenerationPipelineService:
                 context={"error": str(exc), "progress": record.progress},
             )
         await self._sync_agent_job(job_id=job_id)
+        await self._publish_generation_event(job_id=job_id, stage="failed", progress=record.progress, generation_mode=record.generation_mode, level="error", message=str(exc))
 
-    async def _fail_interrupted_jobs(self) -> None:
+    async def _recover_interrupted_jobs_locked(self) -> None:
+        if self._queue is None:
+            self._queue = asyncio.Queue()
         changed_job_ids: list[str] = []
+        requeued_job_ids: list[str] = []
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
-            records = await repository.list_jobs_by_status(
-                {GenerationJobStatus.QUEUED, GenerationJobStatus.RUNNING}
-            )
-            for record in records:
+            queued_records = await repository.list_jobs_by_status({GenerationJobStatus.QUEUED})
+            for record in queued_records:
+                if not record.queued_input_json:
+                    changed_job_ids.append(record.id)
+                    await repository.update_job(
+                        record,
+                        status=GenerationJobStatus.FAILED,
+                        current_step="failed",
+                        error_message="queued generation input is missing after restart",
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    await repository.add_log(
+                        job_id=record.id,
+                        level="error",
+                        step="failed",
+                        message="Generation job failed after worker restart.",
+                        context={"progress": record.progress, "reason": "missing_queued_input"},
+                    )
+                    continue
+                self._queue.put_nowait(record.id)
+                requeued_job_ids.append(record.id)
+                await repository.add_log(
+                    job_id=record.id,
+                    level="info",
+                    step="queued",
+                    message="Generation job re-queued after worker restart.",
+                    context={"progress": record.progress},
+                )
+
+            running_records = await repository.list_jobs_by_status({GenerationJobStatus.RUNNING})
+            for record in running_records:
                 changed_job_ids.append(record.id)
                 await repository.update_job(
                     record,
@@ -448,8 +513,12 @@ class GenerationPipelineService:
                     message="Generation job failed after worker restart.",
                     context={"progress": record.progress},
                 )
+        for job_id in requeued_job_ids:
+            await self._sync_agent_job(job_id=job_id)
+            await self._publish_generation_event(job_id=job_id, stage="queued", progress=0)
         for job_id in changed_job_ids:
             await self._sync_agent_job(job_id=job_id)
+            await self._publish_generation_event(job_id=job_id, stage="failed", progress=0, level="error")
 
     async def approve_job(self, *, job_id: str) -> GenerationJobRead:
         async with self.session_factory() as session:
@@ -459,6 +528,9 @@ class GenerationPipelineService:
                 raise ValueError(f"unknown generation job '{job_id}'")
             if job.status != GenerationJobStatus.COMPLETED.value:
                 raise ValueError("only completed jobs can be approved for install")
+            blockers = await self._approval_blockers(repository, job_id=job.id)
+            if blockers:
+                raise ValueError("generation job cannot be approved: " + "; ".join(blockers))
             await repository.update_job_with_log(
                 job,
                 status=GenerationJobStatus.REVIEW_REQUIRED,
@@ -567,6 +639,12 @@ class GenerationPipelineService:
             if job is None:
                 raise ValueError(f"unknown generation job '{job_id}'")
 
+            generation_mode = await self._provider_generation_mode(provider)
+            selected_model = _resolve_provider_model(provider, model_id)
+            job.generation_mode = generation_mode
+            job.model_id = selected_model
+            await session.commit()
+
             await repository.update_job(
                 job,
                 status=GenerationJobStatus.RUNNING,
@@ -575,6 +653,7 @@ class GenerationPipelineService:
                 clear_error=True,
             )
             await self._sync_agent_job(job_id=job.id)
+            await self._publish_generation_event(job_id=job.id, stage="spec", progress=10, generation_mode=generation_mode)
             notes = validate_widget_spec(spec)
             if notes:
                 raise ValueError("; ".join(notes))
@@ -590,6 +669,8 @@ class GenerationPipelineService:
                     "spec": spec_payload,
                     "manifest_preview": build_manifest_preview_with_version(spec, version=job.selected_version),
                     "idea_prompt": idea_prompt,
+                    "generation_mode": generation_mode,
+                    "model_id": selected_model,
                 },
             )
             await repository.add_log(
@@ -597,7 +678,7 @@ class GenerationPipelineService:
                 level="info",
                 step="spec",
                 message="Validated spec attached to generation job.",
-                context={"stage_id": job.stage_id, "progress": 25},
+                context={"stage_id": job.stage_id, "progress": 25, "generation_mode": generation_mode},
             )
             await repository.update_job(job, progress=25)
             await self._sync_agent_job(job_id=job.id)
@@ -609,6 +690,7 @@ class GenerationPipelineService:
             )
             await repository.update_job(job, current_step="scaffold", progress=40)
             await self._sync_agent_job(job_id=job.id)
+            await self._publish_generation_event(job_id=job.id, stage="scaffold", progress=40, generation_mode=generation_mode)
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -621,6 +703,8 @@ class GenerationPipelineService:
                         for file in scaffold["files"]
                     ],
                     "preview": scaffold["preview"],
+                    "generation_mode": generation_mode,
+                    "model_id": selected_model,
                 },
             )
             await repository.add_log(
@@ -628,18 +712,81 @@ class GenerationPipelineService:
                 level="info",
                 step="scaffold",
                 message="Widget scaffold prepared.",
-                context={"file_count": len(scaffold["files"]), "progress": 50},
+                context={"file_count": len(scaffold["files"]), "progress": 50, "generation_mode": generation_mode},
             )
             await repository.update_job(job, progress=50)
             await self._sync_agent_job(job_id=job.id)
 
+            package = dict(scaffold["package"])
+            files = [dict(file) for file in scaffold["files"]]
             provider_codegen = await provider.prepare_codegen(
                 widget_spec=spec_payload,
                 scaffold_files=scaffold["preview"]["files"],
                 model_id=model_id,
             )
+            fallback_error: str | None = None
+            try:
+                live_blueprint = await provider.generate_blueprint(widget_spec=spec_payload, model_id=model_id)
+                blueprint_meta = _extract_generation_metadata(live_blueprint)
+                live_blueprint = _strip_generation_metadata(live_blueprint)
+                validate_blueprint(live_blueprint)
+                live_backend = await provider.generate_backend(
+                    widget_spec=spec_payload,
+                    blueprint=live_blueprint,
+                    model_id=model_id,
+                )
+                package["blueprint"] = live_blueprint
+                package["backend_source"] = live_backend
+                _replace_file_content(files, "view.blueprint.json", json.dumps(live_blueprint, indent=2) + "\n")
+                _replace_file_content(files, "backend.py", live_backend)
+                generation_mode = str(blueprint_meta.get("generation_mode") or "live")
+                selected_model = str(blueprint_meta.get("model_id") or selected_model)
+                provider_codegen = dict(provider_codegen) | {
+                    "generation_mode": generation_mode,
+                    "model_id": selected_model,
+                    "live_blueprint": True,
+                    "live_backend": True,
+                }
+            except (NotImplementedError, AIClientError) as exc:
+                generation_mode = "offline"
+                fallback_error = str(exc)
+                package = dict(scaffold["package"])
+                files = [dict(file) for file in scaffold["files"]]
+                provider_codegen = dict(provider_codegen) | {
+                    "generation_mode": "offline",
+                    "model_id": selected_model,
+                    "live_blueprint": False,
+                    "live_backend": False,
+                    "fallback_error": fallback_error,
+                }
+                await repository.add_log(
+                    job_id=job.id,
+                    level="warning",
+                    step="codegen",
+                    message="Live generation unavailable; falling back to deterministic template scaffold.",
+                    context={"error": fallback_error, "progress": 65},
+                )
+
+            job.generation_mode = generation_mode
+            job.model_id = selected_model
+            await session.commit()
             await repository.update_job(job, current_step="codegen", progress=70)
             await self._sync_agent_job(job_id=job.id)
+            await self._publish_generation_event(job_id=job.id, stage="codegen", progress=70, generation_mode=generation_mode)
+
+            manifest = package["manifest"]
+            config = _default_config_from_schema(package["config_schema"])
+            dry_run = await dry_run_backend(
+                str(package["backend_source"]),
+                manifest=manifest,
+                config=config,
+                timeout=float(manifest.get("runtime_policy", {}).get("start_timeout_seconds", 10)),
+            )
+            review_issues = _issues_from_dry_run(dry_run)
+            state = dry_run.get("state") if dry_run.get("ok") and isinstance(dry_run.get("state"), dict) else None
+            if state is not None and isinstance(package.get("blueprint"), dict):
+                review_issues.extend(_binding_warnings(blueprint=package["blueprint"], state=state))
+
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -647,9 +794,12 @@ class GenerationPipelineService:
                 stage="codegen",
                 artifact_type="package",
                 payload={
-                    "files": scaffold["files"],
-                    "package": scaffold["package"],
+                    "files": files,
+                    "package": package,
                     "provider": provider_codegen,
+                    "generation_mode": generation_mode,
+                    "model_id": selected_model,
+                    "dry_run": dry_run,
                 },
             )
             await repository.add_log(
@@ -657,12 +807,22 @@ class GenerationPipelineService:
                 level="info",
                 step="codegen",
                 message="Generated package artifact version created.",
-                context={"artifact_version": job.artifact_version, "progress": 80},
+                context={"artifact_version": job.artifact_version, "progress": 80, "generation_mode": generation_mode},
             )
             await repository.update_job(job, progress=80)
             await self._sync_agent_job(job_id=job.id)
 
-            review = await provider.review_package(widget_spec=spec_payload, package=scaffold["package"], model_id=model_id)
+            await repository.update_job(job, current_step="review", progress=90)
+            await self._sync_agent_job(job_id=job.id)
+            await self._publish_generation_event(job_id=job.id, stage="review", progress=90, generation_mode=generation_mode)
+            review = await provider.review_package(widget_spec=spec_payload, package=package, model_id=model_id)
+            review = _merge_review_issues(
+                review,
+                issues=review_issues,
+                generation_mode=generation_mode,
+                model_id=selected_model,
+                dry_run=dry_run,
+            )
             await repository.add_artifact(
                 job_id=job.id,
                 widget_id=job.widget_id,
@@ -681,11 +841,121 @@ class GenerationPipelineService:
                 log_level="info",
                 log_step="completed",
                 log_message="Generation completed. Install remains blocked pending review approval.",
-                log_context={"provider_id": provider.provider_id, "progress": 100},
+                log_context={"provider_id": provider.provider_id, "progress": 100, "generation_mode": generation_mode},
             )
             await self._sync_agent_job(job_id=job.id)
+            await self._publish_generation_event(job_id=job.id, stage="completed", progress=100, generation_mode=generation_mode)
         return await self.get_job(job_id=job_id)
 
+    async def _load_queued_input(self, job_id: str) -> QueuedGenerationInput:
+        async with self.session_factory() as session:
+            repository = GenerationRepository(session)
+            record = await repository.get_job(job_id)
+            if record is None or not record.queued_input_json:
+                raise ValueError("queued generation input is no longer available")
+            return _deserialize_queued_input(record.queued_input_json)
+
+    async def _provider_generation_mode(self, provider: AIProvider) -> str:
+        await self._refresh_provider_credentials(provider)
+        try:
+            health = await provider.health()
+        except Exception:
+            return "offline"
+        return str(health.get("mode") or "offline")
+
+    async def _refresh_provider_credentials(self, provider: AIProvider) -> None:
+        list_credentials = getattr(self.settings_service, "list_credential_secrets_by_provider", None)
+        if not callable(list_credentials):
+            return
+        credentials = await list_credentials()
+        set_credentials = getattr(provider, "set_credentials", None)
+        if callable(set_credentials):
+            set_credentials(credentials)
+
+    async def _publish_generation_event(
+        self,
+        *,
+        job_id: str,
+        stage: str,
+        progress: int,
+        generation_mode: str | None = None,
+        level: str = "info",
+        message: str | None = None,
+    ) -> None:
+        if self.event_bus is None:
+            return
+        payload = {
+            "job_id": job_id,
+            "stage": stage,
+            "progress": max(0, min(100, progress)),
+            "generation_mode": generation_mode,
+        }
+        try:
+            await self.event_bus.publish_event(
+                f"generation.{stage}",
+                category="generation",
+                level=level,
+                message=message,
+                source={"component": "generation_pipeline", "job_id": job_id},
+                payload=payload,
+                persistence=RuntimeEventPersistence.EPHEMERAL,
+                visibility=RuntimeEventVisibility.BOTH,
+                replayable=True,
+            )
+        except Exception:
+            logger.exception("failed to publish generation event for job %s stage %s", job_id, stage)
+
+    async def _refine_spec_with_provider(
+        self,
+        *,
+        provider: AIProvider,
+        spec: WidgetSpecDraft,
+        blueprint: dict[str, Any] | None,
+        feedback: str,
+        model_id: str | None,
+    ) -> tuple[WidgetSpecDraft, dict[str, Any]]:
+        await self._refresh_provider_credentials(provider)
+        refine = getattr(provider, "refine_spec", None)
+        if callable(refine):
+            try:
+                result = await refine(
+                    feedback=feedback,
+                    widget_spec=spec.model_dump(mode="json"),
+                    blueprint=blueprint or {},
+                    model_id=model_id,
+                )
+                refined = WidgetSpecDraft.model_validate(_strip_generation_metadata(dict(result)))
+                return refined, {
+                    "generation_mode": str(result.get("generation_mode", "live")),
+                    "model_id": str(result.get("model_id") or _resolve_provider_model(provider, model_id)),
+                    "source": "provider",
+                }
+            except (NotImplementedError, AIClientError):
+                pass
+        category = _categorize_feedback(feedback)
+        refined = _refine_spec_from_feedback(spec=spec, feedback=feedback, category=category)
+        return refined, {
+            "generation_mode": "offline",
+            "model_id": _resolve_provider_model(provider, model_id),
+            "source": "heuristic",
+        }
+
+    async def _approval_blockers(self, repository: GenerationRepository, *, job_id: str) -> list[str]:
+        artifact = await repository.get_latest_artifact(job_id=job_id, stage="review", artifact_type="report")
+        if artifact is None:
+            return ["missing review artifact"]
+        review = decode_artifact_payload(artifact)
+        blockers: list[str] = []
+        dry_run = review.get("dry_run")
+        if isinstance(dry_run, dict) and dry_run.get("ok") is False:
+            blockers.append(f"backend dry-run failed: {dry_run.get('error') or 'unknown error'}")
+        for issue in review.get("issues", []):
+            if not isinstance(issue, dict):
+                continue
+            if str(issue.get("severity")) == "critical":
+                message = str(issue.get("message") or issue.get("area") or "critical review issue")
+                blockers.append(message)
+        return blockers
     async def _sync_agent_job(self, *, job_id: str) -> None:
         if self.agent_registry is None:
             return
@@ -742,12 +1012,18 @@ class GenerationPipelineService:
         logs = await repository.list_logs(job_id)
         install_target = await self._build_install_target(job.widget_id, job.selected_version)
         diff_preview = await self._build_diff_preview(session=session, job_id=job_id, widget_id=job.widget_id)
-        return serialize_job(
+        serialized = serialize_job(
             job,
             artifacts=artifacts,
             logs=logs,
             install_target=install_target,
             diff_preview=diff_preview,
+        )
+        return serialized.model_copy(
+            update={
+                "generation_mode": job.generation_mode,
+                "model_id": job.model_id,
+            }
         )
 
     async def _build_diff_preview(
@@ -805,6 +1081,7 @@ class GenerationPipelineService:
             if provider_id not in enabled_provider_ids:
                 continue
             provider = provider_from_id(provider_id, self.providers)
+            await self._refresh_provider_credentials(provider)
             health = await provider.health()
             if str(health.get("status", "")).lower() not in {"unavailable", "error"}:
                 return provider
@@ -830,6 +1107,168 @@ class GenerationPipelineService:
             self._creation_locks[widget_id] = lock
         return lock
 
+
+def _serialize_queued_input(value: QueuedGenerationInput) -> str:
+    return json.dumps(
+        {
+            "job_id": value.job_id,
+            "spec": value.spec.model_dump(mode="json"),
+            "provider_id": value.provider_id,
+            "model_id": value.model_id,
+            "idea_prompt": value.idea_prompt,
+        }
+    )
+
+
+def _deserialize_queued_input(value: str) -> QueuedGenerationInput:
+    payload = json.loads(value)
+    return QueuedGenerationInput(
+        job_id=str(payload["job_id"]),
+        spec=WidgetSpecDraft.model_validate(payload["spec"]),
+        provider_id=str(payload["provider_id"]),
+        model_id=payload.get("model_id"),
+        idea_prompt=payload.get("idea_prompt"),
+    )
+
+
+def _resolve_provider_model(provider: AIProvider, model_id: str | None) -> str | None:
+    if model_id:
+        return model_id
+    default = getattr(provider, "default_model_id", None)
+    if default:
+        return str(default)
+    supported = getattr(provider, "supported_model_ids", ())
+    return str(supported[0]) if supported else None
+
+
+def _extract_generation_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: payload.get(key) for key in ("generation_mode", "model_id") if key in payload}
+
+
+def _strip_generation_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in payload.items() if key not in {"generation_mode", "model_id"}}
+
+
+def _replace_file_content(files: list[dict[str, Any]], suffix: str, content: str) -> None:
+    for file in files:
+        if str(file.get("path", "")).endswith(suffix):
+            file["content"] = content
+            return
+
+
+def _artifact_blueprint(artifact: Any | None) -> dict[str, Any] | None:
+    if artifact is None:
+        return None
+    package = decode_artifact_payload(artifact).get("package")
+    if isinstance(package, dict) and isinstance(package.get("blueprint"), dict):
+        return package["blueprint"]
+    return None
+
+
+def _issues_from_dry_run(dry_run: dict[str, Any]) -> list[dict[str, str]]:
+    if dry_run.get("ok") is not False:
+        return []
+    return [
+        {
+            "severity": "critical",
+            "area": "contract",
+            "message": f"Generated backend failed dry-run: {dry_run.get('error') or 'unknown error'}",
+            "fix_hint": "Fix backend.py so start() and get_state() complete without crashing or hanging.",
+        }
+    ]
+
+
+def _binding_warnings(*, blueprint: dict[str, Any], state: dict[str, Any]) -> list[dict[str, str]]:
+    try:
+        paths = collect_binding_paths(validate_blueprint(blueprint))
+    except ValueError as exc:
+        return [
+            {
+                "severity": "critical",
+                "area": "bindings",
+                "message": f"Generated blueprint failed validation before binding check: {exc}",
+                "fix_hint": "Return a valid view.blueprint.json document that matches the schema.",
+            }
+        ]
+    top_level = {_top_level_path(path) for path in paths}
+    missing = sorted(path for path in top_level if path and path not in state)
+    return [
+        {
+            "severity": "warning",
+            "area": "bindings",
+            "message": f"Blueprint binding top-level path '{path}' was not returned by backend dry-run state.",
+            "fix_hint": f"Update get_state() to include '{path}' or update view.blueprint.json bindings.",
+        }
+        for path in missing
+    ]
+
+
+def _top_level_path(path: str) -> str:
+    return path.split(".", 1)[0].split("[", 1)[0]
+
+
+def _merge_review_issues(
+    review: dict[str, Any],
+    *,
+    issues: list[dict[str, str]],
+    generation_mode: str,
+    model_id: str | None,
+    dry_run: dict[str, Any],
+) -> dict[str, Any]:
+    merged = dict(review)
+    existing = [issue for issue in merged.get("issues", []) if isinstance(issue, dict)]
+    merged["issues"] = [*existing, *issues]
+    merged["generation_mode"] = generation_mode
+    merged["model_id"] = model_id
+    merged["dry_run"] = dry_run
+    if any(issue.get("severity") == "critical" for issue in merged["issues"]):
+        merged["approved_for_install_recommendation"] = False
+    return merged
+
+
+def _changed_spec_fields(before: WidgetSpecDraft, after: WidgetSpecDraft) -> list[str]:
+    before_payload = before.model_dump(mode="json")
+    after_payload = after.model_dump(mode="json")
+    return sorted(key for key in after_payload if before_payload.get(key) != after_payload.get(key))
+
+
+def _derive_feedback_tags(*, changed_fields: list[str], feedback: str) -> list[str]:
+    tags: list[str] = []
+    field_tags = {
+        "name": "name",
+        "min_size": "sizing",
+        "preferred_size": "sizing",
+        "renderer_type": "ui",
+        "output_schema": "feature",
+        "refresh_policy": "feature",
+        "lifecycle_policy": "feature",
+        "category": "feature",
+        "permissions": "feature",
+        "description": "feature",
+    }
+    for field in changed_fields:
+        tag = field_tags.get(field, "feature")
+        if tag not in tags:
+            tags.append(tag)
+    if not tags:
+        tags.append(_categorize_feedback(feedback))
+    return tags
+
+
+def _primary_feedback_category(tags: list[str]) -> str:
+    # Most specific signal wins; "feature" is the catch-all fallback and must
+    # not outrank name/sizing/ui just because the always-appended description
+    # change contributes a "feature" tag.
+    for candidate in ("name", "sizing", "ui"):
+        if candidate in tags:
+            return candidate
+    return "feature"
+
+
+def _format_spec_diff_summary(changed_fields: list[str]) -> str:
+    if not changed_fields:
+        return "No spec fields changed."
+    return "Changed fields: " + ", ".join(changed_fields)
 
 def _bump_patch_version(version: str) -> str:
     parts = version.split(".")

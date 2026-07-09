@@ -315,6 +315,7 @@ class PluginManagerService:
                 backend_source=backend_source,
                 renderer_source="",
                 widget_id=manifest.id,
+                generated=True,
             )
         elif isinstance(manifest.renderer, ModuleRendererTarget):
             renderer_source = package.get("renderer_source")
@@ -324,6 +325,7 @@ class PluginManagerService:
                 backend_source=backend_source,
                 renderer_source=renderer_source,
                 widget_id=manifest.id,
+                generated=True,
             )
             PluginManagerService._validate_renderer_contract(
                 renderer_source=renderer_source,

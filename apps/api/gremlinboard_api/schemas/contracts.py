@@ -1001,6 +1001,8 @@ class GenerationJobRead(BaseModel):
     current_step: str | None = None
     progress: int = Field(default=0, ge=0, le=100)
     idea: str | None = None
+    generation_mode: str | None = None
+    model_id: str | None = None
     install_blocked: bool
     artifact_version: int
     selected_version: str
@@ -1045,6 +1047,7 @@ class EasyGenerationJobRead(BaseModel):
 
 class GenerationJobFeedbackRead(BaseModel):
     category: FeedbackCategory
+    tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     job: GenerationJobRead
     test_box: GenerationTestBoxRead | None = None

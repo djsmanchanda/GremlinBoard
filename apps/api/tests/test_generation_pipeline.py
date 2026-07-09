@@ -161,7 +161,7 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
     finally:
         await engine.dispose()
         if root.exists():
-            shutil.rmtree(root)
+            shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.mark.asyncio
@@ -221,7 +221,7 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
     finally:
         await engine.dispose()
         if root.exists():
-            shutil.rmtree(root)
+            shutil.rmtree(root, ignore_errors=True)
 
 
 @pytest.mark.asyncio
@@ -302,4 +302,4 @@ async def test_easy_generation_returns_test_box_and_feedback_refinement_metadata
     finally:
         await engine.dispose()
         if root.exists():
-            shutil.rmtree(root)
+            shutil.rmtree(root, ignore_errors=True)

@@ -18,6 +18,21 @@ from gremlinboard_api.schemas.contracts import (
 from gremlinboard_api.specs.widget_ids import sanitize_widget_id, widget_service_module
 
 DANGEROUS_BACKEND_IMPORTS = {"os", "pathlib", "socket", "subprocess", "sys"}
+GENERATED_BACKEND_IMPORT_ALLOWLIST = {
+    "__future__",
+    "json",
+    "time",
+    "datetime",
+    "math",
+    "re",
+    "asyncio",
+    "typing",
+    "dataclasses",
+    "collections",
+    "urllib.parse",
+    "httpx",
+    "gremlinboard_api.runtime.base",
+}
 DANGEROUS_RENDERER_IMPORTS = {
     "child_process",
     "dgram",
@@ -232,8 +247,8 @@ def _load_widget_blueprint(widget_root: Path, *, manifest_id: str) -> dict[str, 
     return blueprint.model_dump(mode="json", exclude_none=True)
 
 
-def validate_widget_package_source(*, backend_source: str, renderer_source: str, widget_id: str) -> None:
-    _reject_dangerous_backend_imports(backend_source, widget_id)
+def validate_widget_package_source(*, backend_source: str, renderer_source: str, widget_id: str, generated: bool = False) -> None:
+    _reject_dangerous_backend_imports(backend_source, widget_id, generated=generated)
     _reject_dangerous_renderer_imports(renderer_source, widget_id)
 
 
@@ -247,23 +262,53 @@ def _renderer_exports_symbol(renderer_source: str, export_name: str) -> bool:
     return any(re.search(pattern, renderer_source) for pattern in patterns)
 
 
-def _reject_dangerous_backend_imports(backend_source: str, widget_id: str) -> None:
+def _reject_dangerous_backend_imports(backend_source: str, widget_id: str, *, generated: bool = False) -> None:
     try:
         tree = ast.parse(backend_source)
     except SyntaxError as exc:
         raise ValueError(f"backend.py for widget {widget_id} must be valid Python") from exc
 
+    imported_modules: list[str] = []
+    imported_aliases: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imported = [alias.name.split(".", 1)[0] for alias in node.names]
+            for alias in node.names:
+                imported_modules.append(alias.name)
+                imported_aliases.add(alias.asname or alias.name.split(".", 1)[0])
         elif isinstance(node, ast.ImportFrom) and node.module:
-            imported = [node.module.split(".", 1)[0]]
-        else:
-            continue
-        blocked = sorted(set(imported) & DANGEROUS_BACKEND_IMPORTS)
+            imported_modules.append(node.module)
+            for alias in node.names:
+                imported_aliases.add(alias.asname or alias.name)
+
+    if generated:
+        blocked = sorted(module for module in imported_modules if not _is_generated_backend_import_allowed(module))
+        if blocked:
+            raise ValueError(f"backend.py for widget {widget_id} imports non-allowlisted module(s): {', '.join(blocked)}")
+    else:
+        imported_roots = [module.split(".", 1)[0] for module in imported_modules]
+        blocked = sorted(set(imported_roots) & DANGEROUS_BACKEND_IMPORTS)
         if blocked:
             raise ValueError(f"backend.py for widget {widget_id} imports blocked module(s): {', '.join(blocked)}")
 
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name) and node.func.id in {"eval", "exec", "compile", "__import__"}:
+                raise ValueError(f"backend.py for widget {widget_id} calls blocked builtin '{node.func.id}'")
+            if isinstance(node.func, ast.Name) and node.func.id == "getattr":
+                if node.args and isinstance(node.args[0], ast.Name) and node.args[0].id in imported_aliases:
+                    raise ValueError(f"backend.py for widget {widget_id} uses getattr() on imported module '{node.args[0].id}'")
+                if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and str(node.args[1].value).startswith("__"):
+                    raise ValueError(f"backend.py for widget {widget_id} uses getattr() on a dunder attribute")
+
+
+def _is_generated_backend_import_allowed(module: str) -> bool:
+    if module in GENERATED_BACKEND_IMPORT_ALLOWLIST:
+        return True
+    return any(
+        module.startswith(f"{allowed}.")
+        for allowed in GENERATED_BACKEND_IMPORT_ALLOWLIST
+        if allowed in {"collections", "typing", "dataclasses", "httpx"}
+    )
 
 def _reject_dangerous_renderer_imports(renderer_source: str, widget_id: str) -> None:
     patterns = (
