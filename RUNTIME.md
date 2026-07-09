@@ -46,6 +46,26 @@ Every service should report or allow the runtime to derive:
 - restart count
 - consecutive failures
 
+## Process Services
+
+Process services are adapter-managed widget services.
+
+Rules:
+
+- The manifest declares `service.kind: "process"` and `service.command` as argv.
+- The registry accepts only in-package process executables.
+- The runtime spawns the process with the widget package as `cwd`.
+- Communication is newline-delimited JSON-RPC 2.0 over stdin/stdout.
+- Supported methods are `start`, `stop`, `health`, `get_state`, `refresh`, and `set_config`.
+- Calls are serialized per process.
+- `start_timeout_seconds` bounds spawn and `start`.
+- `refresh_timeout_seconds` bounds `health`, `get_state`, `refresh`, and `set_config`.
+- Stop uses a short bounded stop call, then runtime cleanup terminates the process if it is still alive.
+- Child stderr is captured into runtime logs.
+- Child stdout must contain only JSON-RPC response lines.
+- A malformed response, timeout, EOF, or process exit is a runtime failure.
+- A stopped, removed, crashed, or shutdown widget must not leave an orphan process.
+
 ## Operator Surfaces
 
 - Board widgets show compact lifecycle, freshness, mode, and issue state.

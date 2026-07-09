@@ -1,0 +1,9 @@
+[package]
+name = "sysstats_rust"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+gremlinboard-widget-kit = { path = "../../kits/rust-widget" }
+serde_json = "1"

@@ -1,0 +1,37 @@
+{
+  "id": "sysstats_rust",
+  "version": "0.1.0",
+  "name": "Rust Process Stats",
+  "category": "system",
+  "description": "Rust process uptime, refresh ticks, and std-only runtime telemetry.",
+  "min_size": "2x2",
+  "preferred_size": "2x2",
+  "allowed_sizes": ["2x2", "4x2"],
+  "refresh_policy": {
+    "mode": "interval",
+    "interval_seconds": 60
+  },
+  "lifecycle_policy": {
+    "stateful": true,
+    "expires": false,
+    "default_ttl_seconds": null
+  },
+  "runtime_policy": {
+    "start_timeout_seconds": 5,
+    "refresh_timeout_seconds": 5,
+    "heartbeat_timeout_seconds": 90,
+    "max_retries": 2,
+    "retry_backoff_seconds": 1,
+    "stale_after_seconds": 180
+  },
+  "permissions": [],
+  "renderer": {
+    "kind": "blueprint",
+    "blueprint": "view.blueprint.json"
+  },
+  "service": {
+    "kind": "process",
+    "command": ["bin/sysstats_rust.exe"]
+  },
+  "config_schema": "config.schema.json"
+}

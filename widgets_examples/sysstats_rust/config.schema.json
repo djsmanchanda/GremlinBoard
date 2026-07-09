@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "label": {
+      "type": "string",
+      "title": "Label",
+      "default": "Rust process"
+    },
+    "note": {
+      "type": "string",
+      "title": "Note",
+      "default": "std-only process telemetry"
+    }
+  }
+}

@@ -36,6 +36,42 @@ Every installed widget manifest must define:
 - service
 - config_schema
 
+## Process Widget Services
+
+A widget may run as an out-of-process service when its manifest uses:
+
+```json
+{
+  "service": {
+    "kind": "process",
+    "command": ["bin/widget.exe"]
+  }
+}
+```
+
+Rules:
+
+- `service.command` is argv, not a shell string.
+- The command must be non-empty.
+- Path-like executables must resolve inside the widget package directory.
+- Do not use `..`, absolute host paths outside the package, or shared global binaries.
+- The runtime starts the process with the widget package as its working directory.
+- Stdout is protocol-only. Human diagnostics must go to stderr.
+- Process widgets still need a registered manifest, config schema, renderer, refresh policy, lifecycle policy, and runtime policy.
+
+Process services speak newline-delimited JSON-RPC 2.0 over stdio:
+
+| Method | Params | Expected result |
+| --- | --- | --- |
+| `start` | `{ "instance_id": "...", "config": {...} }` | JSON value; state object preferred |
+| `stop` | `{}` | JSON value, then graceful process exit |
+| `health` | `{}` | Health object |
+| `get_state` | `{}` | State object |
+| `refresh` | `{ "force": true }` | State object |
+| `set_config` | `{ "config": {...} }` | JSON value |
+
+Unknown methods must return JSON-RPC error code `-32601`.
+
 ## Example
 
 ```yaml

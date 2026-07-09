@@ -1,0 +1,110 @@
+{
+  "blueprint_version": "1",
+  "widget_id": "sysstats_rust",
+  "layouts": {
+    "medium": {
+      "type": "stack",
+      "gap": "md",
+      "children": [
+        {
+          "type": "text",
+          "value_path": "label",
+          "variant": "title"
+        },
+        {
+          "type": "grid",
+          "columns": 2,
+          "gap": "sm",
+          "children": [
+            {
+              "type": "stat",
+              "label": "Uptime",
+              "value_path": "uptime_seconds",
+              "unit": "s",
+              "emphasis": "primary",
+              "status_path": "status",
+              "status_map": {
+                "running": "ok",
+                "created": "neutral"
+              }
+            },
+            {
+              "type": "stat",
+              "label": "Ticks",
+              "value_path": "ticks",
+              "emphasis": "secondary"
+            }
+          ]
+        },
+        {
+          "type": "key_value",
+          "entries": [
+            {
+              "label": "Status",
+              "value_path": "status_label"
+            },
+            {
+              "label": "Source",
+              "value_path": "details.source"
+            },
+            {
+              "label": "Last refresh",
+              "value_path": "last_refresh_unix"
+            }
+          ]
+        },
+        {
+          "type": "timer",
+          "target_path": "started_unix",
+          "direction": "up",
+          "label_path": "note"
+        }
+      ]
+    },
+    "wide": {
+      "type": "grid",
+      "columns": 2,
+      "gap": "md",
+      "children": [
+        {
+          "type": "stack",
+          "gap": "sm",
+          "children": [
+            {
+              "type": "text",
+              "value_path": "label",
+              "variant": "title"
+            },
+            {
+              "type": "timer",
+              "target_path": "started_unix",
+              "direction": "up",
+              "label_path": "note"
+            }
+          ]
+        },
+        {
+          "type": "key_value",
+          "entries": [
+            {
+              "label": "Status",
+              "value_path": "status_label"
+            },
+            {
+              "label": "Uptime seconds",
+              "value_path": "uptime_seconds"
+            },
+            {
+              "label": "Refresh ticks",
+              "value_path": "ticks"
+            },
+            {
+              "label": "Source",
+              "value_path": "details.source"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
