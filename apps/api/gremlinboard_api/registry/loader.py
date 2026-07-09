@@ -11,6 +11,7 @@ from gremlinboard_api.schemas.blueprint import collect_binding_paths, validate_b
 from gremlinboard_api.schemas.contracts import (
     BlueprintRendererTarget,
     ModuleRendererTarget,
+    PythonServiceTarget,
     WidgetManifest,
     WidgetRegistryEntry,
 )
@@ -60,10 +61,11 @@ class WidgetRegistry:
 
             if not schema_path.exists():
                 raise FileNotFoundError(f"missing config schema for widget {manifest.id}")
-            if not backend_path.exists():
-                raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
-            backend_source = backend_path.read_text(encoding="utf-8")
-            _reject_dangerous_backend_imports(backend_source, manifest.id)
+            if isinstance(manifest.service, PythonServiceTarget):
+                if not backend_path.exists():
+                    raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
+                backend_source = backend_path.read_text(encoding="utf-8")
+                _reject_dangerous_backend_imports(backend_source, manifest.id)
             blueprint: dict[str, Any] | None = None
             if isinstance(manifest.renderer, BlueprintRendererTarget):
                 blueprint = _load_widget_blueprint(widget_root, manifest_id=manifest.id)
@@ -147,13 +149,20 @@ def validate_widget_manifest_paths(
     service = raw_manifest.get("service")
     if not isinstance(service, dict):
         raise ValueError(f"widget {canonical_id} manifest must include a service target")
-    expected_service_module = widget_service_module(canonical_id)
-    service_module = service.get("module")
-    if not isinstance(service_module, str) or not service_module.startswith("widgets."):
-        raise ValueError(f"service.module for widget {canonical_id} must be under widgets.*")
-    if service_module != expected_service_module:
-        raise ValueError(f"service.module for widget {canonical_id} must be '{expected_service_module}'")
-
+    service_kind = service.get("kind", "python")
+    if service_kind == "python":
+        expected_service_module = widget_service_module(canonical_id)
+        service_module = service.get("module")
+        if not isinstance(service_module, str) or not service_module.startswith("widgets."):
+            raise ValueError(f"service.module for widget {canonical_id} must be under widgets.*")
+        if service_module != expected_service_module:
+            raise ValueError(f"service.module for widget {canonical_id} must be '{expected_service_module}'")
+    elif service_kind == "process":
+        if "module" in service or "class_name" in service:
+            raise ValueError(f"process service for widget {canonical_id} must not declare a python module")
+        _validate_process_service_command(service, widget_root=widget_root, widget_id=canonical_id)
+    else:
+        raise ValueError(f"service.kind for widget {canonical_id} must be 'python' or 'process'")
     renderer = raw_manifest.get("renderer")
     if not isinstance(renderer, dict):
         raise ValueError(f"widget {canonical_id} manifest must include a renderer target")
@@ -174,6 +183,39 @@ def validate_widget_manifest_paths(
     return canonical_id
 
 
+def _validate_process_service_command(
+    service: dict[str, Any], *, widget_root: Path | None, widget_id: str
+) -> None:
+    command = service.get("command")
+    if not isinstance(command, list) or not command:
+        raise ValueError(f"service.command for widget {widget_id} must be a non-empty argv list")
+    if any(not isinstance(part, str) or not part for part in command):
+        raise ValueError(f"service.command for widget {widget_id} must contain non-empty strings")
+
+    executable = command[0]
+    normalized = executable.replace("\\", "/")
+    if ".." in {part for part in normalized.split("/") if part}:
+        raise ValueError(f"service.command for widget {widget_id} must not contain '..' traversal")
+    if _is_bare_executable_name(executable):
+        return
+    executable_path = Path(executable)
+    if widget_root is None:
+        return
+    if executable_path.drive and not executable_path.is_absolute():
+        raise ValueError(f"service.command for widget {widget_id} must not use a drive-relative path")
+    candidate = executable_path if executable_path.is_absolute() else widget_root / executable_path
+    root = widget_root.resolve(strict=False)
+    resolved = candidate.resolve(strict=False)
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"service.command for widget {widget_id} must stay inside the widget package directory") from exc
+
+
+def _is_bare_executable_name(value: str) -> bool:
+    path = Path(value)
+    return "/" not in value and "\\" not in value and not path.is_absolute() and not path.drive
+
 
 def _load_widget_blueprint(widget_root: Path, *, manifest_id: str) -> dict[str, Any]:
     blueprint_path = widget_root / "view.blueprint.json"
@@ -188,6 +230,7 @@ def _load_widget_blueprint(widget_root: Path, *, manifest_id: str) -> dict[str, 
         raise ValueError(f"view.blueprint.json widget_id must match manifest id '{manifest_id}'")
     collect_binding_paths(blueprint)
     return blueprint.model_dump(mode="json", exclude_none=True)
+
 
 def validate_widget_package_source(*, backend_source: str, renderer_source: str, widget_id: str) -> None:
     _reject_dangerous_backend_imports(backend_source, widget_id)

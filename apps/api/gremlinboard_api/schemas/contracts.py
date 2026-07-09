@@ -95,11 +95,30 @@ class BlueprintRendererTarget(BaseModel):
 RendererTarget = Annotated[ModuleRendererTarget | BlueprintRendererTarget, Field(discriminator="kind")]
 
 
-class ServiceTarget(BaseModel):
+class PythonServiceTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    kind: Literal["python"] = "python"
     module: str
     class_name: str
+
+
+class ProcessServiceTarget(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["process"]
+    command: list[str] = Field(min_length=1)
+    cwd_relative: bool = True
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, value: list[str]) -> list[str]:
+        if any(not isinstance(part, str) or not part for part in value):
+            raise ValueError("service.command must contain non-empty strings")
+        return value
+
+
+ServiceTarget = Annotated[PythonServiceTarget | ProcessServiceTarget, Field(discriminator="kind")]
 
 
 class WidgetManifest(BaseModel):
@@ -123,12 +142,15 @@ class WidgetManifest(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def default_renderer_kind(cls, data: Any) -> Any:
+    def default_contract_kinds(cls, data: Any) -> Any:
         if isinstance(data, dict):
+            data = dict(data)
             renderer = data.get("renderer")
             if isinstance(renderer, dict) and "kind" not in renderer:
-                data = dict(data)
                 data["renderer"] = {"kind": "module", **renderer}
+            service = data.get("service")
+            if isinstance(service, dict) and "kind" not in service:
+                data["service"] = {"kind": "python", **service}
         return data
 
     @field_validator("id")
@@ -145,7 +167,8 @@ class WidgetManifest(BaseModel):
             raise ValueError("preferred_size must be included in allowed_sizes")
         if any(size.value not in ALLOWED_TILE_SIZES for size in self.allowed_sizes):
             raise ValueError("manifest includes unsupported tile sizes")
-        self.service.module = widget_service_module(self.id)
+        if isinstance(self.service, PythonServiceTarget):
+            self.service.module = widget_service_module(self.id)
         if isinstance(self.renderer, ModuleRendererTarget):
             if self.renderer.module != f"@widgets/{self.id}/renderer":
                 raise ValueError("renderer.module must point at the widget package renderer entry")

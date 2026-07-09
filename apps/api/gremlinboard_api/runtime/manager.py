@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from gremlinboard_api.registry.loader import WidgetRegistry
 from gremlinboard_api.repositories.board import BoardRepository, serialize_board, serialize_runtime_log
 from gremlinboard_api.runtime.base import BaseWidgetService, RefreshDirective, ServiceContext
+from gremlinboard_api.runtime.process_service import ProcessWidgetService
 from gremlinboard_api.runtime.events import EventBus
 from gremlinboard_api.schemas.contracts import (
     BoardPatchRead,
@@ -24,6 +25,7 @@ from gremlinboard_api.schemas.contracts import (
     RuntimeEventPersistence,
     RuntimeEventSource,
     RuntimeEventVisibility,
+    PythonServiceTarget,
     WidgetManifest,
 )
 
@@ -738,6 +740,17 @@ class RuntimeManager:
     def _build_service(
         self, *, manifest: WidgetManifest, instance_id: str, config: dict[str, Any]
     ) -> BaseWidgetService:
+        if manifest.service.kind == "process":
+            loaded = self.registry.get(manifest.id)
+            return ProcessWidgetService(
+                instance_id=instance_id,
+                manifest=manifest,
+                config=config,
+                widget_root=loaded.root_dir,
+                service_context=self.service_context,
+            )
+        if not isinstance(manifest.service, PythonServiceTarget):
+            raise TypeError(f"unsupported widget service kind for {manifest.id}: {manifest.service.kind}")
         expected_module = f"widgets.{manifest.id}.backend"
         if manifest.service.module != expected_module:
             raise TypeError(f"widget service module for {manifest.id} must be '{expected_module}'")
