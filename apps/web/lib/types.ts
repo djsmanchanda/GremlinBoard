@@ -10,6 +10,21 @@ export interface RefreshPolicy {
   interval_seconds: number;
 }
 
+export interface ModuleRendererTarget {
+  /** Backend emits "module"; older payloads/mocks may omit the discriminator. */
+  kind?: "module";
+  target: "react";
+  module: string;
+  export_name: string;
+}
+
+export interface BlueprintRendererTarget {
+  kind: "blueprint";
+  blueprint: "view.blueprint.json";
+}
+
+export type RendererTarget = ModuleRendererTarget | BlueprintRendererTarget;
+
 export interface WidgetManifest {
   id: string;
   version: string;
@@ -34,11 +49,7 @@ export interface WidgetManifest {
     stale_after_seconds: number;
   };
   permissions: WidgetPermission[];
-  renderer: {
-    target: "react";
-    module: string;
-    export_name: string;
-  };
+  renderer: RendererTarget;
 }
 
 export interface WidgetPlugin {
@@ -57,6 +68,7 @@ export interface WidgetPlugin {
 export interface WidgetRegistryEntry {
   manifest: WidgetManifest;
   config_schema: JsonObject;
+  blueprint?: JsonObject | null;
   plugin?: WidgetPlugin | null;
 }
 
@@ -80,6 +92,7 @@ export interface WidgetInstance {
   service_uptime_seconds: number;
   restart_count: number;
   consecutive_failures: number;
+  blueprint?: JsonObject | null;
 }
 
 export interface BoardState {

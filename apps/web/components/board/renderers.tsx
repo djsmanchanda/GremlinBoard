@@ -2,13 +2,28 @@
 
 import { Component, type ComponentType, type ErrorInfo, type ReactNode, useEffect, useState } from "react";
 
-import type { WidgetManifest, WidgetRendererProps } from "@/lib/types";
+import { BlueprintRenderer } from "@/components/board/blueprint-renderer";
+import type { ModuleRendererTarget, WidgetManifest, WidgetRendererProps } from "@/lib/types";
 
 type WidgetRendererComponent = ComponentType<WidgetRendererProps>;
 
 const rendererCache = new Map<string, Promise<WidgetRendererComponent>>();
 
+function isBlueprintManifest(manifest: WidgetManifest) {
+  return manifest.renderer.kind === "blueprint";
+}
+
+function getModuleRenderer(manifest: WidgetManifest): ModuleRendererTarget {
+  if (manifest.renderer.kind === "blueprint") {
+    throw new Error("Blueprint manifests do not use module renderers.");
+  }
+  return manifest.renderer;
+}
+
 function getRendererCacheKey(manifest: WidgetManifest) {
+  if (manifest.renderer.kind === "blueprint") {
+    return `${manifest.id}:blueprint`;
+  }
   return `${manifest.id}:${manifest.renderer.module}:${manifest.renderer.export_name}`;
 }
 
@@ -23,7 +38,9 @@ function UnsupportedWidgetRenderer({ manifest, reason }: { manifest: WidgetManif
         <p className="text-[11px] uppercase tracking-[0.2em] text-amber-100/75">Renderer unavailable</p>
         <p className="mt-3 text-sm font-medium text-white">{reason}</p>
         <p className="mt-2 text-sm leading-6 text-slate-300">
-          {manifest.renderer.module}#{manifest.renderer.export_name}
+          {manifest.renderer.kind === "blueprint"
+            ? `${manifest.id}#blueprint`
+            : `${manifest.renderer.module}#${manifest.renderer.export_name}`}
         </p>
       </div>
     </div>
@@ -65,9 +82,10 @@ class WidgetRendererBoundary extends Component<
 }
 
 function parseRendererModule(manifest: WidgetManifest) {
-  const match = /^@widgets\/([a-z][a-z0-9_-]+)\/renderer$/.exec(manifest.renderer.module);
+  const renderer = getModuleRenderer(manifest);
+  const match = /^@widgets\/([a-z][a-z0-9_-]+)\/renderer$/.exec(renderer.module);
   if (!match) {
-    throw new Error(`Renderer module '${manifest.renderer.module}' is not supported.`);
+    throw new Error(`Renderer module '${renderer.module}' is not supported.`);
   }
   if (match[1] !== manifest.id) {
     throw new Error("Renderer module does not match the widget manifest id.");
@@ -80,16 +98,17 @@ async function importRendererModule(widgetId: string) {
 }
 
 async function loadWidgetRenderer(manifest: WidgetManifest): Promise<WidgetRendererComponent> {
-  if (manifest.renderer.target !== "react") {
-    throw new Error(`Renderer target '${manifest.renderer.target}' is not supported.`);
+  const renderer = getModuleRenderer(manifest);
+  if (renderer.target !== "react") {
+    throw new Error(`Renderer target '${renderer.target}' is not supported.`);
   }
 
   const widgetId = parseRendererModule(manifest);
   const rendererModule = (await importRendererModule(widgetId)) as Record<string, unknown>;
-  const component = rendererModule[manifest.renderer.export_name];
+  const component = rendererModule[renderer.export_name];
 
   if (typeof component !== "function") {
-    throw new Error(`Renderer export '${manifest.renderer.export_name}' was not found.`);
+    throw new Error(`Renderer export '${renderer.export_name}' was not found.`);
   }
 
   return component as WidgetRendererComponent;
@@ -108,6 +127,22 @@ function getRendererPromise(manifest: WidgetManifest) {
 }
 
 export function WidgetRenderer(props: WidgetRendererProps) {
+  // Blueprint-kind manifests (generated widgets) route to the universal
+  // renderer shipped with the app — no dynamic import, works in production
+  // standalone builds. A widget payload carrying a blueprint document gets the
+  // same treatment. Module-kind built-ins keep the dynamic import path.
+  if (isBlueprintManifest(props.manifest) || props.widget.blueprint != null) {
+    return (
+      <WidgetRendererBoundary key={getRendererCacheKey(props.manifest)} manifest={props.manifest}>
+        <BlueprintRenderer {...props} />
+      </WidgetRendererBoundary>
+    );
+  }
+
+  return <ModuleWidgetRenderer {...props} />;
+}
+
+function ModuleWidgetRenderer(props: WidgetRendererProps) {
   const cacheKey = getRendererCacheKey(props.manifest);
   const [RendererComponent, setRendererComponent] = useState<WidgetRendererComponent | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
