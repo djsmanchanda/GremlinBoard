@@ -249,6 +249,8 @@ export interface GenerationJob {
   provider_id: string;
   status: GenerationJobStatus;
   current_step?: string | null;
+  /** Stage progress 0-100 emitted by the pipeline; used for the inline progress line. */
+  progress?: number | null;
   idea?: string | null;
   install_blocked: boolean;
   artifact_version: number;

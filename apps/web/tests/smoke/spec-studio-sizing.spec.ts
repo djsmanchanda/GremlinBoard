@@ -11,19 +11,20 @@ test("lets users select a strict widget size before easy generation", async ({ p
 
   await page.goto("/studio");
 
-  await expect(page.getByRole("heading", { name: "Draft, validate, scaffold, review, install" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Spec Studio" })).toBeVisible();
 
-  const sizeButton = page.getByRole("button", { name: "2x4" });
+  // The strict-size chip row lives directly beneath the idea input. Selecting a
+  // size must not mutate any feedback box — it is passed through the request.
+  const sizeButton = page.getByRole("group", { name: "Strict size" }).getByRole("button", { name: "2x4", exact: true });
   await expect(sizeButton).toHaveAttribute("aria-pressed", "false");
 
   await sizeButton.click();
 
   await expect(sizeButton).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Switch the preferred size to 2x4.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Run Easy Generation" }).click();
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
 
-  expect(requestedIdea).toContain("Use 2x4 as the preferred widget size.");
+  await expect.poll(() => requestedIdea).toContain("Use 2x4 as the preferred widget size.");
   expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
 });
 
