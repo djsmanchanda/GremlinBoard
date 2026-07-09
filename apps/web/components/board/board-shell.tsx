@@ -362,56 +362,37 @@ export function BoardShell() {
     }
   }
 
-  const registryCount = Object.keys(registry).length;
-  const boardCount = board?.widgets.length ?? 0;
-
   return (
     <main className="min-h-screen bg-bg px-2.5 py-4 md:px-4 md:py-5 2xl:px-5">
       <section className="mx-auto w-full max-w-[2520px]">
-        <header className="mb-5 rounded-panel border border-edge bg-surface p-5 md:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                  Live board
-                </span>
-                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                  Strict grid
-                </span>
-              </div>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">GremlinBoard</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                Monitoring-station board for registered widgets only. Keep the layout locked for live watch duty, then switch to Edit when the surface needs tuning.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Link
-                href={"/system" as Route}
-                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
-              >
-                System
-              </Link>
-              <Link
-                href="/studio"
-                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
-              >
-                Spec studio
-              </Link>
-              <button
-                type="button"
-                onClick={() => setCommandOpen(true)}
-                className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
-              >
-                Add widget
-              </button>
-            </div>
+        <header className="mb-4 flex flex-col gap-3 rounded-panel border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-white">GremlinBoard</h1>
+            <p className="mt-1 truncate text-sm text-slate-400">
+              Monitoring-station board for registered widgets only.
+            </p>
           </div>
 
-          <div className="mt-5 grid gap-3 md:grid-cols-3">
-            <SummaryCard label="Allowed sizes" value="1x1, 1x2, 2x2, 4x2, 2x4, 4x4" hint="Only approved ratios can be placed." />
-            <SummaryCard label="Registry" value={String(registryCount)} hint="Registered widget manifests available." />
-            <SummaryCard label="Board" value={String(boardCount)} hint="Widgets currently placed on this board." />
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={"/system" as Route}
+              className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+            >
+              System
+            </Link>
+            <Link
+              href="/studio"
+              className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+            >
+              Spec studio
+            </Link>
+            <button
+              type="button"
+              onClick={() => setCommandOpen(true)}
+              className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
+            >
+              Add widget
+            </button>
           </div>
         </header>
 
@@ -431,80 +412,55 @@ export function BoardShell() {
         ) : null}
 
         {loading || !board ? (
-          <div className="rounded-panel border border-edge bg-surface p-5 md:p-6">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Board boot</p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
-                  {error ? "Board state is unavailable." : "Loading board surface"}
-                </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                  {error
-                    ? "The latest board snapshot did not load cleanly. Retry or inspect the runtime panel for provider and service failures."
-                    : "Fetching the board snapshot, registry manifests, and realtime stream."}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => window.location.reload()}
-                  className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
-                >
-                  Retry
-                </button>
-                <Link
-                  href={"/system" as Route}
-                  className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
-                >
-                  System panel
-                </Link>
-              </div>
+          <div className="flex flex-col gap-3 rounded-panel border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-white">
+                {error ? "Board state is unavailable." : "Loading board surface"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-400">
+                {error
+                  ? "The latest board snapshot did not load cleanly. Retry or inspect the runtime panel."
+                  : "Fetching the board snapshot, registry manifests, and realtime stream."}
+              </p>
             </div>
-
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="shimmer rounded-panel border border-edge bg-surface-raised p-4">
-                  <div className="h-3 w-20 rounded-panel bg-white/10" />
-                  <div className="mt-4 h-6 w-2/3 rounded-panel bg-white/10" />
-                  <div className="mt-5 h-28 rounded-panel bg-white/[0.05]" />
-                </div>
-              ))}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                Retry
+              </button>
+              <Link
+                href={"/system" as Route}
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                System panel
+              </Link>
             </div>
           </div>
         ) : board.widgets.length === 0 ? (
-          <div className="rounded-panel border border-edge bg-surface p-5 md:p-6">
-            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Empty board</p>
-                <h2 className="mt-2 text-3xl font-semibold text-white">Build the first stack</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
-                  The runtime is up and the board is clear. Start with an existing widget, or stage a generated one through Spec Studio before installation.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCommandOpen(true)}
-                    className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
-                  >
-                    Open command box
-                  </button>
-                  <Link
-                    href="/studio"
-                    className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
-                  >
-                    Open Spec Studio
-                  </Link>
-                </div>
-              </div>
-
-              <div className="rounded-panel border border-edge bg-surface-inset p-4">
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">Onboarding</p>
-                <div className="mt-4 space-y-3">
-                  <StepCard index="01" title="Add a core widget" body="Use the command box to place a registered tile on the grid." />
-                  <StepCard index="02" title="Arrange the surface" body="Switch to Edit mode, then drag and resize only to approved board ratios." />
-                  <StepCard index="03" title="Wire providers" body="Open System Panel if data-backed widgets need API credentials or provider checks." />
-                </div>
-              </div>
+          <div className="flex flex-col gap-3 rounded-panel border border-edge bg-surface px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-lg font-semibold text-white">Build the first stack</h2>
+              <p className="mt-1 text-sm text-slate-400">
+                The board is clear. Add a registered widget, or stage a generated one through Spec Studio.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setCommandOpen(true)}
+                className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-sm text-cyan-50 transition hover:bg-cyan-300/16"
+              >
+                Open command box
+              </button>
+              <Link
+                href="/studio"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+              >
+                Open Spec Studio
+              </Link>
             </div>
           </div>
         ) : (
@@ -555,25 +511,5 @@ export function BoardShell() {
         onSelect={handleAddWidget}
       />
     </main>
-  );
-}
-
-function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div className="rounded-panel border border-edge bg-surface-inset px-4 py-3">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-2 text-sm font-medium text-white">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{hint}</p>
-    </div>
-  );
-}
-
-function StepCard({ index, title, body }: { index: string; title: string; body: string }) {
-  return (
-    <div className="rounded-panel border border-edge bg-surface-raised p-4">
-      <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">{index}</p>
-      <p className="mt-2 text-sm font-medium text-white">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-400">{body}</p>
-    </div>
   );
 }

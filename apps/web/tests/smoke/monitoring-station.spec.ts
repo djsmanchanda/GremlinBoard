@@ -23,7 +23,6 @@ for (const viewport of monitoringViewports) {
 
       await expect(page.getByRole("heading", { name: "GremlinBoard" })).toBeVisible();
       await expect(page.getByText(/Monitoring-station board/i)).toBeVisible();
-      await expect(page.getByText("Live board")).toBeVisible();
 
       await expect(page.getByRole("button", { name: "View" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
@@ -31,8 +30,7 @@ for (const viewport of monitoringViewports) {
       await expect(page.getByRole("button", { name: "Half" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Desk" })).toBeVisible();
       await expect(page.getByRole("button", { name: "Stats" })).toBeVisible();
-      await expect(page.getByText(/\d+\s+widgets/i).first()).toBeVisible();
-      await expect(page.getByText(/\d+\s+cols/i)).toBeVisible();
+      await expect(page.getByText(/\d+\s+widgets\s+·\s+\d+\s+cols/i)).toBeVisible();
 
       await expect(page.getByRole("heading").filter({ hasText: seededWidgetTitle }).first()).toBeVisible();
       await expect(page.getByText(/\d+ restarts/)).toHaveCount(0);

@@ -414,31 +414,17 @@ export function BoardGrid({
           >
             Stats
           </button>
-          <span className="rounded-panel border border-edge bg-surface-raised px-3 py-1.5">
-            {displayWidgets.length} widgets
-          </span>
-          <span className="rounded-panel border border-edge bg-surface-raised px-3 py-1.5">
-            {columnCount} cols
+          <span className="text-slate-400">
+            {displayWidgets.length} widgets · {columnCount} cols
           </span>
           <AlertSummaryBadge summary={alertSummary} />
-          <span className="rounded-panel border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
-            {isEditMode ? (selectedId ? `Selected ${selectedId}` : "No tile selected") : "Layout locked"}
-          </span>
+          {isEditMode ? (
+            <span className="rounded-panel border border-cyan-300/15 bg-cyan-300/10 px-3 py-1.5 text-cyan-100">
+              {selectedId ? `Selected ${selectedId}` : "No tile selected"}
+            </span>
+          ) : null}
         </div>
       </div>
-      {alertSummary.highest ? (
-        <div className="mb-3 grid gap-2 rounded-panel border border-edge bg-surface-inset px-3 py-2 text-xs text-slate-300 lg:grid-cols-[auto_1fr_auto] lg:items-center">
-          <span className={`w-fit rounded-panel border px-2 py-1 text-[10px] uppercase tracking-[0.16em] ${alertToneClass(alertSummary.highest.level)}`}>
-            Priority {alertSummary.highest.level}
-          </span>
-          <span className="min-w-0 truncate">
-            {alertSummary.highestWidgetTitle}: {alertSummary.highest.reasons.join(" / ")}
-          </span>
-          <span className="text-[10px] uppercase tracking-[0.16em] text-slate-500">
-            C{alertSummary.critical} A{alertSummary.alert} Done{alertSummary.completed}
-          </span>
-        </div>
-      ) : null}
       <div
         ref={containerRef}
         className="relative min-w-[760px] overflow-hidden rounded-tile border border-edge bg-surface-inset"
@@ -631,16 +617,7 @@ export function BoardGrid({
           widget={selectedWidget}
           entry={selectedEntry}
           alert={alertsByWidgetId[selectedWidget.id]}
-          canRefresh={selectedEntry ? canManuallyRefreshWidget(selectedEntry.manifest) : false}
           onClose={() => setSelectedId(null)}
-          onRefresh={() => onRefresh(selectedWidget.id)}
-          onToggleRun={() =>
-            onToggleRun(
-              selectedWidget.id,
-              selectedWidget.lifecycle_state === "running" || selectedWidget.lifecycle_state === "created",
-            )
-          }
-          onRemove={() => onRemove(selectedWidget.id)}
           onUpdateConfig={(config) => onUpdateConfig(selectedWidget.id, config)}
         />
       ) : null}
@@ -734,25 +711,16 @@ function WidgetInspector({
   widget,
   entry,
   alert,
-  canRefresh,
   onClose,
-  onRefresh,
-  onToggleRun,
-  onRemove,
   onUpdateConfig,
 }: {
   widget: BoardState["widgets"][number];
   entry?: WidgetRegistryEntry | null;
   alert: WidgetAlert;
-  canRefresh: boolean;
   onClose: () => void;
-  onRefresh: () => void;
-  onToggleRun: () => void;
-  onRemove: () => void;
   onUpdateConfig: (config: JsonObject) => void | Promise<void>;
 }) {
   const providerStates = getWidgetProviderStates(widget);
-  const running = widget.lifecycle_state === "running" || widget.lifecycle_state === "created";
 
   return (
     <aside className="fixed bottom-5 right-5 top-5 z-50 flex w-[390px] flex-col overflow-hidden rounded-panel border border-edge bg-surface-raised shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
@@ -813,32 +781,6 @@ function WidgetInspector({
             This tile cannot be configured because its manifest is not registered.
           </div>
         )}
-      </div>
-
-      <div className={`grid gap-2 border-t border-edge p-3 ${canRefresh ? "grid-cols-3" : "grid-cols-2"}`}>
-        {canRefresh ? (
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="rounded-control border border-edge bg-surface-raised px-3 py-2 text-xs uppercase tracking-[0.14em] text-slate-200 transition hover:bg-white/[0.08]"
-          >
-            Refresh
-          </button>
-        ) : null}
-        <button
-          type="button"
-          onClick={onToggleRun}
-          className="rounded-control border border-cyan-300/20 bg-cyan-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-cyan-50 transition hover:bg-cyan-300/16"
-        >
-          {running ? "Pause" : "Start"}
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          className="rounded-control border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
-        >
-          Remove
-        </button>
       </div>
     </aside>
   );

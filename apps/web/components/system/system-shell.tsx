@@ -262,16 +262,16 @@ export function SystemShell() {
   };
 
   return (
-    <main className="min-h-screen bg-[#05070a] px-4 py-5 md:px-6 md:py-6">
+    <main className="min-h-screen bg-bg px-4 py-5 md:px-6 md:py-6">
       <section className="mx-auto max-w-7xl">
-        <header className="mb-5 rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+        <header className="mb-5 rounded-panel border border-edge bg-surface p-5 md:p-6">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="flex flex-wrap gap-2">
-                <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
                   System panel
                 </span>
-                <span className="rounded border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
+                <span className="rounded-panel border border-edge bg-surface-raised px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-slate-400">
                   Deployment setup
                 </span>
               </div>
@@ -283,19 +283,19 @@ export function SystemShell() {
             <div className="flex flex-wrap gap-2">
               <Link
                 href="/"
-                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
               >
                 Board
               </Link>
               <Link
                 href="/studio"
-                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
               >
                 Studio
               </Link>
               <Link
                 href={{ pathname: "/system/devtools" }}
-                className="rounded-[12px] border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
+                className="rounded-control border border-edge bg-surface-raised px-4 py-2 text-sm text-slate-100 transition hover:bg-white/[0.08]"
               >
                 Devtools
               </Link>
@@ -311,14 +311,14 @@ export function SystemShell() {
         </header>
 
         {error ? (
-          <div className="mb-4 rounded-[18px] border border-rose-300/18 bg-rose-300/8 px-4 py-3 text-sm text-rose-50">
+          <div className="mb-4 rounded-panel border border-rose-300/18 bg-rose-300/8 px-4 py-3 text-sm text-rose-50">
             <p className="text-[10px] uppercase tracking-[0.18em] text-rose-200/80">System warning</p>
             <p className="mt-1">{error}</p>
           </div>
         ) : null}
 
         {loading || !settings || !overview || !context ? (
-          <div className="rounded-[24px] border border-white/10 bg-[#090c10] p-5 md:p-6">
+          <div className="rounded-panel border border-edge bg-surface p-5 md:p-6">
             <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Runtime sync</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Loading system state</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">
@@ -327,10 +327,10 @@ export function SystemShell() {
 
             <div className="mt-6 grid gap-3 md:grid-cols-3">
               {Array.from({ length: 3 }).map((_, index) => (
-                <div key={index} className="shimmer rounded-[18px] border border-white/10 bg-white/[0.03] p-4">
-                  <div className="h-3 w-20 rounded bg-white/10" />
-                  <div className="mt-4 h-6 w-2/3 rounded bg-white/10" />
-                  <div className="mt-5 h-28 rounded-[14px] bg-white/[0.05]" />
+                <div key={index} className="shimmer rounded-panel border border-edge bg-surface-inset p-4">
+                  <div className="h-3 w-20 rounded-panel bg-surface-raised" />
+                  <div className="mt-4 h-6 w-2/3 rounded-panel bg-surface-raised" />
+                  <div className="mt-5 h-28 rounded-control bg-surface-inset" />
                 </div>
               ))}
             </div>
@@ -362,10 +362,10 @@ export function SystemShell() {
                       key={item.provider}
                       type="button"
                       onClick={() => setSelectedSetupProvider(item.provider)}
-                      className={`w-full rounded-[16px] border px-4 py-3 text-left transition ${
+                      className={`w-full rounded-panel border px-4 py-3 text-left transition ${
                         selectedProviderConfig.provider === item.provider
                           ? "border-cyan-300/20 bg-cyan-300/8"
-                          : "border-white/10 bg-[#07090d] hover:bg-white/[0.05]"
+                          : "border-edge bg-surface-inset hover:bg-surface-inset"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-3">
@@ -374,7 +374,7 @@ export function SystemShell() {
                           <p className="mt-1 text-xs text-slate-400">{item.description}</p>
                         </div>
                         <span
-                          className={`rounded-[10px] border px-2 py-1 text-[10px] uppercase tracking-[0.14em] ${
+                          className={`rounded-control border px-2 py-1 text-[10px] uppercase tracking-[0.14em] ${
                             item.configured
                               ? "border-emerald-300/18 bg-emerald-300/10 text-emerald-50"
                               : "border-amber-300/18 bg-amber-300/10 text-amber-50"
@@ -461,7 +461,7 @@ export function SystemShell() {
                 ) : (
                   <div className="space-y-2">
                     {credentials.map((credential) => (
-                      <div key={credential.id} className="flex items-center justify-between gap-3 rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+                      <div key={credential.id} className="flex items-center justify-between gap-3 rounded-panel border border-edge bg-surface-inset px-4 py-3">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-white">{credential.provider}</p>
                           <p className="mt-1 truncate text-xs text-slate-400">
@@ -471,7 +471,7 @@ export function SystemShell() {
                         <button
                           type="button"
                           onClick={() => removeCredential(credential.id)}
-                          className="rounded-[10px] border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
+                          className="rounded-control border border-rose-300/20 bg-rose-300/10 px-3 py-2 text-xs uppercase tracking-[0.14em] text-rose-50 transition hover:bg-rose-300/16"
                         >
                           Delete
                         </button>
@@ -612,7 +612,7 @@ export function SystemShell() {
                 ) : (
                   <div className="space-y-3">
                     {overview.widget_health.map((item) => (
-                      <div key={item.widget_instance_id} className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+                      <div key={item.widget_instance_id} className="rounded-panel border border-edge bg-surface-inset p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium text-white">{item.title}</p>
@@ -659,7 +659,7 @@ export function SystemShell() {
                 ) : (
                   <div className="space-y-3">
                     {overview.timeline.map((item) => (
-                      <div key={item.id} className="grid grid-cols-[14px_minmax(0,1fr)] gap-3 rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+                      <div key={item.id} className="grid grid-cols-[14px_minmax(0,1fr)] gap-3 rounded-panel border border-edge bg-surface-inset p-4">
                         <div className="flex justify-center">
                           <span className={`mt-1 h-2.5 w-2.5 rounded-full ${timelineDotClass(item.level)}`} />
                         </div>
@@ -697,7 +697,7 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[24px] border border-white/10 bg-[#090c10] p-5">
+    <section className="rounded-panel border border-edge bg-surface p-5">
       <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-semibold text-white">{title}</h2>
       {description ? <p className="mt-2 text-sm leading-6 text-slate-400">{description}</p> : null}
@@ -708,19 +708,19 @@ function Panel({
 
 function CollapsiblePanel({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
   return (
-    <details className="rounded-[24px] border border-white/10 bg-[#090c10]">
+    <details className="rounded-panel border border-edge bg-surface">
       <summary className="cursor-pointer list-none px-5 py-4">
         <span className="block text-[10px] uppercase tracking-[0.2em] text-slate-500">{eyebrow}</span>
         <span className="mt-2 block text-lg font-semibold text-white">{title}</span>
       </summary>
-      <div className="border-t border-white/10 px-5 py-4">{children}</div>
+      <div className="border-t border-edge px-5 py-4">{children}</div>
     </details>
   );
 }
 
 function PreviewCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+    <div className="rounded-panel border border-edge bg-surface-inset p-4">
       <p className="mb-3 text-sm font-medium text-white">{title}</p>
       {children}
     </div>
@@ -729,7 +729,7 @@ function PreviewCard({ title, children }: { title: string; children: ReactNode }
 
 function SummaryCard({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-[#07090d] px-4 py-3">
+    <div className="rounded-panel border border-edge bg-surface-inset px-4 py-3">
       <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-medium text-white">{value}</p>
       <p className="mt-1 text-xs text-slate-400">{hint}</p>
@@ -739,7 +739,7 @@ function SummaryCard({ label, value, hint }: { label: string; value: string; hin
 
 function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-white/[0.03] p-4">
+    <div className="rounded-panel border border-edge bg-surface-inset p-4">
       <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{label}</p>
       <p className="mt-2 text-lg font-semibold text-white">{value}</p>
       {hint ? <p className="mt-1 text-xs text-slate-400">{hint}</p> : null}
@@ -759,7 +759,7 @@ function WizardStep({
   active?: boolean;
 }) {
   return (
-    <div className={`rounded-[16px] border p-4 ${active ? "border-cyan-300/20 bg-cyan-300/8" : "border-white/10 bg-[#07090d]"}`}>
+    <div className={`rounded-panel border p-4 ${active ? "border-cyan-300/20 bg-cyan-300/8" : "border-edge bg-surface-inset"}`}>
       <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">{step}</p>
       <p className="mt-2 text-sm font-medium text-white">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-400">{body}</p>
@@ -788,7 +788,7 @@ function TextField({
         autoComplete={autoComplete}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
+        className="w-full rounded-control border border-edge bg-surface-inset px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
       />
     </label>
   );
@@ -814,7 +814,7 @@ function SecretField({
         autoComplete="new-password"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
+        className="w-full rounded-control border border-edge bg-surface-inset px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
       />
     </label>
   );
@@ -842,7 +842,7 @@ function NumberField({
         max={max}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
+        className="w-full rounded-control border border-edge bg-surface-inset px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-300/30"
       />
     </label>
   );
@@ -865,7 +865,7 @@ function SelectField({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-[14px] border border-white/10 bg-[#07090d] px-3 py-2 text-sm text-slate-100 outline-none"
+        className="w-full rounded-control border border-edge bg-surface-inset px-3 py-2 text-sm text-slate-100 outline-none"
       >
         {options.map((option) => (
           <option key={option} value={option}>
@@ -887,7 +887,7 @@ function ToggleRow({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between rounded-[14px] border border-white/10 bg-[#07090d] px-4 py-3">
+    <label className="flex items-center justify-between rounded-control border border-edge bg-surface-inset px-4 py-3">
       <span className="text-sm text-slate-200">{label}</span>
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
@@ -910,13 +910,13 @@ function ActionButton({
   const toneClass =
     tone === "primary"
       ? "border-cyan-300/20 bg-cyan-300/10 text-cyan-50 hover:bg-cyan-300/16"
-      : "border-white/10 bg-white/[0.04] text-slate-100 hover:bg-white/[0.08]";
+      : "border-edge bg-surface-raised text-slate-100 hover:bg-white/[0.08]";
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={pending}
-      className={`rounded-[12px] border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
+      className={`rounded-control border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${toneClass}`}
     >
       {pending ? "Saving..." : children}
     </button>
@@ -934,8 +934,8 @@ function InlineNotice({
 }) {
   return (
     <div
-      className={`rounded-[16px] border px-4 py-3 ${
-        tone === "warning" ? "border-amber-300/18 bg-amber-300/8 text-amber-50" : "border-white/10 bg-white/[0.04] text-slate-100"
+      className={`rounded-panel border px-4 py-3 ${
+        tone === "warning" ? "border-amber-300/18 bg-amber-300/8 text-amber-50" : "border-edge bg-surface-raised text-slate-100"
       }`}
     >
       <p className="text-sm font-medium">{title}</p>
@@ -946,7 +946,7 @@ function InlineNotice({
 
 function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <div className="rounded-[16px] border border-dashed border-white/12 bg-white/[0.03] p-5 text-center">
+    <div className="rounded-panel border border-dashed border-edge bg-surface-inset p-5 text-center">
       <p className="text-sm font-medium text-white">{title}</p>
       <p className="mt-2 text-sm leading-6 text-slate-400">{body}</p>
     </div>
@@ -961,19 +961,19 @@ function StatusPill({ tone, children }: { tone: "good" | "warning" | "danger" | 
         ? "border-amber-300/18 bg-amber-300/10 text-amber-50"
         : tone === "danger"
           ? "border-rose-300/18 bg-rose-300/10 text-rose-50"
-          : "border-white/10 bg-white/[0.04] text-slate-200";
-  return <span className={`rounded-[10px] border px-3 py-1 text-xs uppercase tracking-[0.14em] ${toneClass}`}>{children}</span>;
+          : "border-edge bg-surface-raised text-slate-200";
+  return <span className={`rounded-control border px-3 py-1 text-xs uppercase tracking-[0.14em] ${toneClass}`}>{children}</span>;
 }
 
 function MetricBar({ label, value, max }: { label: string; value: number; max: number }) {
   const width = Math.max((value / Math.max(max, 1)) * 100, value > 0 ? 8 : 0);
   return (
-    <div className="rounded-[14px] border border-white/10 bg-white/[0.03] p-3">
+    <div className="rounded-control border border-edge bg-surface-inset p-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{label}</p>
         <span className="text-xs text-slate-300">{value}</span>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/5">
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-raised">
         <div className="h-full rounded-full bg-cyan-300/70" style={{ width: `${width}%` }} />
       </div>
     </div>
@@ -992,7 +992,7 @@ function MetricRow({
   percent: number;
 }) {
   return (
-    <div className="rounded-[16px] border border-white/10 bg-[#07090d] p-4">
+    <div className="rounded-panel border border-edge bg-surface-inset p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-white">{label}</p>
@@ -1000,7 +1000,7 @@ function MetricRow({
         </div>
         <span className="text-sm font-medium text-white">{value}</span>
       </div>
-      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/5">
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-raised">
         <div className="h-full rounded-full bg-cyan-300/70" style={{ width: `${percent}%` }} />
       </div>
     </div>
