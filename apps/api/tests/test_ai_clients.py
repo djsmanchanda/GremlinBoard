@@ -101,6 +101,112 @@ async def test_retry_on_429_then_success() -> None:
 
 
 @pytest.mark.asyncio
+async def test_anthropic_complete_json_reports_usage_via_callback() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "content": [
+                    {"type": "tool_use", "name": "gremlinboard_output", "input": {"ok": True}},
+                ],
+                "usage": {"input_tokens": 123, "output_tokens": 45},
+            },
+        )
+
+    reported: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = AnthropicClient(
+            api_key="anthropic-test",
+            http_client=http_client,
+            sleep=_no_sleep,
+            on_usage=reported.append,
+        )
+        await client.complete_json(
+            system_prompt="system",
+            user_prompt="user",
+            json_schema={"type": "object"},
+            model="claude-test",
+        )
+
+    assert reported == [{"input_tokens": 123, "output_tokens": 45, "model": "claude-test"}]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_complete_text_tolerates_missing_usage() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"content": [{"type": "text", "text": "hello"}]})
+
+    reported: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = AnthropicClient(
+            api_key="anthropic-test",
+            http_client=http_client,
+            sleep=_no_sleep,
+            on_usage=reported.append,
+        )
+        result = await client.complete_text(
+            system_prompt="system",
+            user_prompt="user",
+            model="claude-test",
+        )
+
+    assert result == "hello"
+    assert reported == []
+
+
+@pytest.mark.asyncio
+async def test_openai_complete_json_reports_usage_via_callback() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "output_text": '{"ok": true}',
+                "usage": {"input_tokens": 77, "output_tokens": 33},
+            },
+        )
+
+    reported: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = OpenAIClient(
+            api_key="openai-test",
+            http_client=http_client,
+            sleep=_no_sleep,
+            on_usage=reported.append,
+        )
+        await client.complete_json(
+            system_prompt="system",
+            user_prompt="user",
+            json_schema={"type": "object"},
+            model="gpt-test",
+        )
+
+    assert reported == [{"input_tokens": 77, "output_tokens": 33, "model": "gpt-test"}]
+
+
+@pytest.mark.asyncio
+async def test_openai_complete_text_tolerates_missing_usage() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"output_text": "hello there"})
+
+    reported: list[dict[str, Any]] = []
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        client = OpenAIClient(
+            api_key="openai-test",
+            http_client=http_client,
+            sleep=_no_sleep,
+            on_usage=reported.append,
+        )
+        result = await client.complete_text(
+            system_prompt="system",
+            user_prompt="user",
+            model="gpt-test",
+        )
+
+    assert result == "hello there"
+    assert reported == []
+
+
+@pytest.mark.asyncio
 async def test_timeout_raises_ai_client_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("timed out", request=request)

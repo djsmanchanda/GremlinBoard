@@ -241,6 +241,12 @@ export interface GenerationJobLog {
   created_at: string;
 }
 
+export interface TokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  calls: number;
+}
+
 export interface GenerationJob {
   id: string;
   widget_id: string;
@@ -252,6 +258,9 @@ export interface GenerationJob {
   /** Stage progress 0-100 emitted by the pipeline; used for the inline progress line. */
   progress?: number | null;
   idea?: string | null;
+  generation_mode?: string | null;
+  model_id?: string | null;
+  token_usage?: TokenUsage | null;
   install_blocked: boolean;
   artifact_version: number;
   selected_version: string;

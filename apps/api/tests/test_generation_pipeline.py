@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from gremlinboard_api.repositories.generation import GenerationRepository
 from gremlinboard_api.schemas.contracts import (
     AgentEntityType,
     AgentStatus,
+    ApiCredentialUpsertRequest,
     EasyGenerationCreateRequest,
     GenerationJobCreateRequest,
     GenerationJobFeedbackRequest,
@@ -29,6 +31,61 @@ from gremlinboard_api.services.generation_pipeline import GenerationPipelineServ
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.system_settings import SystemSettingsService
 from gremlinboard_api.specs.pipeline import scaffold_preview
+
+
+class _FakeLiveClient:
+    """Minimal live-client double that mimics AnthropicClient/OpenAIClient usage reporting."""
+
+    def __init__(
+        self,
+        *,
+        json_responses: list[dict[str, Any]],
+        text_responses: list[str],
+        usage_sequence: list[dict[str, Any]],
+    ) -> None:
+        self.json_responses = list(json_responses)
+        self.text_responses = list(text_responses)
+        self.usage_sequence = list(usage_sequence)
+        self.on_usage = None
+
+    async def complete_json(self, **_kwargs: Any) -> dict[str, Any]:
+        self._report_usage()
+        return self.json_responses.pop(0)
+
+    async def complete_text(self, **_kwargs: Any) -> str:
+        self._report_usage()
+        return self.text_responses.pop(0)
+
+    def _report_usage(self) -> None:
+        if self.usage_sequence and self.on_usage is not None:
+            self.on_usage(self.usage_sequence.pop(0))
+
+
+_FAKE_BACKEND_SOURCE = """
+from __future__ import annotations
+
+from gremlinboard_api.runtime.base import BaseWidgetService
+
+
+class OpsStatusService(BaseWidgetService):
+    async def start(self) -> None:
+        self.state = await self.get_state()
+
+    async def stop(self) -> None:
+        return None
+
+    async def health(self) -> dict[str, object]:
+        return {"status": "running", "provider": "fake-live", "refresh_mode": "interval"}
+
+    async def get_state(self) -> dict[str, object]:
+        return {
+            "kind": "ops_status",
+            "title": "Ops Status",
+            "category": "custom",
+            "description": "Operational status snapshot",
+            "output": {"summary": "ok", "status": "green"},
+        }
+"""
 
 
 async def wait_for_generation(
@@ -141,6 +198,7 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
         assert any(log.step == "completed" for log in job.logs)
         assert job.install_target is not None
         assert job.install_target["action"] == "install"
+        assert job.token_usage is None
 
         approved = await generation_service.approve_job(job_id=job.id)
         assert approved.status == "review_required"
@@ -159,6 +217,123 @@ async def test_generation_pipeline_runs_review_gated_install_flow() -> None:
         assert plugin is not None
         assert plugin.installed is True
         assert (widgets_dir / "ops_status" / "manifest.json").exists()
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_generation_pipeline_live_run_persists_aggregated_token_usage() -> None:
+    root = Path("data") / f"generation-live-usage-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        await settings_service.upsert_credential(
+            ApiCredentialUpsertRequest(provider="codex", label="fake codex key", value="fake-key"),
+            credential_id=None,
+            user_id=settings.default_user_id,
+        )
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+
+        fake_client = _FakeLiveClient(
+            json_responses=[
+                {
+                    "blueprint_version": "1",
+                    "widget_id": "ops_status",
+                    "layouts": {"medium": {"type": "text", "literal": "Ops", "variant": "title"}},
+                },
+                {"summary": "Looks solid.", "issues": [], "checklist": [], "requires_human_review": True},
+            ],
+            text_responses=[_FAKE_BACKEND_SOURCE],
+            usage_sequence=[
+                {"input_tokens": 400, "output_tokens": 150, "model": "gpt-5.5"},
+                {"input_tokens": 300, "output_tokens": 900, "model": "gpt-5.5"},
+                {"input_tokens": 120, "output_tokens": 60, "model": "gpt-5.5"},
+            ],
+        )
+        generation_service.providers["codex"] = CodexProvider(client=fake_client)
+
+        await generation_service.start()
+
+        spec = WidgetSpecDraft.model_validate(
+            {
+                "id": "ops_status",
+                "name": "Ops Status",
+                "category": "custom",
+                "description": "Operational status snapshot",
+                "min_size": "2x2",
+                "preferred_size": "4x2",
+                "refresh_policy": {"mode": "interval", "interval_seconds": 300},
+                "source_type": "generated",
+                "permissions": ["network"],
+                "output_schema": {"summary": "string", "status": "string"},
+                "renderer_type": "card",
+                "lifecycle_policy": {"expires": False, "stateful": True},
+            }
+        )
+        async with session_factory() as session:
+            board_repository = BoardRepository(session)
+            stage = await board_repository.create_staged_spec(
+                widget_id=spec.id,
+                stage="validated",
+                spec=spec.model_dump(mode="json"),
+                scaffold_preview=scaffold_preview(spec),
+                notes=[],
+            )
+
+        queued = await generation_service.create_job(
+            GenerationJobCreateRequest(stage_id=stage.id, provider_id="codex")
+        )
+        job = await wait_for_generation(generation_service, queued.id)
+
+        assert job.status == "completed"
+        assert job.token_usage is not None
+        assert job.token_usage.input_tokens == 400 + 300 + 120
+        assert job.token_usage.output_tokens == 150 + 900 + 60
+        assert job.token_usage.calls == 3
+
+        codegen_artifact = next(
+            artifact
+            for artifact in job.artifacts
+            if artifact.stage == "codegen" and artifact.artifact_type == "package"
+        )
+        assert codegen_artifact.payload is not None
+        codegen_usage = codegen_artifact.payload["usage"]
+        assert codegen_usage["input_tokens"] == 400 + 300
+        assert codegen_usage["output_tokens"] == 150 + 900
+
+        review_artifact = next(
+            artifact for artifact in job.artifacts if artifact.stage == "review" and artifact.artifact_type == "report"
+        )
+        assert review_artifact.payload is not None
+        review_usage = review_artifact.payload["usage"]
+        assert review_usage["input_tokens"] == 120
+        assert review_usage["output_tokens"] == 60
 
         await generation_service.shutdown()
     finally:

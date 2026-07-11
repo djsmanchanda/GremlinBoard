@@ -18,6 +18,7 @@ from gremlinboard_api.schemas.contracts import (
     GenerationJobLogRead,
     GenerationJobRead,
     GenerationJobStatus,
+    TokenUsageRead,
 )
 
 
@@ -382,6 +383,12 @@ def serialize_job(
     install_target: dict[str, Any] | None = None,
     diff_preview: list[GenerationArtifactDiffRead] | None = None,
 ) -> GenerationJobRead:
+    token_usage: TokenUsageRead | None = None
+    if record.token_usage_json:
+        try:
+            token_usage = TokenUsageRead(**json.loads(record.token_usage_json))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            token_usage = None
     return GenerationJobRead(
         id=record.id,
         widget_id=record.widget_id,
@@ -392,6 +399,7 @@ def serialize_job(
         current_step=record.current_step,
         progress=record.progress,
         idea=record.idea_text,
+        token_usage=token_usage,
         install_blocked=record.install_blocked,
         artifact_version=record.artifact_version,
         selected_version=record.selected_version,

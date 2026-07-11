@@ -65,6 +65,7 @@ class QueuedGenerationInput:
     provider_id: str
     model_id: str | None
     idea_prompt: str | None
+    idea_usage: dict[str, Any] | None = None
 
 
 class GenerationPipelineService:
@@ -205,7 +206,7 @@ class GenerationPipelineService:
     async def create_job(self, payload: GenerationJobCreateRequest) -> GenerationJobRead:
         await self._ensure_worker_started()
         provider = await self._select_provider(payload.provider_id, payload.fallback_provider_ids)
-        spec, stage_id, idea_prompt = await self._resolve_spec_source(payload=payload, provider=provider)
+        spec, stage_id, idea_prompt, idea_usage = await self._resolve_spec_source(payload=payload, provider=provider)
         async with self._creation_lock(spec.id):
             artifact_version = await self._next_artifact_version(spec.id)
             selected_version = await self._resolve_version(widget_id=spec.id, requested_version=payload.version)
@@ -238,6 +239,7 @@ class GenerationPipelineService:
                     provider_id=provider.provider_id,
                     model_id=payload.model_id,
                     idea_prompt=idea_prompt,
+                    idea_usage=idea_usage,
                 )
                 job.queued_input_json = _serialize_queued_input(queued_input)
                 job.model_id = _resolve_provider_model(provider, payload.model_id)
@@ -417,6 +419,7 @@ class GenerationPipelineService:
                         provider=provider,
                         model_id=queued_input.model_id,
                         idea_prompt=queued_input.idea_prompt,
+                        idea_usage=queued_input.idea_usage,
                     )
                     logger.info("generation worker completed job %s", job_id)
                 except asyncio.CancelledError:
@@ -632,6 +635,7 @@ class GenerationPipelineService:
         provider: AIProvider,
         model_id: str | None,
         idea_prompt: str | None,
+        idea_usage: dict[str, Any] | None = None,
     ) -> GenerationJobRead:
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
@@ -671,6 +675,7 @@ class GenerationPipelineService:
                     "idea_prompt": idea_prompt,
                     "generation_mode": generation_mode,
                     "model_id": selected_model,
+                    "usage": idea_usage,
                 },
             )
             await repository.add_log(
@@ -725,31 +730,36 @@ class GenerationPipelineService:
                 model_id=model_id,
             )
             fallback_error: str | None = None
+            codegen_usage: dict[str, int] | None = None
             try:
                 live_blueprint = await provider.generate_blueprint(widget_spec=spec_payload, model_id=model_id)
                 blueprint_meta = _extract_generation_metadata(live_blueprint)
                 live_blueprint = _strip_generation_metadata(live_blueprint)
                 validate_blueprint(live_blueprint)
-                live_backend = await provider.generate_backend(
+                backend_result = await provider.generate_backend(
                     widget_spec=spec_payload,
                     blueprint=live_blueprint,
                     model_id=model_id,
                 )
+                live_backend = backend_result.source
                 package["blueprint"] = live_blueprint
                 package["backend_source"] = live_backend
                 _replace_file_content(files, "view.blueprint.json", json.dumps(live_blueprint, indent=2) + "\n")
                 _replace_file_content(files, "backend.py", live_backend)
                 generation_mode = str(blueprint_meta.get("generation_mode") or "live")
                 selected_model = str(blueprint_meta.get("model_id") or selected_model)
+                codegen_usage = _combine_usage(blueprint_meta.get("usage"), backend_result.usage)
                 provider_codegen = dict(provider_codegen) | {
                     "generation_mode": generation_mode,
                     "model_id": selected_model,
                     "live_blueprint": True,
                     "live_backend": True,
+                    "usage": codegen_usage,
                 }
             except (NotImplementedError, AIClientError) as exc:
                 generation_mode = "offline"
                 fallback_error = str(exc)
+                codegen_usage = None
                 package = dict(scaffold["package"])
                 files = [dict(file) for file in scaffold["files"]]
                 provider_codegen = dict(provider_codegen) | {
@@ -800,6 +810,7 @@ class GenerationPipelineService:
                     "generation_mode": generation_mode,
                     "model_id": selected_model,
                     "dry_run": dry_run,
+                    "usage": codegen_usage,
                 },
             )
             await repository.add_log(
@@ -831,6 +842,10 @@ class GenerationPipelineService:
                 artifact_type="report",
                 payload=review,
             )
+            review_usage = review.get("usage") if isinstance(review.get("usage"), dict) else None
+            job_token_usage = _combine_usage(idea_usage, codegen_usage, review_usage)
+            job.token_usage_json = json.dumps(job_token_usage) if job_token_usage else None
+            await session.commit()
             await repository.update_job_with_log(
                 job,
                 status=GenerationJobStatus.COMPLETED,
@@ -967,10 +982,11 @@ class GenerationPipelineService:
         *,
         payload: GenerationJobCreateRequest,
         provider: AIProvider,
-    ) -> tuple[WidgetSpecDraft, str | None, str | None]:
+    ) -> tuple[WidgetSpecDraft, str | None, str | None, dict[str, Any] | None]:
         if payload.idea:
             idea_result = await provider.draft_spec(idea=payload.idea, model_id=payload.model_id)
             idea_prompt = str(idea_result.pop("idea_prompt", "")) or None
+            idea_usage = idea_result.pop("usage", None)
             spec = WidgetSpecDraft.model_validate(idea_result)
             async with self.session_factory() as session:
                 repository = BoardRepository(session)
@@ -982,7 +998,7 @@ class GenerationPipelineService:
                     scaffold_preview=scaffold_preview(spec),
                     notes=notes,
                 )
-            return spec, stage.id, idea_prompt
+            return spec, stage.id, idea_prompt, idea_usage
 
         async with self.session_factory() as session:
             if payload.regenerate_from_job_id:
@@ -1001,7 +1017,7 @@ class GenerationPipelineService:
             if stage_record.stage != "validated" or notes:
                 raise ValueError("spec stage must be validated before generation can run")
             spec = WidgetSpecDraft.model_validate(json.loads(stage_record.spec_json))
-            return spec, stage_record.id, None
+            return spec, stage_record.id, None, None
 
     async def _serialize_job(self, session: AsyncSession, job_id: str) -> GenerationJobRead:
         repository = GenerationRepository(session)
@@ -1116,6 +1132,7 @@ def _serialize_queued_input(value: QueuedGenerationInput) -> str:
             "provider_id": value.provider_id,
             "model_id": value.model_id,
             "idea_prompt": value.idea_prompt,
+            "idea_usage": value.idea_usage,
         }
     )
 
@@ -1128,6 +1145,7 @@ def _deserialize_queued_input(value: str) -> QueuedGenerationInput:
         provider_id=str(payload["provider_id"]),
         model_id=payload.get("model_id"),
         idea_prompt=payload.get("idea_prompt"),
+        idea_usage=payload.get("idea_usage"),
     )
 
 
@@ -1142,11 +1160,24 @@ def _resolve_provider_model(provider: AIProvider, model_id: str | None) -> str |
 
 
 def _extract_generation_metadata(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: payload.get(key) for key in ("generation_mode", "model_id") if key in payload}
+    return {key: payload.get(key) for key in ("generation_mode", "model_id", "usage") if key in payload}
 
 
 def _strip_generation_metadata(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if key not in {"generation_mode", "model_id"}}
+    return {key: value for key, value in payload.items() if key not in {"generation_mode", "model_id", "usage"}}
+
+
+def _combine_usage(*usages: dict[str, Any] | None) -> dict[str, int] | None:
+    combined = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+    found = False
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        found = True
+        combined["input_tokens"] += int(usage.get("input_tokens") or 0)
+        combined["output_tokens"] += int(usage.get("output_tokens") or 0)
+        combined["calls"] += int(usage.get("calls") or 0)
+    return combined if found else None
 
 
 def _replace_file_content(files: list[dict[str, Any]], suffix: str, content: str) -> None:

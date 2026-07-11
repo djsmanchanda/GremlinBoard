@@ -20,6 +20,29 @@ class AIClientError(RuntimeError):
 
 
 Sleep = Callable[[float], Awaitable[None]]
+UsageCallback = Callable[[dict[str, Any]], None]
+
+
+def _report_usage(on_usage: UsageCallback | None, data: dict[str, Any], model: str) -> None:
+    if on_usage is None:
+        return
+    usage = data.get("usage")
+    if not isinstance(usage, dict):
+        return
+    input_tokens = usage.get("input_tokens")
+    output_tokens = usage.get("output_tokens")
+    if input_tokens is None and output_tokens is None:
+        return
+    try:
+        on_usage(
+            {
+                "input_tokens": int(input_tokens or 0),
+                "output_tokens": int(output_tokens or 0),
+                "model": model,
+            }
+        )
+    except (TypeError, ValueError):
+        pass
 
 
 class AnthropicClient:
@@ -32,11 +55,13 @@ class AnthropicClient:
         http_client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
         sleep: Sleep = asyncio.sleep,
+        on_usage: UsageCallback | None = None,
     ) -> None:
         self.api_key = api_key
         self.timeout = timeout
         self._client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(timeout))
         self._sleep = sleep
+        self.on_usage = on_usage
 
     async def complete_json(
         self,
@@ -70,6 +95,7 @@ class AnthropicClient:
             payload["thinking"] = thinking
 
         data = await self._post(payload)
+        _report_usage(self.on_usage, data, model)
         for block in _as_list(data.get("content")):
             if not isinstance(block, dict):
                 continue
@@ -111,6 +137,7 @@ class AnthropicClient:
             payload["thinking"] = thinking
 
         data = await self._post(payload)
+        _report_usage(self.on_usage, data, model)
         if data.get("stop_reason") == "refusal":
             raise AIClientError("refusal", "Anthropic refused the request.", {"response": data})
         parts: list[str] = []
@@ -151,11 +178,13 @@ class OpenAIClient:
         http_client: httpx.AsyncClient | None = None,
         timeout: float = 120.0,
         sleep: Sleep = asyncio.sleep,
+        on_usage: UsageCallback | None = None,
     ) -> None:
         self.api_key = api_key
         self.timeout = timeout
         self._client = http_client or httpx.AsyncClient(timeout=httpx.Timeout(timeout))
         self._sleep = sleep
+        self.on_usage = on_usage
 
     async def complete_json(
         self,
@@ -191,6 +220,7 @@ class OpenAIClient:
             payload["reasoning"] = reasoning
 
         data = await self._post(payload)
+        _report_usage(self.on_usage, data, model)
         return _extract_openai_json(data)
 
     async def complete_text(
@@ -218,6 +248,7 @@ class OpenAIClient:
             payload["reasoning"] = reasoning
 
         data = await self._post(payload)
+        _report_usage(self.on_usage, data, model)
         text = _extract_openai_text(data)
         if not text:
             raise AIClientError("malformed_output", "OpenAI response did not include text output.", {"response": data})

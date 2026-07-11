@@ -15,19 +15,28 @@ class FakeClient:
         *,
         json_responses: list[dict[str, Any]] | None = None,
         text_responses: list[str] | None = None,
+        usage_sequence: list[dict[str, Any]] | None = None,
     ) -> None:
         self.json_responses = list(json_responses or [])
         self.text_responses = list(text_responses or [])
+        self.usage_sequence = list(usage_sequence or [])
         self.json_calls: list[dict[str, Any]] = []
         self.text_calls: list[dict[str, Any]] = []
+        self.on_usage = None
 
     async def complete_json(self, **kwargs: Any) -> dict[str, Any]:
         self.json_calls.append(kwargs)
+        self._report_usage()
         return self.json_responses.pop(0)
 
     async def complete_text(self, **kwargs: Any) -> str:
         self.text_calls.append(kwargs)
+        self._report_usage()
         return self.text_responses.pop(0)
+
+    def _report_usage(self) -> None:
+        if self.usage_sequence and self.on_usage is not None:
+            self.on_usage(self.usage_sequence.pop(0))
 
 
 def valid_spec_payload() -> dict[str, Any]:
@@ -159,3 +168,70 @@ async def test_review_package_offline_marks_generation_mode() -> None:
 
     assert result["generation_mode"] == "offline"
     assert result["requires_human_review"] is True
+
+
+@pytest.mark.asyncio
+async def test_draft_spec_aggregates_usage_across_repair_round(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    invalid = valid_spec_payload()
+    del invalid["id"]
+    fake_client = FakeClient(
+        json_responses=[invalid, valid_spec_payload()],
+        usage_sequence=[
+            {"input_tokens": 100, "output_tokens": 40},
+            {"input_tokens": 60, "output_tokens": 25},
+        ],
+    )
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["generation_mode"] == "live"
+    assert result["usage"] == {"input_tokens": 160, "output_tokens": 65, "calls": 2}
+
+
+@pytest.mark.asyncio
+async def test_generate_blueprint_reports_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    fake_client = FakeClient(
+        json_responses=[valid_blueprint_payload(widget_id="ops_status")],
+        usage_sequence=[{"input_tokens": 200, "output_tokens": 90}],
+    )
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.generate_blueprint(widget_spec=valid_spec_payload(), model_id="gpt-test")
+
+    assert result["usage"] == {"input_tokens": 200, "output_tokens": 90, "calls": 1}
+
+
+@pytest.mark.asyncio
+async def test_generate_backend_returns_result_with_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    fake_client = FakeClient(
+        text_responses=["def handler():\n    return 1\n"],
+        usage_sequence=[{"input_tokens": 300, "output_tokens": 150}],
+    )
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.generate_backend(widget_spec=valid_spec_payload(), blueprint=valid_blueprint_payload())
+
+    assert result.source == "def handler():\n    return 1"
+    assert result.usage == {"input_tokens": 300, "output_tokens": 150, "calls": 1}
+
+
+@pytest.mark.asyncio
+async def test_review_package_live_reports_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    fake_client = FakeClient(
+        json_responses=[{"summary": "ok", "issues": [], "requires_human_review": True}],
+        usage_sequence=[{"input_tokens": 90, "output_tokens": 20}],
+    )
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.review_package(
+        widget_spec=valid_spec_payload(),
+        package={"manifest": {"id": "ops_status", "version": "0.1.0"}},
+    )
+
+    assert result["generation_mode"] == "live"
+    assert result["usage"] == {"input_tokens": 90, "output_tokens": 20, "calls": 1}

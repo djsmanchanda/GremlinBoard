@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 from abc import ABC
 from collections.abc import Callable
+from dataclasses import dataclass
 import importlib
 import json
 from pathlib import Path
@@ -20,6 +21,51 @@ from gremlinboard_api.specs.widget_ids import sanitize_widget_id
 
 
 CredentialsGetter = Callable[[], dict[str, str]]
+
+
+@dataclass(frozen=True)
+class BackendGenerationResult:
+    """Result of a live backend codegen call, carrying aggregated token usage."""
+
+    source: str
+    usage: dict[str, int] | None = None
+
+
+class _UsageTracker:
+    """Accumulates token usage across the calls (including repair rounds) made in one provider method."""
+
+    def __init__(self) -> None:
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.calls = 0
+
+    def record(self, payload: dict[str, Any]) -> None:
+        self.input_tokens += int(payload.get("input_tokens") or 0)
+        self.output_tokens += int(payload.get("output_tokens") or 0)
+        self.calls += 1
+
+    def as_dict(self) -> dict[str, int]:
+        return {"input_tokens": self.input_tokens, "output_tokens": self.output_tokens, "calls": self.calls}
+
+
+def _attach_usage_tracker(client: Any, tracker: _UsageTracker) -> None:
+    try:
+        client.on_usage = tracker.record
+    except AttributeError:
+        pass
+
+
+def _combine_usage(*usages: dict[str, Any] | None) -> dict[str, int] | None:
+    combined = {"input_tokens": 0, "output_tokens": 0, "calls": 0}
+    found = False
+    for usage in usages:
+        if not isinstance(usage, dict):
+            continue
+        found = True
+        combined["input_tokens"] += int(usage.get("input_tokens") or 0)
+        combined["output_tokens"] += int(usage.get("output_tokens") or 0)
+        combined["calls"] += int(usage.get("calls") or 0)
+    return combined if found else None
 
 
 class AIProvider(ABC):
@@ -84,6 +130,8 @@ class AIProvider(ABC):
         user_prompt = _prompt_call("spec_user_prompt", idea=idea)
         schema = _prompt_call("spec_output_schema")
         client = self._live_client(api_key)
+        tracker = _UsageTracker()
+        _attach_usage_tracker(client, tracker)
         raw = await client.complete_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -102,7 +150,12 @@ class AIProvider(ABC):
         payload = spec.model_dump(mode="json")
         return _SpecResult(
             payload,
-            {"generation_mode": "live", "model_id": selected_model, "idea_prompt": user_prompt},
+            {
+                "generation_mode": "live",
+                "model_id": selected_model,
+                "idea_prompt": user_prompt,
+                "usage": tracker.as_dict(),
+            },
         )
 
     async def generate_blueprint(
@@ -121,6 +174,8 @@ class AIProvider(ABC):
         system_prompt = _prompt_call("blueprint_system_prompt")
         user_prompt = _prompt_call("blueprint_user_prompt", spec=spec.model_dump(mode="json"))
         client = self._live_client(api_key)
+        tracker = _UsageTracker()
+        _attach_usage_tracker(client, tracker)
         raw = await client.complete_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -137,7 +192,11 @@ class AIProvider(ABC):
             schema=schema,
             reasoning_effort=reasoning_effort,
         )
-        return blueprint.model_dump(mode="json") | {"generation_mode": "live", "model_id": selected_model}
+        return blueprint.model_dump(mode="json") | {
+            "generation_mode": "live",
+            "model_id": selected_model,
+            "usage": tracker.as_dict(),
+        }
 
     async def generate_backend(
         self,
@@ -146,7 +205,7 @@ class AIProvider(ABC):
         blueprint: dict[str, Any],
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
-    ) -> str:
+    ) -> BackendGenerationResult:
         api_key = self._api_key()
         if not api_key:
             raise NotImplementedError("offline backend generation is handled by the generation pipeline fallback")
@@ -155,19 +214,22 @@ class AIProvider(ABC):
         system_prompt = _prompt_call("backend_system_prompt")
         user_prompt = _prompt_call("backend_user_prompt", spec=spec.model_dump(mode="json"), blueprint=blueprint)
         client = self._live_client(api_key)
+        tracker = _UsageTracker()
+        _attach_usage_tracker(client, tracker)
         text = await client.complete_text(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model=selected_model,
             reasoning_effort=reasoning_effort,
         )
-        return await self._validate_backend_with_repair(
+        source = await self._validate_backend_with_repair(
             text,
             client=client,
             model_id=selected_model,
             system_prompt=system_prompt,
             reasoning_effort=reasoning_effort,
         )
+        return BackendGenerationResult(source=source, usage=tracker.as_dict())
     async def build_generation_plan(self, *, widget_spec: dict[str, Any], stage_id: str) -> dict[str, Any]:
         return {
             "stage_id": stage_id,
@@ -215,6 +277,8 @@ class AIProvider(ABC):
             return self._offline_review(widget_spec=widget_spec, package=package, selected_model=selected_model)
 
         client = self._live_client(api_key)
+        tracker = _UsageTracker()
+        _attach_usage_tracker(client, tracker)
         result = await client.complete_json(
             system_prompt=_prompt_call("review_system_prompt"),
             user_prompt=_prompt_call("review_user_prompt", spec=widget_spec, package=package),
@@ -222,7 +286,12 @@ class AIProvider(ABC):
             model=selected_model,
             reasoning_effort=reasoning_effort,
         )
-        return result | {"provider_id": self.provider_id, "model_id": selected_model, "generation_mode": "live"}
+        return result | {
+            "provider_id": self.provider_id,
+            "model_id": selected_model,
+            "generation_mode": "live",
+            "usage": tracker.as_dict(),
+        }
 
     async def list_model_options(self, *, credentials: dict[str, str]) -> tuple[list[dict[str, Any]], str, str]:
         self.set_credentials(credentials)

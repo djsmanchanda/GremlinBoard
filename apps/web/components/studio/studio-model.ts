@@ -223,3 +223,26 @@ export const GENERATING_STATUSES = new Set<GenerationJob["status"]>(["queued", "
 export function isGenerating(job: GenerationJob | null): boolean {
   return Boolean(job && GENERATING_STATUSES.has(job.status));
 }
+
+/** Compact token count for the token usage line, e.g. 12400 -> "12.4k", 320 -> "320". */
+export function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value) || value < 0) {
+    return "0";
+  }
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)}k`;
+  }
+  return String(Math.round(value));
+}
+
+/** Compact "≈12.4k in · 3.1k out tokens · model" line for the review verdict; null when no usage exists. */
+export function selectTokenUsageLabel(job: GenerationJob | null): string | null {
+  const usage = job?.token_usage;
+  if (!usage) {
+    return null;
+  }
+  const inTokens = formatTokenCount(usage.input_tokens);
+  const outTokens = formatTokenCount(usage.output_tokens);
+  const modelSuffix = job?.model_id ? ` · ${job.model_id}` : "";
+  return `≈${inTokens} in · ${outTokens} out tokens${modelSuffix}`;
+}

@@ -190,6 +190,7 @@ class GenerationJobRecord(Base):
     queued_input_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     generation_mode: Mapped[str | None] = mapped_column(String(32), nullable=True)
     model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    token_usage_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     install_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     artifact_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     selected_version: Mapped[str] = mapped_column(String(64), nullable=False, default="0.1.0")

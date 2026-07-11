@@ -3,7 +3,7 @@
 import type { AIModelOption, AIProvider, GenerationJob, TileSize } from "@/lib/types";
 import { ProviderControl } from "@/components/studio/provider-control";
 import { ActionButton, GatingReasons, InlineNotice, StatusBadge } from "@/components/studio/studio-ui";
-import { allowedWidgetSizes } from "@/components/studio/studio-model";
+import { allowedWidgetSizes, selectTokenUsageLabel } from "@/components/studio/studio-model";
 
 export interface ThreadEntry {
   id: string;
@@ -211,6 +211,7 @@ function ReviewSection(props: ConversationProps) {
     return null;
   }
   const target = job.install_target;
+  const tokenUsageLabel = selectTokenUsageLabel(job);
   return (
     <div className="border-t border-edge pt-5">
       <div className="flex items-center justify-between gap-3">
@@ -226,6 +227,7 @@ function ReviewSection(props: ConversationProps) {
         {target?.next_version ?? job.selected_version}
         {target?.current_version ? ` (current ${target.current_version})` : ""}
       </p>
+      {tokenUsageLabel ? <p className="mt-1 text-xs text-slate-400">{tokenUsageLabel}</p> : null}
 
       <div className="mt-4 space-y-3">
         <div>

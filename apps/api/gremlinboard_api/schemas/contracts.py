@@ -991,6 +991,12 @@ class GenerationArtifactRead(BaseModel):
     created_at: datetime
 
 
+class TokenUsageRead(BaseModel):
+    input_tokens: int = 0
+    output_tokens: int = 0
+    calls: int = 0
+
+
 class GenerationJobRead(BaseModel):
     id: str
     widget_id: str
@@ -1003,6 +1009,7 @@ class GenerationJobRead(BaseModel):
     idea: str | None = None
     generation_mode: str | None = None
     model_id: str | None = None
+    token_usage: TokenUsageRead | None = None
     install_blocked: bool
     artifact_version: int
     selected_version: str
