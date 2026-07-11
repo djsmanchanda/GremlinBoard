@@ -20,6 +20,7 @@ from gremlinboard_api.services.auth import AuthService
 from gremlinboard_api.services.agent_registry import AgentRegistry
 from gremlinboard_api.services.control_plane import ControlPlaneService
 from gremlinboard_api.services.generation_pipeline import GenerationPipelineService
+from gremlinboard_api.services.mcp_server import McpServerService
 from gremlinboard_api.services.observability import ObservabilityService
 from gremlinboard_api.services.fixtures import default_countdown_target
 from gremlinboard_api.services.plugin_manager import PluginManagerService
@@ -205,20 +206,24 @@ async def lifespan(app: FastAPI):
     app.state.system_settings = system_settings
     app.state.observability = observability_service
     app.state.session_factory = SessionLocal
+    mcp_server.attach(app)
 
-    await observability_service.start_event_sink()
-    await generation_pipeline.start()
-    await seed_default_widgets(SessionLocal)
-    await runtime_manager.bootstrap()
-    await observability_service.capture_runtime_snapshot()
-    yield
-    await generation_pipeline.shutdown()
-    await runtime_manager.shutdown()
-    await observability_service.shutdown_event_sink()
-    await provider_runtime.close()
+    async with mcp_server.lifespan():
+        await observability_service.start_event_sink()
+        await generation_pipeline.start()
+        await seed_default_widgets(SessionLocal)
+        await runtime_manager.bootstrap()
+        await observability_service.capture_runtime_snapshot()
+        yield
+        await generation_pipeline.shutdown()
+        await runtime_manager.shutdown()
+        await observability_service.shutdown_event_sink()
+        await provider_runtime.close()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
+mcp_server = McpServerService()
+app.mount("/mcp", mcp_server.asgi_app())
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
