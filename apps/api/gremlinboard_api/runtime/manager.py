@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+import os
 import sys
+from pathlib import Path
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -87,6 +89,7 @@ class RuntimeManager:
         self._monitor_stop = asyncio.Event()
         self._monitor_task: asyncio.Task[None] | None = None
         self._monitor_interval_seconds = self._coerce_monitor_interval(monitor_interval_seconds)
+        self._isolate_generated = os.environ.get("GREMLINBOARD_ISOLATE_GENERATED", "1") != "0"
         self._startup_recovery: dict[str, Any] = {
             "recovered_widgets": 0,
             "skipped_widgets": 0,
@@ -740,8 +743,8 @@ class RuntimeManager:
     def _build_service(
         self, *, manifest: WidgetManifest, instance_id: str, config: dict[str, Any]
     ) -> BaseWidgetService:
+        loaded = self.registry.get(manifest.id)
         if manifest.service.kind == "process":
-            loaded = self.registry.get(manifest.id)
             return ProcessWidgetService(
                 instance_id=instance_id,
                 manifest=manifest,
@@ -751,6 +754,16 @@ class RuntimeManager:
             )
         if not isinstance(manifest.service, PythonServiceTarget):
             raise TypeError(f"unsupported widget service kind for {manifest.id}: {manifest.service.kind}")
+        if self._isolate_generated and not loaded.is_core:
+            return ProcessWidgetService(
+                instance_id=instance_id,
+                manifest=manifest,
+                config=config,
+                widget_root=loaded.root_dir,
+                service_context=self.service_context,
+                command=self._python_process_host_command(manifest),
+                cwd=Path(__file__).resolve().parents[2],
+            )
         expected_module = f"widgets.{manifest.id}.backend"
         if manifest.service.module != expected_module:
             raise TypeError(f"widget service module for {manifest.id} must be '{expected_module}'")
@@ -768,6 +781,27 @@ class RuntimeManager:
         if not isinstance(service, BaseWidgetService):
             raise TypeError(f"widget service {manifest.id} must inherit BaseWidgetService")
         return service
+
+    def _python_process_host_command(self, manifest: WidgetManifest) -> list[str]:
+        if not isinstance(manifest.service, PythonServiceTarget):
+            raise TypeError("python process host requires a python service manifest")
+        api_root = Path(__file__).resolve().parents[2]
+        widgets_parent = self.registry.widgets_dir.resolve().parent
+        bootstrap = (
+            "import runpy,sys;"
+            "sys.path.insert(0,sys.argv.pop(1));"
+            "runpy.run_module('gremlinboard_api.runtime.python_process_host',run_name='__main__')"
+        )
+        return [
+            sys.executable,
+            "-I",
+            "-c",
+            bootstrap,
+            str(api_root),
+            str(widgets_parent),
+            manifest.id,
+            manifest.service.class_name,
+        ]
 
     @staticmethod
     def _uptime_seconds(runner: WidgetRunner) -> int:

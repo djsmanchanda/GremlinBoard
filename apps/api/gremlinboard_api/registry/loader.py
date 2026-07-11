@@ -59,6 +59,8 @@ class LoadedWidget:
     root_dir: Path
     config_schema: dict[str, Any]
     blueprint: dict[str, Any] | None = None
+    is_core: bool = True
+    source_type: str = "core"
 
 
 class WidgetRegistry:
@@ -122,6 +124,11 @@ class WidgetRegistry:
         if entry is None:
             raise KeyError(f"widget '{widget_id}' is not registered")
         return entry
+
+    def set_plugin_metadata(self, widget_id: str, *, is_core: bool, source_type: str) -> None:
+        entry = self.get(widget_id)
+        entry.is_core = is_core
+        entry.source_type = source_type
 
     def as_response(self) -> dict[str, WidgetRegistryEntry]:
         return {

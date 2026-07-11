@@ -50,7 +50,7 @@ class PluginManagerService:
             repository = PluginRepository(session)
             for entry in self.registry.all():
                 existing = await repository.get_plugin(entry.manifest.id)
-                await repository.upsert_plugin(
+                record = await repository.upsert_plugin(
                     widget_id=entry.manifest.id,
                     version=entry.manifest.version,
                     enabled=existing.enabled if existing else True,
@@ -59,6 +59,11 @@ class PluginManagerService:
                     source_type=existing.source_type if existing else "core",
                     source_ref=existing.source_ref if existing else str(entry.root_dir),
                     last_error=None,
+                )
+                self.registry.set_plugin_metadata(
+                    entry.manifest.id,
+                    is_core=record.is_core,
+                    source_type=record.source_type,
                 )
                 versions = await repository.list_versions(entry.manifest.id)
                 if not any(version.version == entry.manifest.version for version in versions):
@@ -107,6 +112,11 @@ class PluginManagerService:
                 source_ref=request.source_ref or str(widget_root),
                 last_error=None,
             )
+            self.registry.set_plugin_metadata(
+                manifest.id,
+                is_core=record.is_core,
+                source_type=record.source_type,
+            )
             await repository.create_version_snapshot(
                 widget_id=manifest.id,
                 version=manifest.version,
@@ -153,6 +163,11 @@ class PluginManagerService:
                 source_ref=request.source_ref or str(self.widgets_dir / widget_id),
                 last_error=None,
             )
+            self.registry.set_plugin_metadata(
+                widget_id,
+                is_core=record.is_core,
+                source_type=record.source_type,
+            )
             await repository.create_version_snapshot(
                 widget_id=widget_id,
                 version=manifest.version,
@@ -189,6 +204,11 @@ class PluginManagerService:
                 source_type="rollback",
                 source_ref=str(self.widgets_dir / widget_id),
                 last_error=None,
+            )
+            self.registry.set_plugin_metadata(
+                widget_id,
+                is_core=record.is_core,
+                source_type=record.source_type,
             )
             await repository.create_version_snapshot(
                 widget_id=widget_id,

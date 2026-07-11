@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +34,9 @@ class ProcessWidgetService(BaseWidgetService):
         config: dict[str, Any],
         widget_root: Path,
         service_context: ServiceContext | None = None,
+        command: Sequence[str] | None = None,
+        env: Mapping[str, str] | None = None,
+        cwd: Path | None = None,
     ) -> None:
         super().__init__(
             instance_id=instance_id,
@@ -40,10 +44,18 @@ class ProcessWidgetService(BaseWidgetService):
             config=config,
             service_context=service_context,
         )
-        if not isinstance(manifest.service, ProcessServiceTarget):
+        if command is None and not isinstance(manifest.service, ProcessServiceTarget):
             raise TypeError("ProcessWidgetService requires a process service manifest")
         self.widget_root = widget_root
-        self.process_service = manifest.service
+        # On Windows a child whose cwd is the widget package dir locks that dir
+        # against uninstall/rollback deletion, so hosts that use absolute paths
+        # can pass a neutral cwd instead.
+        self._cwd = cwd if cwd is not None else widget_root
+        self.process_service = manifest.service if isinstance(manifest.service, ProcessServiceTarget) else None
+        self._command = list(command) if command is not None else None
+        if self._command is not None and not self._command:
+            raise ValueError("explicit process command must not be empty")
+        self._env = dict(env) if env is not None else None
         self._process: asyncio.subprocess.Process | None = None
         self._stderr_task: asyncio.Task[None] | None = None
         self._call_lock = asyncio.Lock()
@@ -56,10 +68,11 @@ class ProcessWidgetService(BaseWidgetService):
         try:
             self._process = await asyncio.create_subprocess_exec(
                 *command,
-                cwd=str(self.widget_root),
+                cwd=str(self._cwd),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=self._env,
             )
         except OSError as exc:
             raise ProcessServiceError(
@@ -285,6 +298,10 @@ class ProcessWidgetService(BaseWidgetService):
         return process.returncode
 
     def _resolve_command(self) -> list[str]:
+        if self._command is not None:
+            return list(self._command)
+        if self.process_service is None:  # pragma: no cover - guarded by __init__
+            raise TypeError("process service target is unavailable")
         command = list(self.process_service.command)
         executable = command[0]
         if _is_path_like(executable):
