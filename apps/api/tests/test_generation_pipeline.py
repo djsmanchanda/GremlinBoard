@@ -1,6 +1,7 @@
 import asyncio
 import shutil
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -11,12 +12,14 @@ from gremlinboard_api.db import Base
 from gremlinboard_api.ai.providers import ClaudeProvider, CodexProvider
 from gremlinboard_api.registry.loader import load_registry
 from gremlinboard_api.repositories.board import BoardRepository
+from gremlinboard_api.repositories.generation import GenerationRepository
 from gremlinboard_api.schemas.contracts import (
     AgentEntityType,
     AgentStatus,
     EasyGenerationCreateRequest,
     GenerationJobCreateRequest,
     GenerationJobFeedbackRequest,
+    GenerationJobStatus,
     WidgetSpecDraft,
 )
 from gremlinboard_api.services.agent_registry import AgentRegistry
@@ -223,6 +226,191 @@ async def test_generation_pipeline_regeneration_increments_version() -> None:
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
 
+@pytest.mark.asyncio
+async def test_generation_pipeline_requeues_persisted_job_after_restart() -> None:
+    root = Path("data") / f"generation-restart-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    first_service: GenerationPipelineService | None = None
+    restarted_service: GenerationPipelineService | None = None
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        spec = WidgetSpecDraft.model_validate(
+            {
+                "id": "restartable_ops_status",
+                "name": "Restartable Ops Status",
+                "category": "custom",
+                "description": "Operational status snapshot that survives a worker restart",
+                "min_size": "2x2",
+                "preferred_size": "4x2",
+                "refresh_policy": {"mode": "interval", "interval_seconds": 300},
+                "source_type": "generated",
+                "permissions": ["network"],
+                "output_schema": {"summary": "string", "status": "string"},
+                "renderer_type": "card",
+                "lifecycle_policy": {"expires": False, "stateful": True},
+            }
+        )
+        async with session_factory() as session:
+            board_repository = BoardRepository(session)
+            stage = await board_repository.create_staged_spec(
+                widget_id=spec.id,
+                stage="validated",
+                spec=spec.model_dump(mode="json"),
+                scaffold_preview=scaffold_preview(spec),
+                notes=[],
+            )
+
+        first_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        # Simulate a process ending after the job is persisted but before a worker is started.
+        first_service._queue = asyncio.Queue()
+        first_service._ensure_worker_started = AsyncMock()
+        queued = await first_service.create_job(
+            GenerationJobCreateRequest(stage_id=stage.id, provider_id="codex")
+        )
+        assert queued.status == "queued"
+        assert first_service.queue_status()["queue_depth"] == 1
+        await first_service.shutdown()
+
+        restarted_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        processed_job_ids: list[str] = []
+
+        async def complete_requeued_job(job_id: str) -> None:
+            processed_job_ids.append(job_id)
+            async with session_factory() as session:
+                repository = GenerationRepository(session)
+                record = await repository.get_job(job_id)
+                assert record is not None
+                await repository.update_job(record, status=GenerationJobStatus.RUNNING, current_step="spec", progress=10)
+                await repository.update_job(
+                    record,
+                    status=GenerationJobStatus.COMPLETED,
+                    current_step="completed",
+                    progress=100,
+                    install_blocked=True,
+                )
+
+        restarted_service._queue = asyncio.Queue()
+        await restarted_service._recover_interrupted_jobs_locked()
+        recovered_job_id = await restarted_service._queue.get()
+        await complete_requeued_job(recovered_job_id)
+        completed = await wait_for_generation(restarted_service, queued.id)
+
+        assert recovered_job_id == queued.id
+        assert processed_job_ids == [queued.id]
+        assert completed.status == "completed"
+        assert completed.install_blocked is True
+        assert any(log.message == "Generation job re-queued after worker restart." for log in completed.logs)
+    finally:
+        if restarted_service is not None:
+            await restarted_service.shutdown()
+        if first_service is not None:
+            await first_service.shutdown()
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_generation_pipeline_critical_review_issue_blocks_approval() -> None:
+    root = Path("data") / f"generation-critical-review-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    generation_service: GenerationPipelineService | None = None
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        async with session_factory() as session:
+            repository = GenerationRepository(session)
+            completed = await repository.create_job(
+                widget_id="critical_review_widget",
+                provider_id="codex",
+                requested_provider_id="codex",
+                stage_id=None,
+                idea="Critical review gate regression fixture.",
+                artifact_version=1,
+                selected_version="0.1.0",
+                status=GenerationJobStatus.COMPLETED,
+                current_step="completed",
+                progress=100,
+                install_blocked=True,
+            )
+            await repository.add_artifact(
+                job_id=completed.id,
+                widget_id=completed.widget_id,
+                artifact_version=completed.artifact_version,
+                stage="review",
+                artifact_type="report",
+                payload={
+                    "issues": [
+                        {
+                            "severity": "critical",
+                            "area": "backend",
+                            "message": "Backend capability review rejected the generated package.",
+                        }
+                    ],
+                    "dry_run": {"ok": True},
+                },
+            )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+
+        with pytest.raises(ValueError, match="Backend capability review rejected"):
+            await generation_service.approve_job(job_id=completed.id)
+
+        blocked = await generation_service.get_job(job_id=completed.id)
+        assert blocked.status == "completed"
+        assert blocked.install_blocked is True
+    finally:
+        if generation_service is not None:
+            await generation_service.shutdown()
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
 
 @pytest.mark.asyncio
 async def test_easy_generation_returns_test_box_and_feedback_refinement_metadata() -> None:
