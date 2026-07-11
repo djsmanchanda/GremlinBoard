@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 
 import { collectBadHttpResponses } from "../helpers/http";
 
@@ -27,6 +27,74 @@ test("lets users select a strict widget size before easy generation", async ({ p
   await expect.poll(() => requestedIdea).toContain("Use 2x4 as the preferred widget size.");
   expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
 });
+
+test("streams generation updates over the board websocket", async ({ page }) => {
+  const badHttpResponses = collectBadHttpResponses(page);
+  let jobFetchCount = 0;
+  let finalizeJob = false;
+  let streamSocket: WebSocketRoute | null = null;
+
+  await page.routeWebSocket(/\/api\/board\/stream/, (ws) => {
+    streamSocket = ws;
+  });
+  await mockSpecStudioApi(page, () => undefined);
+  // Authoritative per-job REST payload; each websocket-triggered refresh bumps
+  // the step label so the test can attribute UI updates to individual fetches.
+  await page.route("**/api/ai/easy-generation/jobs/job-spec-size", async (route) => {
+    jobFetchCount += 1;
+    const job = finalizeJob
+      ? { ...mockGenerationJob, status: "review_required", current_step: null, progress: 100 }
+      : { ...mockGenerationJob, status: "running", current_step: `streamed-step-${jobFetchCount}`, progress: 40 };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        job,
+        test_box: finalizeJob ? mockStreamedTestBox : null,
+        feedback_categories: ["name", "sizing", "ui", "feature"],
+      }),
+    });
+  });
+
+  await page.goto("/studio");
+  await expect(page.getByRole("heading", { name: "Spec Studio" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+
+  // While generating, the hook connects to /board/stream and resyncs once via REST.
+  await expect.poll(() => streamSocket !== null).toBe(true);
+  await expect.poll(() => jobFetchCount).toBeGreaterThanOrEqual(1);
+  // Let the connect/open transition settle; a healthy socket runs no polling timer.
+  await page.waitForTimeout(1500);
+  const settledCount = jobFetchCount;
+  await expect(page.getByText(`streamed-step-${settledCount}`)).toBeVisible();
+
+  // A generation event for another job must not trigger a refresh.
+  streamSocket!.send(JSON.stringify(generationEvent("job-other")));
+  await page.waitForTimeout(500);
+  expect(jobFetchCount).toBe(settledCount);
+  await expect(page.getByText(`streamed-step-${settledCount}`)).toBeVisible();
+
+  // A matching event triggers exactly one authoritative REST fetch.
+  streamSocket!.send(JSON.stringify(generationEvent("job-spec-size")));
+  await expect.poll(() => jobFetchCount).toBe(settledCount + 1);
+  await expect(page.getByText(`streamed-step-${settledCount + 1}`)).toBeVisible();
+
+  // Easy generation keeps delivering the test-box payload from the REST response.
+  finalizeJob = true;
+  streamSocket!.send(JSON.stringify(generationEvent("job-spec-size")));
+  await expect(page.getByText("Streamed Test Widget").first()).toBeVisible();
+
+  expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
+});
+
+function generationEvent(jobId: string) {
+  return {
+    type: "generation.job.updated",
+    category: "generation",
+    payload: { job_id: jobId, stage: "codegen", progress: 40 },
+  };
+}
 
 async function mockSpecStudioApi(page: Page, onEasyGeneration: (idea: string) => void) {
   await page.route("**/api/ai/providers", (route) =>
@@ -65,6 +133,21 @@ async function mockSpecStudioApi(page: Page, onEasyGeneration: (idea: string) =>
       body: JSON.stringify([]),
     });
   });
+  // Per-job authoritative fetches issued by the generation transport hook.
+  await page.route("**/api/ai/generation/jobs/*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(mockGenerationJob),
+    }),
+  );
+  await page.route("**/api/ai/easy-generation/jobs/*", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ job: mockGenerationJob, test_box: null, feedback_categories: ["name", "sizing", "ui", "feature"] }),
+    }),
+  );
   await page.route("**/api/ai/easy-generation/jobs", async (route) => {
     const payload = (await route.request().postDataJSON()) as { idea?: string };
     onEasyGeneration(payload.idea ?? "");
@@ -108,6 +191,26 @@ const mockGenerationJob = {
   logs: [],
   install_target: null,
   diff_preview: [],
+};
+
+const mockStreamedTestBox = {
+  job_id: "job-spec-size",
+  widget_id: "ops_status",
+  stage_id: null,
+  name: "Streamed Test Widget",
+  description: "Delivered through the websocket-triggered REST refresh.",
+  category: "custom",
+  size: "2x2",
+  allowed_sizes: ["2x2"],
+  manifest: { id: "ops_status", name: "Streamed Test Widget", preferred_size: "2x2" },
+  config_schema: {},
+  renderer: {},
+  service: {},
+  initial_config: {},
+  initial_state: {},
+  files: [],
+  install_blocked: false,
+  review_required: true,
 };
 
 const mockSpecPreview = {
