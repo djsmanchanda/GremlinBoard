@@ -229,6 +229,16 @@ function ReviewSection(props: ConversationProps) {
       </p>
       {tokenUsageLabel ? <p className="mt-1 text-xs text-slate-400">{tokenUsageLabel}</p> : null}
 
+      {job.generation_mode === "offline" ? (
+        <div className="mt-3">
+          <InlineNotice
+            tone="warning"
+            title="Generated in offline template mode — no AI was used"
+            body={`No API key is configured for the ${job.provider_id} provider, so this widget came from the deterministic template fallback, not a model. Add a credential in the System panel (provider "anthropic" for Claude, "openai" for Codex), then Regenerate for real AI generation.`}
+          />
+        </div>
+      ) : null}
+
       <div className="mt-4 space-y-3">
         <div>
           <ActionButton

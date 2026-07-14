@@ -537,7 +537,14 @@ class ClaudeProvider(AIProvider):
     default_model_id = "claude-fable-5"
     model_api_credential_providers = ("claude", "anthropic")
     fallback_model_options = (
-        {"id": "claude-fable-5", "label": "Claude Fable 5", "intelligence_level": "highest", "speed_level": "moderate", "source": "fallback"},
+        {
+            "id": "claude-fable-5",
+            "label": "Claude Fable 5",
+            "intelligence_level": "highest",
+            "speed_level": "moderate",
+            "reasoning_effort_options": ["low", "medium", "high"],
+            "source": "fallback",
+        },
         {
             "id": "claude-opus-4-8",
             "label": "Claude Opus 4.8",
