@@ -4,8 +4,9 @@ from typing import Any
 
 import pytest
 
+from gremlinboard_api.ai import cli_clients
 from gremlinboard_api.ai.clients import AIClientError
-from gremlinboard_api.ai.providers import CodexProvider
+from gremlinboard_api.ai.providers import ClaudeProvider, CodexProvider
 from gremlinboard_api.schemas.contracts import WidgetSpecDraft
 
 
@@ -235,3 +236,186 @@ async def test_review_package_live_reports_usage(monkeypatch: pytest.MonkeyPatch
 
     assert result["generation_mode"] == "live"
     assert result["usage"] == {"input_tokens": 90, "output_tokens": 20, "calls": 1}
+
+
+# ---------------------------------------------------------------------------
+# Backend resolution (S2): live (HTTP API) | cli (local agent CLI) | offline
+# ---------------------------------------------------------------------------
+
+
+class FakeCliClient:
+    """Stand-in for ClaudeCliClient/CodexCliClient matching the client interface."""
+
+    def __init__(
+        self,
+        *,
+        json_responses: list[dict[str, Any]] | None = None,
+        text_responses: list[str] | None = None,
+        usage_sequence: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.json_responses = list(json_responses or [])
+        self.text_responses = list(text_responses or [])
+        self.usage_sequence = list(usage_sequence or [])
+        self.json_calls: list[dict[str, Any]] = []
+        self.text_calls: list[dict[str, Any]] = []
+        self.on_usage = None
+
+    async def complete_json(self, **kwargs: Any) -> dict[str, Any]:
+        self.json_calls.append(kwargs)
+        self._report_usage()
+        return self.json_responses.pop(0)
+
+    async def complete_text(self, **kwargs: Any) -> str:
+        self.text_calls.append(kwargs)
+        self._report_usage()
+        return self.text_responses.pop(0)
+
+    def _report_usage(self) -> None:
+        if self.usage_sequence and self.on_usage is not None:
+            self.on_usage(self.usage_sequence.pop(0))
+
+
+@pytest.fixture(autouse=True)
+def _clear_cli_cache_for_backend_tests() -> None:
+    cli_clients.clear_cli_cache()
+    yield
+    cli_clients.clear_cli_cache()
+
+
+def _force_auto_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The repo-wide conftest fixture defaults GREMLINBOARD_AI_BACKEND to "offline";
+    # these tests need to observe the real "auto" resolution precedence.
+    monkeypatch.setenv("GREMLINBOARD_AI_BACKEND", "auto")
+
+
+def test_resolve_backend_api_key_beats_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    provider = CodexProvider(credentials={"openai": "test-key"})
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "live"
+    assert client is not None
+
+
+def test_resolve_backend_no_key_cli_found_uses_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    provider = CodexProvider()
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "cli"
+    assert client is not None
+
+
+def test_resolve_backend_no_key_no_cli_is_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: None)
+    provider = CodexProvider()
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "offline"
+    assert client is None
+
+
+def test_resolve_backend_env_cli_with_key_present_prefers_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GREMLINBOARD_AI_BACKEND", "cli")
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    provider = CodexProvider(credentials={"openai": "test-key"})
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "cli"
+    assert client is not None
+
+
+def test_resolve_backend_env_api_with_no_key_is_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GREMLINBOARD_AI_BACKEND", "api")
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    provider = CodexProvider()
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "offline"
+    assert client is None
+
+
+def test_resolve_backend_env_offline_with_key_and_cli_is_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GREMLINBOARD_AI_BACKEND", "offline")
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    provider = CodexProvider(credentials={"openai": "test-key"})
+
+    backend, client = provider._resolve_backend()
+
+    assert backend == "offline"
+    assert client is None
+
+
+@pytest.mark.asyncio
+async def test_draft_spec_cli_mode_reports_generation_mode_and_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(
+        json_responses=[valid_spec_payload()],
+        usage_sequence=[{"input_tokens": 50, "output_tokens": 20}],
+    )
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["generation_mode"] == "cli"
+    assert result["id"] == "ops_status"
+    assert result["usage"] == {"input_tokens": 50, "output_tokens": 20, "calls": 1}
+
+
+@pytest.mark.asyncio
+async def test_generate_blueprint_cli_mode_reports_generation_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(json_responses=[valid_blueprint_payload(widget_id="ops_status")])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.generate_blueprint(widget_spec=valid_spec_payload(), model_id="gpt-test")
+
+    assert result["generation_mode"] == "cli"
+    assert result["widget_id"] == "ops_status"
+
+
+@pytest.mark.asyncio
+async def test_review_package_cli_mode_uses_claude_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(
+        json_responses=[{"summary": "ok", "issues": [], "requires_human_review": True}],
+        usage_sequence=[{"input_tokens": 10, "output_tokens": 5}],
+    )
+    monkeypatch.setattr(ClaudeProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = ClaudeProvider()
+
+    result = await provider.review_package(
+        widget_spec=valid_spec_payload(),
+        package={"manifest": {"id": "ops_status", "version": "0.1.0"}},
+    )
+
+    assert result["generation_mode"] == "cli"
+    assert result["usage"] == {"input_tokens": 10, "output_tokens": 5, "calls": 1}
+
+
+@pytest.mark.asyncio
+async def test_health_reports_backend_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: None)
+    provider = CodexProvider()
+
+    health = await provider.health()
+
+    assert health["backend"] == "offline"
+    assert health["mode"] == "offline"

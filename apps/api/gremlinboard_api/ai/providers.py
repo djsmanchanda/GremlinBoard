@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 import importlib
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -14,6 +15,8 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from gremlinboard_api.ai import cli_clients as _cli_clients
+from gremlinboard_api.ai.cli_clients import ClaudeCliClient, CodexCliClient
 from gremlinboard_api.ai.clients import AIClientError, AnthropicClient, OpenAIClient
 from gremlinboard_api.schemas.blueprint import validate_blueprint
 from gremlinboard_api.schemas.contracts import WidgetSpecDraft
@@ -21,6 +24,9 @@ from gremlinboard_api.specs.widget_ids import sanitize_widget_id
 
 
 CredentialsGetter = Callable[[], dict[str, str]]
+
+_CLI_TIMEOUT_SECONDS = 300.0
+_VALID_BACKEND_OVERRIDES = {"auto", "api", "cli", "offline"}
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,7 @@ class AIProvider(ABC):
     fallback_model_options: tuple[dict[str, Any], ...] = ()
     model_api_credential_providers: tuple[str, ...] = ()
     model_cache_ttl_seconds = 600
+    cli_name: str | None = None
     _model_cache: tuple[list[dict[str, Any]], str, str, float, str] | None = None
 
     def __init__(
@@ -106,8 +113,8 @@ class AIProvider(ABC):
         self._model_cache = None
 
     async def health(self) -> dict[str, Any]:
-        mode = "live" if self._api_key() else "offline"
-        return {"status": "available", "provider_id": self.provider_id, "mode": mode}
+        backend, _ = self._resolve_backend()
+        return {"status": "available", "provider_id": self.provider_id, "mode": backend, "backend": backend}
 
     async def draft_spec(
         self,
@@ -117,8 +124,8 @@ class AIProvider(ABC):
         reasoning_effort: str | None = "medium",
     ) -> dict[str, Any]:
         selected_model = self._resolve_model(model_id)
-        api_key = self._api_key()
-        if not api_key:
+        backend, client = self._resolve_backend()
+        if backend == "offline":
             payload = self._offline_draft_spec(idea=idea)
             idea_prompt = str(payload.pop("idea_prompt", ""))
             return _SpecResult(
@@ -129,7 +136,6 @@ class AIProvider(ABC):
         system_prompt = _prompt_call("spec_system_prompt")
         user_prompt = _prompt_call("spec_user_prompt", idea=idea)
         schema = _prompt_call("spec_output_schema")
-        client = self._live_client(api_key)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         raw = await client.complete_json(
@@ -151,7 +157,7 @@ class AIProvider(ABC):
         return _SpecResult(
             payload,
             {
-                "generation_mode": "live",
+                "generation_mode": backend,
                 "model_id": selected_model,
                 "idea_prompt": user_prompt,
                 "usage": tracker.as_dict(),
@@ -165,15 +171,14 @@ class AIProvider(ABC):
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
     ) -> dict[str, Any]:
-        api_key = self._api_key()
-        if not api_key:
+        backend, client = self._resolve_backend()
+        if backend == "offline":
             raise NotImplementedError("offline blueprint generation is handled by the generation pipeline fallback")
         spec = WidgetSpecDraft.model_validate(widget_spec)
         selected_model = self._resolve_model(model_id)
         schema = _blueprint_schema()
         system_prompt = _prompt_call("blueprint_system_prompt")
         user_prompt = _prompt_call("blueprint_user_prompt", spec=spec.model_dump(mode="json"))
-        client = self._live_client(api_key)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         raw = await client.complete_json(
@@ -193,7 +198,7 @@ class AIProvider(ABC):
             reasoning_effort=reasoning_effort,
         )
         return blueprint.model_dump(mode="json") | {
-            "generation_mode": "live",
+            "generation_mode": backend,
             "model_id": selected_model,
             "usage": tracker.as_dict(),
         }
@@ -206,14 +211,13 @@ class AIProvider(ABC):
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
     ) -> BackendGenerationResult:
-        api_key = self._api_key()
-        if not api_key:
+        backend, client = self._resolve_backend()
+        if backend == "offline":
             raise NotImplementedError("offline backend generation is handled by the generation pipeline fallback")
         spec = WidgetSpecDraft.model_validate(widget_spec)
         selected_model = self._resolve_model(model_id)
         system_prompt = _prompt_call("backend_system_prompt")
         user_prompt = _prompt_call("backend_user_prompt", spec=spec.model_dump(mode="json"), blueprint=blueprint)
-        client = self._live_client(api_key)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         text = await client.complete_text(
@@ -253,7 +257,7 @@ class AIProvider(ABC):
         reasoning_effort: str | None = "medium",
     ) -> dict[str, Any]:
         selected_model = self._resolve_model(model_id)
-        mode = "live" if self._api_key() else "offline"
+        mode, _ = self._resolve_backend()
         return {
             "provider_id": self.provider_id,
             "model_id": selected_model,
@@ -272,11 +276,10 @@ class AIProvider(ABC):
         reasoning_effort: str | None = "medium",
     ) -> dict[str, Any]:
         selected_model = self._resolve_model(model_id)
-        api_key = self._api_key()
-        if not api_key:
+        backend, client = self._resolve_backend()
+        if backend == "offline":
             return self._offline_review(widget_spec=widget_spec, package=package, selected_model=selected_model)
 
-        client = self._live_client(api_key)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         result = await client.complete_json(
@@ -289,7 +292,7 @@ class AIProvider(ABC):
         return result | {
             "provider_id": self.provider_id,
             "model_id": selected_model,
-            "generation_mode": "live",
+            "generation_mode": backend,
             "usage": tracker.as_dict(),
         }
 
@@ -327,6 +330,44 @@ class AIProvider(ABC):
 
     def _create_client(self, api_key: str) -> Any:
         raise NotImplementedError
+
+    def _create_cli_client(self, binary: str) -> Any:
+        raise NotImplementedError
+
+    def _resolve_backend(self) -> tuple[str, Any | None]:
+        """Resolve which execution backend this provider should use right now.
+
+        Precedence (per call, so tests/operators can change things at runtime):
+          1. An explicitly injected ``self._client`` (test/DI seam) always wins as "live".
+          2. ``GREMLINBOARD_AI_BACKEND`` env var: "offline" forces the template fallback;
+             "api" never falls back to a CLI; "cli" never uses the HTTP client.
+          3. "auto" (default): an API key present selects "live"; otherwise a resolvable
+             CLI binary selects "cli"; otherwise "offline".
+        """
+
+        if self._client is not None:
+            return "live", self._client
+
+        backend_override = (os.environ.get("GREMLINBOARD_AI_BACKEND") or "auto").strip().lower()
+        if backend_override not in _VALID_BACKEND_OVERRIDES:
+            backend_override = "auto"
+
+        if backend_override == "offline":
+            return "offline", None
+
+        if backend_override in ("auto", "api"):
+            api_key = self._api_key()
+            if api_key:
+                return "live", self._create_client(api_key)
+            if backend_override == "api":
+                return "offline", None
+
+        if backend_override in ("auto", "cli") and self.cli_name:
+            cli_path = _cli_clients.find_cli(self.cli_name)
+            if cli_path:
+                return "cli", self._create_cli_client(cli_path)
+
+        return "offline", None
 
     def _credentials_snapshot(self) -> dict[str, str]:
         values = dict(self._credentials)
@@ -471,6 +512,7 @@ class CodexProvider(AIProvider):
     supported_model_ids = ("gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano", "gpt-5.3-codex")
     default_model_id = "gpt-5.5"
     model_api_credential_providers = ("codex", "openai")
+    cli_name = "codex"
     fallback_model_options = (
         {
             "id": "gpt-5.5",
@@ -517,6 +559,9 @@ class CodexProvider(AIProvider):
     def _create_client(self, api_key: str) -> OpenAIClient:
         return OpenAIClient(api_key=api_key)
 
+    def _create_cli_client(self, binary: str) -> CodexCliClient:
+        return CodexCliClient(binary=binary, timeout=_CLI_TIMEOUT_SECONDS)
+
     async def _fetch_model_options(self, *, api_key: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=httpx.Timeout(4.0)) as client:
             response = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
@@ -536,6 +581,7 @@ class ClaudeProvider(AIProvider):
     supported_model_ids = ("claude-fable-5", "claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5")
     default_model_id = "claude-fable-5"
     model_api_credential_providers = ("claude", "anthropic")
+    cli_name = "claude"
     fallback_model_options = (
         {
             "id": "claude-fable-5",
@@ -573,6 +619,9 @@ class ClaudeProvider(AIProvider):
 
     def _create_client(self, api_key: str) -> AnthropicClient:
         return AnthropicClient(api_key=api_key)
+
+    def _create_cli_client(self, binary: str) -> ClaudeCliClient:
+        return ClaudeCliClient(binary=binary, timeout=_CLI_TIMEOUT_SECONDS)
 
     async def _fetch_model_options(self, *, api_key: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=httpx.Timeout(4.0)) as client:
