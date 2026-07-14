@@ -103,6 +103,7 @@ test("enables approve then install following the backend job state machine", asy
     progress: 100,
     install_blocked: true,
     completed_at: new Date().toISOString(),
+    generation_mode: "cli",
   };
   await page.route("**/api/ai/easy-generation/jobs/job-spec-size", (route) =>
     route.fulfill({
@@ -131,6 +132,10 @@ test("enables approve then install following the backend job state machine", asy
   await expect(approve).toBeEnabled();
   await expect(install).toBeDisabled();
   await expect(page.getByText(/Approve the job first/)).toBeVisible();
+
+  // CLI-mode jobs get a plain informational line, never the offline template warning.
+  await expect(page.getByText("Generated through the local Codex CLI")).toBeVisible();
+  await expect(page.getByText(/Generated in offline template mode/)).toHaveCount(0);
 
   await approve.click();
 

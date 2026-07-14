@@ -228,6 +228,11 @@ function ReviewSection(props: ConversationProps) {
         {target?.current_version ? ` (current ${target.current_version})` : ""}
       </p>
       {tokenUsageLabel ? <p className="mt-1 text-xs text-slate-400">{tokenUsageLabel}</p> : null}
+      {job.generation_mode === "cli" ? (
+        <p className="mt-1 text-xs text-slate-400">
+          Generated through the local {job.provider_id === "claude" ? "Claude Code" : "Codex"} CLI
+        </p>
+      ) : null}
 
       {job.generation_mode === "offline" ? (
         <div className="mt-3">
