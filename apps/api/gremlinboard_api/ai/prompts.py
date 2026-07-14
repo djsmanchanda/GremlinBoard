@@ -800,8 +800,10 @@ Binding paths collected from every layout tier in this blueprint (each MUST reso
 against your `get_state()` output, per the binding coverage hard rule):
 {binding_paths}
 
-Write `backend.py` for this widget now. Choose a class name in PascalCase derived from
-the widget id. Return only the fenced Python code block.
+Write `backend.py` for this widget now. The service class MUST be named exactly
+`{service_class_name}` — the manifest already declares this class name and the
+registry rejects the package if it does not match. Return only the fenced Python
+code block.
 """.strip()
 
 
@@ -853,12 +855,18 @@ def _collect_blueprint_binding_paths(blueprint: dict[str, Any]) -> list[str]:
 def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any]) -> str:
     """User prompt for the backend-generation stage; embeds spec, blueprint, and bindings."""
 
+    # Must match the manifest's derivation in specs/pipeline.py exactly, or the
+    # registry rejects the package on class-name mismatch.
+    from gremlinboard_api.specs.widget_ids import sanitize_identifier
+
+    service_class_name = f"{sanitize_identifier(str(spec.get('name') or ''), fallback='GeneratedWidget')}Service"
     binding_paths = _collect_blueprint_binding_paths(blueprint)
     binding_paths_text = "\n".join(f"- {path}" for path in binding_paths) or "- (none found)"
     return BACKEND_USER_PROMPT_TEMPLATE.format(
         spec_json=json.dumps(spec, indent=2, sort_keys=True),
         blueprint_json=json.dumps(blueprint, indent=2, sort_keys=True),
         binding_paths=binding_paths_text,
+        service_class_name=service_class_name,
     )
 
 
