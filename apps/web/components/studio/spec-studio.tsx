@@ -369,22 +369,27 @@ export function SpecStudio() {
     generateFromSpecReasons.push(specValidation.errors[0]?.message ?? "Fix spec validation errors");
   }
 
+  // Backend state machine: completed --approve--> review_required --install--> installed.
+  // approve_job accepts only "completed"; install_job accepts "review_required"/"approved";
+  // reject_job accepts "completed"/"review_required".
   const approveReasons: string[] = [];
   const installReasons: string[] = [];
   if (currentJob) {
-    if (currentJob.status !== "review_required") {
-      approveReasons.push(`Waiting for review (status: ${currentJob.status})`);
+    if (currentJob.status === "review_required" || currentJob.status === "approved") {
+      approveReasons.push("Already approved — ready to install");
+    } else if (currentJob.status !== "completed") {
+      approveReasons.push(`Generation must finish first (status: ${currentJob.status})`);
     }
     if (generatedGridIssue) {
       approveReasons.push(gridSizeMessage);
     }
-    if (currentJob.status !== "approved") {
+    if (!["review_required", "approved"].includes(currentJob.status)) {
       installReasons.push(`Approve the job first (status: ${currentJob.status})`);
     }
     if (generatedGridIssue) {
       installReasons.push(gridSizeMessage);
     }
-    if (currentJob.install_blocked) {
+    if (currentJob.install_blocked && currentJob.status !== "completed") {
       installReasons.push("Install blocked by pipeline checks");
     }
     if (currentJob.error_message) {
@@ -393,7 +398,7 @@ export function SpecStudio() {
     }
   }
   const rejectDisabled =
-    isPending || !currentJob || !["review_required", "approved"].includes(currentJob.status);
+    isPending || !currentJob || !["completed", "review_required"].includes(currentJob.status);
 
   // ---- Thread with live status ----
   const renderedThread: ThreadEntry[] = thread.map((entry, index) => {

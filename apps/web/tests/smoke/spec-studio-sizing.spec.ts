@@ -88,6 +88,63 @@ test("streams generation updates over the board websocket", async ({ page }) => 
   expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
 });
 
+test("enables approve then install following the backend job state machine", async ({ page }) => {
+  const badHttpResponses = collectBadHttpResponses(page);
+  await page.routeWebSocket(/\/api\/board\/stream/, () => {});
+  await mockSpecStudioApi(page, () => undefined);
+
+  // Backend contract: jobs finish at status "completed" (install_blocked=true);
+  // approve moves them to "review_required" (install_blocked=false); install
+  // accepts "review_required"/"approved".
+  let jobState = {
+    ...mockGenerationJob,
+    status: "completed",
+    current_step: "completed",
+    progress: 100,
+    install_blocked: true,
+    completed_at: new Date().toISOString(),
+  };
+  await page.route("**/api/ai/easy-generation/jobs/job-spec-size", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ job: jobState, test_box: mockStreamedTestBox, feedback_categories: ["name", "sizing", "ui", "feature"] }),
+    }),
+  );
+  await page.route("**/api/ai/generation/jobs/job-spec-size/approve", (route) => {
+    jobState = { ...jobState, status: "review_required", install_blocked: false };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(jobState) });
+  });
+  await page.route("**/api/ai/generation/jobs/job-spec-size/install", (route) => {
+    jobState = { ...jobState, status: "installed" };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(jobState) });
+  });
+
+  await page.goto("/studio");
+  await expect(page.getByRole("heading", { name: "Spec Studio" })).toBeVisible();
+  await page.getByRole("button", { name: "Generate", exact: true }).click();
+
+  const approve = page.getByRole("button", { name: "Approve", exact: true });
+  const install = page.getByRole("button", { name: "Install", exact: true });
+
+  // A freshly completed job is approvable but not yet installable.
+  await expect(approve).toBeEnabled();
+  await expect(install).toBeDisabled();
+  await expect(page.getByText(/Approve the job first/)).toBeVisible();
+
+  await approve.click();
+
+  // Approved: install opens up, approve reports it is already done.
+  await expect(install).toBeEnabled();
+  await expect(approve).toBeDisabled();
+  await expect(page.getByText(/Already approved/)).toBeVisible();
+
+  await install.click();
+  await expect(install).toBeDisabled();
+
+  expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
+});
+
 function generationEvent(jobId: string) {
   return {
     type: "generation.job.updated",
