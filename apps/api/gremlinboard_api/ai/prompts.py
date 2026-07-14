@@ -141,6 +141,34 @@ computation will actually back this widget? Say so explicitly:
 - Refusing vague/sample data specs is mandatory: an idea like "show some cool stats" is
   not acceptable as-is — ask the user to sharpen it in the description, or make the
   most concrete, defensible interpretation and state that interpretation explicitly.
+
+Finding a data source:
+- Prefer well-known free/keyless public APIs over invented or guessed endpoints. Real
+  examples you likely already know: the Hacker News Firebase API, Open-Meteo (weather,
+  no key), CoinGecko's public endpoints (crypto prices, no key for basic use),
+  football-data.org's free tier (football/soccer fixtures and scores, API key but no
+  cost), and TheSportsDB's free tier (multi-sport scores/schedules, API key but no
+  cost). These are starting points, not an exhaustive list — the right source depends on
+  the idea.
+- When you are not sure whether a free API exists for the domain (e.g. "a live world cup
+  match widget"), consult public API directories and search the web before guessing.
+  Good starting points: https://github.com/public-apis/public-apis ,
+  https://free-apis.github.io/#/ , and
+  https://github.com/public-api-lists/public-api-lists . If web search/fetch tools are
+  available to you, use them now, before drafting the spec.
+- Selection order: keyless free API > free-tier API that requires a registered key (add
+  `"credentials"` to `permissions` and say in the description that a key is required) >
+  paid API (avoid unless the idea explicitly calls for a paid service). Never propose a
+  paid API as the default choice.
+- If you have web research tools available, verify the endpoint shape (base URL, path,
+  auth requirement, response fields) before drafting rather than assuming from memory —
+  APIs change. Record the CONCRETE base URL/endpoint you found in the spec
+  `description` (e.g. "Polls the Open-Meteo forecast endpoint
+  (api.open-meteo.com/v1/forecast) for hourly temperature"). Note known rate limits in
+  the description when they matter (e.g. "free tier, 60 calls/min").
+- If genuinely nothing free exists for the idea after checking, say so plainly in the
+  description and fall back to `source_type: "local"` with a defensible local
+  computation — do not invent a fake API or silently pick a paid one to avoid saying so.
 """.strip()
 
 # ---------------------------------------------------------------------------
@@ -164,6 +192,9 @@ machine-readable widget spec — not code, not a blueprint, not a UI description
 {CATEGORY_CONTRACT}
 
 {DATA_SOURCE_CONTRACT}
+
+If web search/fetch tools are available to you, use them to research and verify the
+data source before drafting; do not guess endpoints when you can check.
 
 `output_schema` is a small free-form object describing the *semantic roles* the
 backend's `get_state()` output will fill (not literal keys yet — that is decided at

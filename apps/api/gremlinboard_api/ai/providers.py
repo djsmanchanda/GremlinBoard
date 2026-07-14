@@ -144,6 +144,7 @@ class AIProvider(ABC):
             json_schema=schema,
             model=selected_model,
             reasoning_effort=reasoning_effort,
+            **_research_kwargs(backend, allow_web_research=True),
         )
         spec = await self._validate_spec_with_repair(
             raw,
@@ -152,6 +153,7 @@ class AIProvider(ABC):
             system_prompt=system_prompt,
             schema=schema,
             reasoning_effort=reasoning_effort,
+            research_kwargs=_research_kwargs(backend, allow_web_research=False),
         )
         payload = spec.model_dump(mode="json")
         return _SpecResult(
@@ -425,6 +427,7 @@ class AIProvider(ABC):
         system_prompt: str,
         schema: dict[str, Any],
         reasoning_effort: str | None,
+        research_kwargs: dict[str, Any] | None = None,
     ) -> WidgetSpecDraft:
         try:
             return WidgetSpecDraft.model_validate(raw)
@@ -435,6 +438,7 @@ class AIProvider(ABC):
                 json_schema=schema,
                 model=model_id,
                 reasoning_effort=reasoning_effort,
+                **(research_kwargs or {}),
             )
             try:
                 return WidgetSpecDraft.model_validate(repair)
@@ -695,6 +699,21 @@ class _SpecResult(dict[str, Any]):
         if key in self._metadata:
             return self._metadata.pop(key)
         return super().pop(key, default)
+
+
+def _research_kwargs(backend: str, *, allow_web_research: bool) -> dict[str, bool]:
+    """Build the defensive kwargs for a `complete_json`/`complete_text` call.
+
+    Only CLI clients understand `allow_web_research`; HTTP clients (live API mode) do
+    not accept the kwarg at all, so it must never be passed to them. Spec drafting (and
+    a future `refine_spec` stage) are the only stages that should ever request research;
+    every other stage (blueprint/backend/review) and repair rounds always pass
+    `allow_web_research=False`.
+    """
+
+    if backend != "cli":
+        return {}
+    return {"allow_web_research": allow_web_research}
 
 
 def _prompt_call(name: str, **kwargs: Any) -> Any:

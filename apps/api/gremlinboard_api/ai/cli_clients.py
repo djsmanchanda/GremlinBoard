@@ -240,8 +240,11 @@ class ClaudeCliClient:
         max_tokens: int = 8192,
         temperature: float | None = None,
         reasoning_effort: str | None = "medium",
+        allow_web_research: bool = False,
     ) -> str:
-        envelope = await self._invoke(system_prompt, user_prompt, model, reasoning_effort)
+        envelope = await self._invoke(
+            system_prompt, user_prompt, model, reasoning_effort, allow_web_research=allow_web_research
+        )
         return self._extract_result_text(envelope, model)
 
     async def complete_json(
@@ -254,9 +257,12 @@ class ClaudeCliClient:
         max_tokens: int = 8192,
         temperature: float | None = None,
         reasoning_effort: str | None = "medium",
+        allow_web_research: bool = False,
     ) -> dict[str, Any]:
         wrapped_prompt = user_prompt + _schema_instruction(json_schema)
-        envelope = await self._invoke(system_prompt, wrapped_prompt, model, reasoning_effort)
+        envelope = await self._invoke(
+            system_prompt, wrapped_prompt, model, reasoning_effort, allow_web_research=allow_web_research
+        )
         text = self._extract_result_text(envelope, model)
         return _extract_json_object(text)
 
@@ -266,6 +272,8 @@ class ClaudeCliClient:
         user_prompt: str,
         model: str,
         reasoning_effort: str | None,
+        *,
+        allow_web_research: bool = False,
     ) -> dict[str, Any]:
         binary = self.binary
         if not binary:
@@ -285,9 +293,11 @@ class ClaudeCliClient:
             "json",
             "--model",
             model,
-            "--max-turns",
-            "1",
         ]
+        if allow_web_research:
+            argv.extend(["--max-turns", "12", "--allowedTools", "WebSearch", "WebFetch"])
+        else:
+            argv.extend(["--max-turns", "1"])
 
         env = os.environ.copy()
         thinking_tokens = _reasoning_effort_thinking_tokens(reasoning_effort)
@@ -390,7 +400,10 @@ class CodexCliClient:
         max_tokens: int = 8192,
         temperature: float | None = None,
         reasoning_effort: str | None = "medium",
+        allow_web_research: bool = False,
     ) -> str:
+        # allow_web_research is accepted for signature parity with ClaudeCliClient but
+        # ignored: `codex exec` gets no research-specific flags for now.
         combined_prompt = f"{system_prompt}\n\n{user_prompt}"
         events = await self._invoke(combined_prompt, model, reasoning_effort)
         return self._extract_message_text(events, model)
@@ -405,7 +418,10 @@ class CodexCliClient:
         max_tokens: int = 8192,
         temperature: float | None = None,
         reasoning_effort: str | None = "medium",
+        allow_web_research: bool = False,
     ) -> dict[str, Any]:
+        # allow_web_research is accepted for signature parity with ClaudeCliClient but
+        # ignored: `codex exec` gets no research-specific flags for now.
         combined_prompt = f"{system_prompt}\n\n{user_prompt}" + _schema_instruction(json_schema)
         events = await self._invoke(combined_prompt, model, reasoning_effort)
         text = self._extract_message_text(events, model)

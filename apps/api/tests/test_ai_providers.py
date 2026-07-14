@@ -419,3 +419,116 @@ async def test_health_reports_backend_field(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert health["backend"] == "offline"
     assert health["mode"] == "offline"
+
+
+# ---------------------------------------------------------------------------
+# S4: web-research kwarg plumbing — only draft_spec (cli backend) requests it,
+# repair rounds never do, and other stages/backends never see the kwarg at all.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_draft_spec_cli_mode_passes_allow_web_research_true_on_first_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(json_responses=[valid_spec_payload()])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["generation_mode"] == "cli"
+    assert len(fake_cli_client.json_calls) == 1
+    assert fake_cli_client.json_calls[0]["allow_web_research"] is True
+
+
+@pytest.mark.asyncio
+async def test_draft_spec_cli_mode_passes_allow_web_research_false_on_repair_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    invalid = valid_spec_payload()
+    del invalid["id"]
+    fake_cli_client = FakeCliClient(json_responses=[invalid, valid_spec_payload()])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["id"] == "ops_status"
+    assert len(fake_cli_client.json_calls) == 2
+    assert fake_cli_client.json_calls[0]["allow_web_research"] is True
+    assert fake_cli_client.json_calls[1]["allow_web_research"] is False
+
+
+@pytest.mark.asyncio
+async def test_draft_spec_live_mode_never_passes_allow_web_research(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    fake_client = FakeClient(json_responses=[valid_spec_payload()])
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["generation_mode"] == "live"
+    assert "allow_web_research" not in fake_client.json_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_blueprint_cli_mode_never_passes_allow_web_research(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(json_responses=[valid_blueprint_payload(widget_id="ops_status")])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.generate_blueprint(widget_spec=valid_spec_payload(), model_id="gpt-test")
+
+    assert result["generation_mode"] == "cli"
+    assert "allow_web_research" not in fake_cli_client.json_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_backend_cli_mode_never_passes_allow_web_research(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(text_responses=["def handler():\n    return 1\n"])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.generate_backend(widget_spec=valid_spec_payload(), blueprint=valid_blueprint_payload())
+
+    assert result.source == "def handler():\n    return 1"
+    assert "allow_web_research" not in fake_cli_client.text_calls[0]
+
+
+@pytest.mark.asyncio
+async def test_review_package_cli_mode_never_passes_allow_web_research(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    fake_cli_client = FakeCliClient(
+        json_responses=[{"summary": "ok", "issues": [], "requires_human_review": True}],
+    )
+    monkeypatch.setattr(ClaudeProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = ClaudeProvider()
+
+    result = await provider.review_package(
+        widget_spec=valid_spec_payload(),
+        package={"manifest": {"id": "ops_status", "version": "0.1.0"}},
+    )
+
+    assert result["generation_mode"] == "cli"
+    assert "allow_web_research" not in fake_cli_client.json_calls[0]

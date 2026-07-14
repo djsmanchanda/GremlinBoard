@@ -200,6 +200,105 @@ async def test_claude_binary_not_found_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
+# ClaudeCliClient: argv construction (S4 web research support)
+# ---------------------------------------------------------------------------
+
+
+ARGV_DUMP_STUB = """
+import json
+import sys
+
+with open(r"{dump_path}", "w", encoding="utf-8") as fh:
+    json.dump(sys.argv, fh)
+
+envelope = {envelope}
+sys.stdout.write(json.dumps(envelope))
+sys.exit(0)
+"""
+
+
+def _write_argv_dump_stub(tmp_path: Path, name: str, dump_path: Path, envelope: dict[str, Any]) -> str:
+    return _write_stub(
+        tmp_path,
+        name,
+        ARGV_DUMP_STUB.format(dump_path=str(dump_path.resolve()), envelope=json.dumps(envelope)),
+    )
+
+
+@pytest.mark.asyncio
+async def test_claude_complete_text_default_argv_uses_max_turns_1_no_research_flags(tmp_path: Path) -> None:
+    # Uses complete_text (not complete_json) because complete_json wraps the user
+    # prompt with a multiline schema instruction, and the cmd-shim %* argument
+    # passthrough used by these stubs does not survive embedded newlines faithfully.
+    dump_path = tmp_path / "argv_default.json"
+    binary = _write_argv_dump_stub(tmp_path, "claude_argv_default", dump_path, {"result": "hi"})
+
+    client = ClaudeCliClient(binary=binary, timeout=10.0)
+    await client.complete_text(
+        system_prompt="sys",
+        user_prompt="user",
+        model="m",
+    )
+
+    argv = json.loads(dump_path.read_text(encoding="utf-8"))
+    assert "--max-turns" in argv
+    idx = argv.index("--max-turns")
+    assert argv[idx + 1] == "1"
+    assert "--allowedTools" not in argv
+
+
+@pytest.mark.asyncio
+async def test_claude_complete_text_research_argv_uses_max_turns_12_and_allowed_tools(tmp_path: Path) -> None:
+    dump_path = tmp_path / "argv_research_text.json"
+    binary = _write_argv_dump_stub(tmp_path, "claude_argv_research_text", dump_path, {"result": "hi"})
+
+    client = ClaudeCliClient(binary=binary, timeout=10.0)
+    await client.complete_text(
+        system_prompt="sys",
+        user_prompt="user",
+        model="m",
+        allow_web_research=True,
+    )
+
+    argv = json.loads(dump_path.read_text(encoding="utf-8"))
+    idx = argv.index("--max-turns")
+    assert argv[idx + 1] == "12"
+    tools_idx = argv.index("--allowedTools")
+    assert argv[tools_idx + 1] == "WebSearch"
+    assert argv[tools_idx + 2] == "WebFetch"
+
+
+@pytest.mark.asyncio
+async def test_codex_complete_json_accepts_and_ignores_allow_web_research(tmp_path: Path) -> None:
+    lines = [
+        json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": '{"ok": true}'},
+            }
+        ),
+    ]
+    script = f"""
+    import sys
+    for line in {lines!r}:
+        sys.stdout.write(line + chr(10))
+    sys.exit(0)
+    """
+    binary = _write_stub(tmp_path, "codex_research_kwarg", script)
+
+    client = CodexCliClient(binary=binary, timeout=10.0)
+    result = await client.complete_json(
+        system_prompt="sys",
+        user_prompt="user",
+        json_schema={"type": "object"},
+        model="m",
+        allow_web_research=True,
+    )
+
+    assert result == {"ok": True}
+
+
+# ---------------------------------------------------------------------------
 # CodexCliClient
 # ---------------------------------------------------------------------------
 

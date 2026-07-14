@@ -219,6 +219,26 @@ def test_refresh_policy_prompt_forbids_sub_60s_polling_language() -> None:
     assert "sub-60" in rendered or "60-second" in rendered or "60 seconds" in rendered.lower()
 
 
+def test_spec_system_prompt_lists_public_api_directories() -> None:
+    rendered = prompts.spec_system_prompt()
+    assert "https://github.com/public-apis/public-apis" in rendered
+    assert "https://free-apis.github.io/#/" in rendered
+    assert "https://github.com/public-api-lists/public-api-lists" in rendered
+
+
+def test_spec_system_prompt_instructs_web_research_when_available() -> None:
+    rendered = prompts.spec_system_prompt()
+    lowered = rendered.lower()
+    assert "web search" in lowered or "websearch" in lowered
+    assert "do not guess endpoints" in lowered
+
+
+def test_data_source_contract_names_example_free_apis() -> None:
+    rendered = prompts.DATA_SOURCE_CONTRACT
+    for example in ("Hacker News", "Open-Meteo", "CoinGecko", "football-data.org", "TheSportsDB"):
+        assert example in rendered
+
+
 # ---------------------------------------------------------------------------
 # Legacy wrappers still work (ai/providers.py imports these directly).
 # ---------------------------------------------------------------------------
