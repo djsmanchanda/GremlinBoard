@@ -12,7 +12,14 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gremlinboard_api.ai.clients import AIClientError
-from gremlinboard_api.ai.providers import AIProvider, ClaudeProvider, CodexProvider, provider_from_id
+from gremlinboard_api.ai.providers import (
+    AIProvider,
+    ClaudeProvider,
+    CodexProvider,
+    _detect_title,
+    _slugify,
+    provider_from_id,
+)
 from gremlinboard_api.models.tables import StagedWidgetSpecRecord
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.repositories.generation import (
@@ -61,11 +68,21 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class QueuedGenerationInput:
     job_id: str
-    spec: WidgetSpecDraft
+    spec: WidgetSpecDraft | None
     provider_id: str
     model_id: str | None
     idea_prompt: str | None
     idea_usage: dict[str, Any] | None = None
+    # Raw idea text. Set (with spec left None) when spec drafting is deferred to the worker.
+    idea: str | None = None
+
+
+@dataclass(frozen=True)
+class _ResolvedSpecSource:
+    widget_id: str
+    spec: WidgetSpecDraft | None
+    stage_id: str | None
+    idea: str | None = None
 
 
 class GenerationPipelineService:
@@ -206,18 +223,18 @@ class GenerationPipelineService:
     async def create_job(self, payload: GenerationJobCreateRequest) -> GenerationJobRead:
         await self._ensure_worker_started()
         provider = await self._select_provider(payload.provider_id, payload.fallback_provider_ids)
-        spec, stage_id, idea_prompt, idea_usage = await self._resolve_spec_source(payload=payload, provider=provider)
-        async with self._creation_lock(spec.id):
-            artifact_version = await self._next_artifact_version(spec.id)
-            selected_version = await self._resolve_version(widget_id=spec.id, requested_version=payload.version)
+        source = await self._resolve_spec_source(payload=payload)
+        async with self._creation_lock(source.widget_id):
+            artifact_version = await self._next_artifact_version(source.widget_id)
+            selected_version = await self._resolve_version(widget_id=source.widget_id, requested_version=payload.version)
 
             async with self.session_factory() as session:
                 repository = GenerationRepository(session)
                 job = await repository.create_job_with_log(
-                    widget_id=spec.id,
+                    widget_id=source.widget_id,
                     provider_id=provider.provider_id,
                     requested_provider_id=payload.provider_id,
-                    stage_id=stage_id,
+                    stage_id=source.stage_id,
                     idea=payload.idea,
                     artifact_version=artifact_version,
                     selected_version=selected_version,
@@ -227,7 +244,7 @@ class GenerationPipelineService:
                     log_step="queued",
                     log_message="Generation job queued.",
                     log_context={
-                        "stage_id": stage_id,
+                        "stage_id": source.stage_id,
                         "provider_id": provider.provider_id,
                         "model_id": payload.model_id,
                         "progress": 0,
@@ -235,11 +252,12 @@ class GenerationPipelineService:
                 )
                 queued_input = QueuedGenerationInput(
                     job_id=job.id,
-                    spec=spec,
+                    spec=source.spec,
                     provider_id=provider.provider_id,
                     model_id=payload.model_id,
-                    idea_prompt=idea_prompt,
-                    idea_usage=idea_usage,
+                    idea_prompt=None,
+                    idea_usage=None,
+                    idea=source.idea,
                 )
                 job.queued_input_json = _serialize_queued_input(queued_input)
                 job.model_id = _resolve_provider_model(provider, payload.model_id)
@@ -418,6 +436,7 @@ class GenerationPipelineService:
                         spec=queued_input.spec,
                         provider=provider,
                         model_id=queued_input.model_id,
+                        idea=queued_input.idea,
                         idea_prompt=queued_input.idea_prompt,
                         idea_usage=queued_input.idea_usage,
                     )
@@ -631,10 +650,11 @@ class GenerationPipelineService:
         self,
         *,
         job_id: str,
-        spec: WidgetSpecDraft,
+        spec: WidgetSpecDraft | None,
         provider: AIProvider,
         model_id: str | None,
-        idea_prompt: str | None,
+        idea: str | None = None,
+        idea_prompt: str | None = None,
         idea_usage: dict[str, Any] | None = None,
     ) -> GenerationJobRead:
         async with self.session_factory() as session:
@@ -658,6 +678,32 @@ class GenerationPipelineService:
             )
             await self._sync_agent_job(job_id=job.id)
             await self._publish_generation_event(job_id=job.id, stage="spec", progress=10, generation_mode=generation_mode)
+
+            if spec is None:
+                # Idea-based jobs defer provider.draft_spec (which can run agent CLIs with
+                # web research for minutes) until here, inside the worker, so the request
+                # path that created the job never blocks on it.
+                if not idea:
+                    raise ValueError("generation job is missing both a spec and an idea to draft one from")
+                idea_result = await provider.draft_spec(idea=idea, model_id=model_id)
+                idea_prompt = str(idea_result.pop("idea_prompt", "")) or None
+                idea_usage = idea_result.pop("usage", None)
+                spec = WidgetSpecDraft.model_validate(idea_result)
+                draft_notes = validate_widget_spec(spec)
+                board_repository = BoardRepository(session)
+                stage = await board_repository.create_staged_spec(
+                    widget_id=spec.id,
+                    stage="validated" if not draft_notes else "draft",
+                    spec=spec.model_dump(mode="json"),
+                    scaffold_preview=scaffold_preview(spec),
+                    notes=draft_notes,
+                )
+                # Re-stamp the job onto the widget id the drafted spec actually settled
+                # on, since the provisional id derived at creation time is only a
+                # deterministic guess.
+                await repository.update_job(job, stage_id=stage.id, widget_id=spec.id)
+                await self._sync_agent_job(job_id=job.id)
+
             notes = validate_widget_spec(spec)
             if notes:
                 raise ValueError("; ".join(notes))
@@ -981,24 +1027,16 @@ class GenerationPipelineService:
         self,
         *,
         payload: GenerationJobCreateRequest,
-        provider: AIProvider,
-    ) -> tuple[WidgetSpecDraft, str | None, str | None, dict[str, Any] | None]:
+    ) -> _ResolvedSpecSource:
         if payload.idea:
-            idea_result = await provider.draft_spec(idea=payload.idea, model_id=payload.model_id)
-            idea_prompt = str(idea_result.pop("idea_prompt", "")) or None
-            idea_usage = idea_result.pop("usage", None)
-            spec = WidgetSpecDraft.model_validate(idea_result)
-            async with self.session_factory() as session:
-                repository = BoardRepository(session)
-                notes = validate_widget_spec(spec)
-                stage = await repository.create_staged_spec(
-                    widget_id=spec.id,
-                    stage="validated" if not notes else "draft",
-                    spec=spec.model_dump(mode="json"),
-                    scaffold_preview=scaffold_preview(spec),
-                    notes=notes,
-                )
-            return spec, stage.id, idea_prompt, idea_usage
+            # Idea-based jobs no longer call provider.draft_spec here: that call can run
+            # agent CLIs with web research for minutes, which is too slow for the request
+            # path. Instead we derive a deterministic provisional widget id (same
+            # heuristic the offline provider path uses) so the job can be persisted and
+            # returned immediately; the worker drafts the real spec and re-stamps the
+            # widget id once drafting completes.
+            widget_id = _provisional_widget_id(payload.idea)
+            return _ResolvedSpecSource(widget_id=widget_id, spec=None, stage_id=None, idea=payload.idea)
 
         async with self.session_factory() as session:
             if payload.regenerate_from_job_id:
@@ -1017,7 +1055,7 @@ class GenerationPipelineService:
             if stage_record.stage != "validated" or notes:
                 raise ValueError("spec stage must be validated before generation can run")
             spec = WidgetSpecDraft.model_validate(json.loads(stage_record.spec_json))
-            return spec, stage_record.id, None, None
+            return _ResolvedSpecSource(widget_id=spec.id, spec=spec, stage_id=stage_record.id, idea=None)
 
     async def _serialize_job(self, session: AsyncSession, job_id: str) -> GenerationJobRead:
         repository = GenerationRepository(session)
@@ -1124,28 +1162,44 @@ class GenerationPipelineService:
         return lock
 
 
+def _provisional_widget_id(idea: str) -> str:
+    """Derive a deterministic widget id from an idea without calling the AI provider.
+
+    Mirrors the heuristic the offline provider path uses (see `_detect_title` /
+    `_slugify` in `ai/providers.py`) so the id assigned at job-creation time is stable
+    and collision-safe the same way ids are today; the worker re-stamps this once the
+    real spec is drafted.
+    """
+
+    normalized = " ".join(idea.split())
+    return _slugify(_detect_title(normalized))
+
+
 def _serialize_queued_input(value: QueuedGenerationInput) -> str:
     return json.dumps(
         {
             "job_id": value.job_id,
-            "spec": value.spec.model_dump(mode="json"),
+            "spec": value.spec.model_dump(mode="json") if value.spec is not None else None,
             "provider_id": value.provider_id,
             "model_id": value.model_id,
             "idea_prompt": value.idea_prompt,
             "idea_usage": value.idea_usage,
+            "idea": value.idea,
         }
     )
 
 
 def _deserialize_queued_input(value: str) -> QueuedGenerationInput:
     payload = json.loads(value)
+    spec_payload = payload.get("spec")
     return QueuedGenerationInput(
         job_id=str(payload["job_id"]),
-        spec=WidgetSpecDraft.model_validate(payload["spec"]),
+        spec=WidgetSpecDraft.model_validate(spec_payload) if spec_payload is not None else None,
         provider_id=str(payload["provider_id"]),
         model_id=payload.get("model_id"),
         idea_prompt=payload.get("idea_prompt"),
         idea_usage=payload.get("idea_usage"),
+        idea=payload.get("idea"),
     )
 
 

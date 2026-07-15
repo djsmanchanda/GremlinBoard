@@ -61,6 +61,62 @@ class _FakeLiveClient:
             self.on_usage(self.usage_sequence.pop(0))
 
 
+class _GatedDraftProvider(CodexProvider):
+    """Delegates to the real (offline) draft_spec, but only after `gate` is set.
+
+    Lets tests prove that spec drafting for idea-based jobs runs in the worker (not
+    the request path) by holding the worker at the draft_spec call until the test
+    releases it.
+    """
+
+    def __init__(self, *, gate: asyncio.Event) -> None:
+        super().__init__()
+        self._gate = gate
+        self.draft_calls = 0
+
+    async def draft_spec(self, *, idea: str, model_id: str | None = None, reasoning_effort: str | None = "medium") -> dict[str, Any]:
+        self.draft_calls += 1
+        await self._gate.wait()
+        return await super().draft_spec(idea=idea, model_id=model_id, reasoning_effort=reasoning_effort)
+
+
+class _CustomIdDraftProvider(CodexProvider):
+    """Returns a widget spec whose id differs from the deterministic provisional id.
+
+    Used to prove the worker re-stamps the job's widget id from the drafted spec,
+    rather than keeping whatever provisional id was assigned at job-creation time.
+    """
+
+    def __init__(self, *, gate: asyncio.Event, widget_id: str) -> None:
+        super().__init__()
+        self._gate = gate
+        self._widget_id = widget_id
+
+    async def draft_spec(self, *, idea: str, model_id: str | None = None, reasoning_effort: str | None = "medium") -> dict[str, Any]:
+        await self._gate.wait()
+        return {
+            "id": self._widget_id,
+            "name": "Forced Widget",
+            "category": "custom",
+            "description": "Forced widget spec used to exercise widget id re-stamping.",
+            "min_size": "2x2",
+            "preferred_size": "4x2",
+            "refresh_policy": {"mode": "interval", "interval_seconds": 300},
+            "source_type": "generated",
+            "permissions": ["network"],
+            "output_schema": {"summary": "string"},
+            "renderer_type": "card",
+            "lifecycle_policy": {"expires": False, "stateful": True},
+        }
+
+
+class _FailingDraftProvider(CodexProvider):
+    """Always raises from draft_spec, to exercise the worker's failure path."""
+
+    async def draft_spec(self, *, idea: str, model_id: str | None = None, reasoning_effort: str | None = "medium") -> dict[str, Any]:
+        raise RuntimeError("boom - spec drafting exploded")
+
+
 _FAKE_BACKEND_SOURCE = """
 from __future__ import annotations
 
@@ -663,6 +719,270 @@ async def test_easy_generation_returns_test_box_and_feedback_refinement_metadata
 
         await generation_service.shutdown()
     finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_easy_generation_create_returns_before_spec_drafting_completes() -> None:
+    root = Path("data") / f"easy-generation-async-{uuid4().hex}"
+    database_path = root / "easy-generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        gate = asyncio.Event()
+        provider = _GatedDraftProvider(gate=gate)
+        generation_service.providers["codex"] = provider
+        await generation_service.start()
+
+        # If draft_spec ran inline in the request path this would hang until the gate
+        # is set; the timeout proves create_easy_job returns without waiting on it.
+        easy = await asyncio.wait_for(
+            generation_service.create_easy_job(
+                EasyGenerationCreateRequest(
+                    idea="Build a compact ops status widget with a health summary.",
+                    provider_id="codex",
+                )
+            ),
+            timeout=2.0,
+        )
+        assert easy.job.status == "queued"
+        assert easy.test_box is None
+        assert easy.job.widget_id
+
+        # Let the worker reach (and block on) the gated draft_spec call.
+        deadline = asyncio.get_running_loop().time() + 2.0
+        while provider.draft_calls == 0:
+            assert asyncio.get_running_loop().time() < deadline, "worker never reached draft_spec"
+            await asyncio.sleep(0.02)
+
+        still_queued = await generation_service.get_job(job_id=easy.job.id)
+        assert still_queued.status in {"queued", "running"}
+        assert still_queued.status != "completed"
+
+        gate.set()
+        job = await wait_for_generation(generation_service, easy.job.id)
+        assert job.status == "completed"
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_idea_job_widget_id_is_provisional_then_restamped_after_drafting() -> None:
+    root = Path("data") / f"idea-restamp-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        gate = asyncio.Event()
+        forced_widget_id = "totally_different_widget"
+        generation_service.providers["codex"] = _CustomIdDraftProvider(gate=gate, widget_id=forced_widget_id)
+        await generation_service.start()
+
+        queued = await generation_service.create_job(
+            GenerationJobCreateRequest(
+                idea='Build a "Sprint Risk" dashboard widget with alerts.',
+                provider_id="codex",
+            )
+        )
+        assert queued.status == "queued"
+        assert queued.stage_id is None
+        provisional_widget_id = queued.widget_id
+        assert provisional_widget_id
+        assert provisional_widget_id != forced_widget_id
+
+        gate.set()
+        job = await wait_for_generation(generation_service, queued.id)
+
+        assert job.status == "completed"
+        assert job.widget_id == forced_widget_id
+        assert job.stage_id is not None
+        assert job.install_target is not None
+        assert job.install_target["widget_id"] == forced_widget_id
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_idea_job_draft_spec_failure_fails_job_with_error_message() -> None:
+    root = Path("data") / f"idea-draft-failure-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        generation_service.providers["codex"] = _FailingDraftProvider()
+        await generation_service.start()
+
+        queued = await generation_service.create_job(
+            GenerationJobCreateRequest(
+                idea="Build a widget whose drafting will fail.",
+                provider_id="codex",
+            )
+        )
+        assert queued.status == "queued"
+
+        job = await wait_for_generation(generation_service, queued.id)
+        assert job.status == "failed"
+        assert job.error_message is not None
+        assert "boom" in job.error_message
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_generation_pipeline_requeues_persisted_idea_job_and_drafts_after_restart() -> None:
+    root = Path("data") / f"idea-restart-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    first_service: GenerationPipelineService | None = None
+    restarted_service: GenerationPipelineService | None = None
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+
+        first_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        # Simulate a process ending after the job is persisted but before a worker is started.
+        first_service._queue = asyncio.Queue()
+        first_service._ensure_worker_started = AsyncMock()
+        queued = await first_service.create_job(
+            GenerationJobCreateRequest(
+                idea="Build a compact restart ops widget with a status summary.",
+                provider_id="codex",
+            )
+        )
+        assert queued.status == "queued"
+        assert queued.stage_id is None
+        provisional_widget_id = queued.widget_id
+        assert first_service.queue_status()["queue_depth"] == 1
+        await first_service.shutdown()
+
+        restarted_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+        # Re-derive the queued input straight from the persisted payload, mirroring what
+        # the worker does on restart: it should carry the raw idea forward with no spec,
+        # ready to draft on the next run.
+        restarted_service._queue = asyncio.Queue()
+        await restarted_service._recover_interrupted_jobs_locked()
+        recovered_job_id = await restarted_service._queue.get()
+        assert recovered_job_id == queued.id
+        queued_input = await restarted_service._load_queued_input(recovered_job_id)
+        assert queued_input.spec is None
+        assert queued_input.idea is not None
+
+        restarted_service._queue.put_nowait(recovered_job_id)
+        restarted_service._ensure_worker_started_locked()
+        completed = await wait_for_generation(restarted_service, queued.id)
+
+        assert completed.status == "completed"
+        assert completed.widget_id == provisional_widget_id
+        assert completed.stage_id is not None
+    finally:
+        if restarted_service is not None:
+            await restarted_service.shutdown()
+        if first_service is not None:
+            await first_service.shutdown()
         await engine.dispose()
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)

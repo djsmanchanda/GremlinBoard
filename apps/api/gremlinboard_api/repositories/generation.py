@@ -150,6 +150,7 @@ class GenerationRepository:
         progress: int | None = None,
         stage_id: str | None = None,
         provider_id: str | None = None,
+        widget_id: str | None = None,
         install_blocked: bool | None = None,
         error_message: str | None = None,
         clear_error: bool = False,
@@ -166,6 +167,8 @@ class GenerationRepository:
             record.stage_id = stage_id
         if provider_id is not None:
             record.provider_id = provider_id
+        if widget_id is not None:
+            record.widget_id = widget_id
         if install_blocked is not None:
             record.install_blocked = install_blocked
         if clear_error:
