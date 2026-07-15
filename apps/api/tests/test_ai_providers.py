@@ -467,6 +467,34 @@ async def test_draft_spec_cli_mode_passes_allow_web_research_false_on_repair_rou
 
 
 @pytest.mark.asyncio
+async def test_draft_spec_cli_mode_retries_without_research_when_research_call_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+
+    class ResearchFailingCliClient(FakeCliClient):
+        async def complete_json(self, **kwargs):
+            if kwargs.get("allow_web_research"):
+                self.json_calls.append(dict(kwargs))
+                raise AIClientError("cli_error", "web research turn failed")
+            return await super().complete_json(**kwargs)
+
+    fake_cli_client = ResearchFailingCliClient(json_responses=[valid_spec_payload()])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.draft_spec(idea="show ops status")
+
+    assert result["generation_mode"] == "cli"
+    assert result["id"] == "ops_status"
+    assert len(fake_cli_client.json_calls) == 2
+    assert fake_cli_client.json_calls[0]["allow_web_research"] is True
+    assert fake_cli_client.json_calls[1]["allow_web_research"] is False
+
+
+@pytest.mark.asyncio
 async def test_draft_spec_live_mode_never_passes_allow_web_research(monkeypatch: pytest.MonkeyPatch) -> None:
     install_prompt_functions(monkeypatch)
     fake_client = FakeClient(json_responses=[valid_spec_payload()])

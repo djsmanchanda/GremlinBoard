@@ -72,6 +72,22 @@ def find_cli(name: str, explicit_path: str | None = None) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _clean_child_env() -> dict[str, str]:
+    """Environment for spawned agent CLIs.
+
+    The API server can itself be a descendant of a Claude Code session (tray
+    launched from a Claude-driven shell), and inherited nested-session markers
+    (CLAUDECODE, CLAUDE_CODE_*) make the child CLI behave as if it were running
+    inside another session. Strip them so headless runs are independent.
+    """
+
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key != "CLAUDECODE" and not key.startswith("CLAUDE_CODE_")
+    }
+
+
 def _schema_instruction(json_schema: dict[str, Any]) -> str:
     return (
         "\n\n---\n"
@@ -299,7 +315,7 @@ class ClaudeCliClient:
         else:
             argv.extend(["--max-turns", "1"])
 
-        env = os.environ.copy()
+        env = _clean_child_env()
         thinking_tokens = _reasoning_effort_thinking_tokens(reasoning_effort)
         if thinking_tokens is not None:
             env["MAX_THINKING_TOKENS"] = thinking_tokens

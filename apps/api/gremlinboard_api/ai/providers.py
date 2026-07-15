@@ -138,14 +138,30 @@ class AIProvider(ABC):
         schema = _prompt_call("spec_output_schema")
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
-        raw = await client.complete_json(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            json_schema=schema,
-            model=selected_model,
-            reasoning_effort=reasoning_effort,
-            **_research_kwargs(backend, allow_web_research=True),
-        )
+        research_kwargs = _research_kwargs(backend, allow_web_research=True)
+        try:
+            raw = await client.complete_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_schema=schema,
+                model=selected_model,
+                reasoning_effort=reasoning_effort,
+                **research_kwargs,
+            )
+        except AIClientError:
+            # Web research is an enhancement, never a requirement: if the
+            # research-enabled call fails (tool unavailable, turn budget,
+            # transient CLI error), retry once as a plain single-turn draft.
+            if not research_kwargs.get("allow_web_research"):
+                raise
+            raw = await client.complete_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_schema=schema,
+                model=selected_model,
+                reasoning_effort=reasoning_effort,
+                **_research_kwargs(backend, allow_web_research=False),
+            )
         spec = await self._validate_spec_with_repair(
             raw,
             client=client,
