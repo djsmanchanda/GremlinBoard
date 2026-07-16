@@ -221,6 +221,14 @@ async def seed_default_widgets(session_factory) -> None:
 async def lifespan(app: FastAPI):
     migrate_legacy_user_data()
     await init_db()
+    if not settings.widgets_dir.is_dir():
+        # Outside a repo checkout (e.g. a wheel install) the default
+        # repo-relative widgets path does not exist; the packaged launcher
+        # must point at the bundled core widgets explicitly.
+        raise RuntimeError(
+            f"core widgets directory not found: {settings.widgets_dir} — "
+            "set GREMLINBOARD_WIDGETS_DIR to the directory containing the core widget packages"
+        )
     registry_loader = load_registry(settings.widgets_dir, settings.user_widgets_dir)
     provider_runtime = ProviderRuntime(settings)
     provider_registry = ExternalProviderRegistry(provider_runtime)

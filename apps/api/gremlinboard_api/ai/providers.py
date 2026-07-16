@@ -5,9 +5,9 @@ from abc import ABC
 from collections.abc import Callable
 from dataclasses import dataclass
 import importlib
+import importlib.resources
 import json
 import os
-from pathlib import Path
 import re
 import time
 from typing import Any
@@ -835,8 +835,9 @@ def _legacy_review_prompt(*, spec: dict[str, Any], package: dict[str, Any]) -> s
 
 
 def _blueprint_schema() -> dict[str, Any]:
-    schema_path = Path(__file__).resolve().parents[4] / "schemas" / "widget-blueprint.schema.json"
-    return json.loads(schema_path.read_text(encoding="utf-8-sig"))
+    # Loaded as package data so the wheel works outside a repo checkout.
+    resource = importlib.resources.files("gremlinboard_api.schemas").joinpath("widget-blueprint.schema.json")
+    return json.loads(resource.read_text(encoding="utf-8-sig"))
 
 
 def _patch_blueprint_widget_id(data: dict[str, Any], widget_id: str) -> dict[str, Any]:

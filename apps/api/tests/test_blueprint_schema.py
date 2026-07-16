@@ -11,8 +11,8 @@ import pytest
 from gremlinboard_api.schemas.blueprint import collect_binding_paths, validate_blueprint
 
 
-ROOT = Path(__file__).resolve().parents[3]
-SCHEMA_PATH = ROOT / "schemas" / "widget-blueprint.schema.json"
+# The schema ships as package data so wheel installs work outside a checkout.
+SCHEMA_PATH = Path(__file__).resolve().parents[1] / "gremlinboard_api" / "schemas" / "widget-blueprint.schema.json"
 
 
 def sample_blueprint() -> dict[str, Any]:
