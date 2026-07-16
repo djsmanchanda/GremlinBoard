@@ -9,6 +9,25 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# In tray mode, hide the hosting console window so launching from a .bat or a
+# plain `powershell -File` never leaves a blank terminal behind for the tray's
+# lifetime. CLI modes (-StopAll/-StopMode/-List) keep their console output.
+if (-not $StopAll -and -not $StopMode -and -not $List) {
+    try {
+        $consoleApi = Add-Type -Name "ConsoleHider" -Namespace "GremlinBoardTray" -PassThru -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+        $consoleWindow = $consoleApi::GetConsoleWindow()
+        if ($consoleWindow -ne [IntPtr]::Zero) {
+            [void]$consoleApi::ShowWindow($consoleWindow, 0)
+        }
+    }
+    catch {
+        # Cosmetic only; never block tray startup on console-hiding.
+    }
+}
+
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $StateDir = Join-Path $RepoRoot "data\launcher"
 $StateFile = Join-Path $StateDir "instances.json"
