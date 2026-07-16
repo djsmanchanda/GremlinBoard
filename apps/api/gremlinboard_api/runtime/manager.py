@@ -360,6 +360,7 @@ class RuntimeManager:
             board = await repository.ensure_board(self.board_id, "GremlinBoard")
             widgets = await repository.list_widgets(self.board_id)
             snapshot = serialize_board(board, widgets, blueprints_by_widget_id=self.registry.blueprints_by_widget_id())
+            snapshot = snapshot.model_copy(update={"boot_id": self.event_bus.boot_id})
             previous = self._last_published_board
             self._last_published_board = snapshot
             if previous is not None:

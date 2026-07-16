@@ -251,6 +251,7 @@ class BoardRead(BaseModel):
     name: str
     owner_user_id: str | None = None
     widgets: list[WidgetInstanceRead]
+    boot_id: str | None = None
 
 
 class BoardPatchRead(BaseModel):

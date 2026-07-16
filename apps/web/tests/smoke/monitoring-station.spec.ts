@@ -72,6 +72,48 @@ for (const viewport of monitoringViewports) {
   });
 }
 
+test.describe("board stream reconnect boot_id", () => {
+  test("sends back the boot_id received in the snapshot on reconnect", async ({ page }) => {
+    const connectUrls: string[] = [];
+    let connectionCount = 0;
+
+    await page.routeWebSocket("**/api/board/stream*", (socket) => {
+      connectionCount += 1;
+      connectUrls.push(socket.url());
+      socket.send(
+        JSON.stringify({
+          type: "board.snapshot",
+          sequence: 7,
+          payload: { ...mockBoard, boot_id: "boot-process-a" },
+        }),
+      );
+      // Simulate the API process restarting: drop the socket so the client
+      // reconnects and must decide whether to send back last_seq/boot_id.
+      socket.close();
+    });
+    await page.route("**/api/board", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockBoard) }),
+    );
+    await page.route("**/api/registry/widgets", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockRegistry) }),
+    );
+
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: "GremlinBoard" })).toBeVisible();
+
+    await expect
+      .poll(() => connectUrls.some((url) => new URL(url, "http://localhost").searchParams.has("last_seq")))
+      .toBe(true);
+
+    const reconnectUrl = connectUrls
+      .map((url) => new URL(url, "http://localhost"))
+      .find((url) => url.searchParams.has("last_seq"))!;
+    expect(reconnectUrl.searchParams.get("last_seq")).toBe("7");
+    expect(reconnectUrl.searchParams.get("boot_id")).toBe("boot-process-a");
+    expect(connectionCount).toBeGreaterThanOrEqual(2);
+  });
+});
+
 async function mockBoardApi(page: Page) {
   await page.routeWebSocket("**/api/board/stream*", (socket) => {
     socket.send(JSON.stringify({ type: "board.snapshot", sequence: 1, payload: mockBoard }));

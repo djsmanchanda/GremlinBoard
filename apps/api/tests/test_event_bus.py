@@ -166,3 +166,46 @@ async def test_event_bus_prunes_stale_overflowed_subscribers() -> None:
     assert bus.websocket_subscriber_count == 0
     assert bus.stats().pruned_subscriber_count == 1
     bus.unsubscribe(websocket)
+
+
+def test_event_bus_boot_id_defaults_to_random_and_is_stable() -> None:
+    bus = EventBus()
+    assert isinstance(bus.boot_id, str)
+    assert bus.boot_id
+    assert bus.boot_id == bus.boot_id
+
+    other = EventBus()
+    assert other.boot_id != bus.boot_id
+
+
+def test_event_bus_accepts_fixed_boot_id() -> None:
+    bus = EventBus(boot_id="fixed-boot-id")
+    assert bus.boot_id == "fixed-boot-id"
+
+
+@pytest.mark.asyncio
+async def test_can_replay_rejects_mismatched_boot_id_regardless_of_sequence() -> None:
+    bus = EventBus(boot_id="boot-a", history_size=4)
+    event = await bus.publish_event("runtime.started", category="runtime", source={"component": "test"})
+
+    # a sequence that would otherwise be replayable
+    assert bus.can_replay(event.sequence - 1)
+    # but a mismatched boot_id unconditionally rejects it
+    assert not bus.can_replay(event.sequence - 1, "boot-b")
+    # matching boot_id still allows replay
+    assert bus.can_replay(event.sequence - 1, "boot-a")
+
+
+def test_can_replay_omitted_boot_id_is_unaffected() -> None:
+    bus = EventBus(boot_id="boot-a")
+    # no history published yet; behavior should match the sequence-only rules
+    assert bus.can_replay(0)
+    assert not bus.can_replay(-1)
+
+
+def test_classify_replay_miss_reports_boot_mismatch() -> None:
+    bus = EventBus(boot_id="boot-a", history_size=4)
+
+    assert bus.classify_replay_miss(0, "boot-b") == "boot_mismatch"
+    assert bus.classify_replay_miss(0, "boot-a") != "boot_mismatch"
+    assert bus.classify_replay_miss(-1) == "invalid_sequence"

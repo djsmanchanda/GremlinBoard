@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -80,12 +81,19 @@ class EventBusSnapshot:
 
 
 class TypedEventBus:
-    def __init__(self, *, default_queue_size: int = 64, history_size: int = 128) -> None:
+    def __init__(
+        self,
+        *,
+        default_queue_size: int = 64,
+        history_size: int = 128,
+        boot_id: str | None = None,
+    ) -> None:
         self.default_queue_size = default_queue_size
         self._history: deque[RuntimeEventEnvelope] = deque(maxlen=history_size)
         self._subscribers: dict[int, EventSubscriber] = {}
         self._next_subscriber_id = 1
         self._next_sequence = 1
+        self._boot_id = boot_id if boot_id is not None else uuid.uuid4().hex
         self._published_event_count = 0
         self._replay_event_count = 0
         self._stream_reset_count = 0
@@ -273,7 +281,9 @@ class TypedEventBus:
         self._history.clear()
         return cleared
 
-    def can_replay(self, after_sequence: int) -> bool:
+    def can_replay(self, after_sequence: int, boot_id: str | None = None) -> bool:
+        if boot_id is not None and boot_id != self._boot_id:
+            return False
         if after_sequence < 0:
             return False
         if after_sequence > self.latest_sequence:
@@ -289,7 +299,9 @@ class TypedEventBus:
     def record_snapshot_fallback(self) -> None:
         self._snapshot_fallback_count += 1
 
-    def classify_replay_miss(self, after_sequence: int) -> str:
+    def classify_replay_miss(self, after_sequence: int, boot_id: str | None = None) -> str:
+        if boot_id is not None and boot_id != self._boot_id:
+            return "boot_mismatch"
         if after_sequence < 0:
             return "invalid_sequence"
         if after_sequence > self.latest_sequence:
@@ -311,6 +323,10 @@ class TypedEventBus:
             self._subscribers.pop(queue_id, None)
         self._pruned_subscriber_count += len(stale_ids)
         return len(stale_ids)
+
+    @property
+    def boot_id(self) -> str:
+        return self._boot_id
 
     @property
     def latest_sequence(self) -> int:

@@ -100,6 +100,7 @@ export interface BoardState {
   name: string;
   owner_user_id?: string | null;
   widgets: WidgetInstance[];
+  boot_id?: string | null;
 }
 
 export interface BoardPatch {

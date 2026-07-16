@@ -29,11 +29,15 @@ async def _read_board(session: AsyncSession, connection: Request | WebSocket) ->
     repository = BoardRepository(session)
     board = await repository.ensure_board(settings.default_board_id, "GremlinBoard")
     widgets = await repository.list_widgets(settings.default_board_id)
-    return serialize_board(
+    result = serialize_board(
         board,
         widgets,
         blueprints_by_widget_id=connection.app.state.registry.blueprints_by_widget_id(),
     )
+    event_bus = getattr(connection.app.state, "event_bus", None)
+    if event_bus is not None:
+        result = result.model_copy(update={"boot_id": event_bus.boot_id})
+    return result
 
 
 @router.get("", response_model=BoardRead)
@@ -211,16 +215,25 @@ async def board_stream(websocket: WebSocket) -> None:
     presence_token = await presence.websocket_connected() if presence is not None else None
     raw_last_seq = websocket.query_params.get("last_seq")
     last_seq, last_seq_invalid = _parse_last_seq(raw_last_seq)
+    client_boot_id = websocket.query_params.get("boot_id")
     event_bus.prune_stale_subscribers(max_idle_seconds=300)
     queue = event_bus.subscribe(kind="websocket")
     try:
-        if last_seq is not None and event_bus.can_replay(last_seq):
+        if (
+            last_seq is not None
+            and not last_seq_invalid
+            and event_bus.can_replay(last_seq, client_boot_id)
+        ):
             for event in event_bus.replay(after_sequence=last_seq, kind="websocket"):
                 if not await _send_json(websocket, event.to_websocket_message()):
                     return
         else:
             if raw_last_seq is not None:
-                reason = "invalid_sequence" if last_seq_invalid else event_bus.classify_replay_miss(last_seq or 0)
+                reason = (
+                    "invalid_sequence"
+                    if last_seq_invalid
+                    else event_bus.classify_replay_miss(last_seq or 0, client_boot_id)
+                )
                 event_bus.record_replay_miss(reason)
             event_bus.record_snapshot_fallback()
             async with websocket.app.state.session_factory() as session:

@@ -4,6 +4,7 @@ export interface BoardProjectionState {
   board: BoardState | null;
   lastSequence: number;
   needsSnapshot: boolean;
+  bootId: string | null;
 }
 
 export type BoardProjectionResult =
@@ -34,6 +35,7 @@ export function applyBoardEvent(
         board: event.payload,
         lastSequence: sequence,
         needsSnapshot: false,
+        bootId: event.payload.boot_id ?? state.bootId,
       },
     };
   }
@@ -58,6 +60,7 @@ export function applyBoardEvent(
         board: applyBoardPatch(state.board, event.payload),
         lastSequence: sequence,
         needsSnapshot: false,
+        bootId: state.bootId,
       },
     };
   }

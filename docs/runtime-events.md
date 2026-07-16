@@ -84,6 +84,16 @@ Replay is bounded:
 - if `last_seq` is missing, invalid, or too old, the server sends a fresh `board.snapshot`.
 - `board.snapshot` is always the authoritative state base.
 
+### Boot identity
+
+Every `EventBus` instance is stamped with a random `boot_id` at process construction. `board.snapshot` payloads carry that `boot_id` alongside the board fields, and clients must remember the most recent `boot_id` they observed.
+
+- when reconnecting with `last_seq`, clients should also send back the `boot_id` they last saw as a `boot_id` query parameter.
+- if the client's `boot_id` does not match the current process's `EventBus.boot_id`, the server treats the reconnect as unreplayable regardless of whether `last_seq` numerically falls inside the current sequence range, records a `boot_mismatch` replay miss, and falls back to a fresh `board.snapshot`.
+- omitting `boot_id` (older clients, or a client's very first connection) preserves today's sequence-only replay behavior for backward compatibility.
+
+This guards against the case where an API process restarts while a browser tab stays open: the restarted process's `EventBus` starts its sequence counter over at 1, so a stale `last_seq` from the previous process could otherwise land inside the new process's low sequence range and trigger a replay of a different timeline (for example, delivering stale widget upserts with no corresponding removal). Tying replay eligibility to `boot_id` closes that gap.
+
 Queue overflow for websocket subscribers emits `stream.reset`. The websocket route handles `stream.reset` by sending a fresh `board.snapshot`, then continues live delivery.
 
 Board streams use snapshot plus patch reconciliation:
@@ -105,7 +115,7 @@ Board streams use snapshot plus patch reconciliation:
 
 Phase 7 soak-hardening visibility is additive:
 
-- Replay misses are counted by reason: `invalid_sequence`, `future_sequence`, `empty_history`, `too_old`, and `unknown`.
+- Replay misses are counted by reason: `invalid_sequence`, `future_sequence`, `empty_history`, `too_old`, `boot_mismatch`, and `unknown`.
 - Websocket subscribers track queue depth, dropped events, stream resets, creation time, last enqueue time, and last overflow time.
 - Overflowed websocket subscribers can be pruned when they remain full beyond the stale-subscriber threshold.
 - Stream heartbeats are direct websocket transport messages, not persisted runtime events, and exist only to detect dead long-session sockets.

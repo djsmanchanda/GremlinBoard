@@ -34,13 +34,14 @@ export function BoardShell() {
   const hasBoardSnapshot = useRef(false);
   const hasRegistrySnapshot = useRef(false);
   const registryRefreshInFlight = useRef(false);
-  const projection = useRef<BoardProjectionState>({ board: null, lastSequence: 0, needsSnapshot: false });
+  const projection = useRef<BoardProjectionState>({ board: null, lastSequence: 0, needsSnapshot: false, bootId: null });
 
   const commitBoard = useCallback((nextBoard: BoardState, sequence = projection.current.lastSequence) => {
     projection.current = {
       board: nextBoard,
       lastSequence: sequence,
       needsSnapshot: false,
+      bootId: nextBoard.boot_id ?? projection.current.bootId,
     };
     setBoard(nextBoard);
   }, [setBoard]);
@@ -146,6 +147,7 @@ export function BoardShell() {
             board: snapshot,
             lastSequence: projection.current.lastSequence,
             needsSnapshot: false,
+            bootId: snapshot.boot_id ?? projection.current.bootId,
           });
         })
         .catch((loadError) => {
@@ -158,7 +160,13 @@ export function BoardShell() {
         return;
       }
       const lastSequence = projection.current.lastSequence;
-      const streamPath = lastSequence > 0 ? `/board/stream?last_seq=${lastSequence}` : "/board/stream";
+      const bootId = projection.current.bootId;
+      const streamPath =
+        lastSequence > 0
+          ? bootId
+            ? `/board/stream?last_seq=${lastSequence}&boot_id=${encodeURIComponent(bootId)}`
+            : `/board/stream?last_seq=${lastSequence}`
+          : "/board/stream";
       const nextSocket = new WebSocket(apiWebSocketUrl(streamPath));
       socket = nextSocket;
       nextSocket.onopen = () => {
@@ -206,6 +214,7 @@ export function BoardShell() {
             board: snapshot,
             lastSequence: projection.current.lastSequence,
             needsSnapshot: false,
+            bootId: snapshot.boot_id ?? projection.current.bootId,
           });
           hasBoardSnapshot.current = true;
           setError(null);
