@@ -29,11 +29,24 @@ if (-not $StopAll -and -not $StopMode -and -not $List) {
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$StateDir = Join-Path $RepoRoot "data\launcher"
+$DataDir = if ($env:GREMLINBOARD_DATA_DIR) { $env:GREMLINBOARD_DATA_DIR } else { Join-Path $env:LOCALAPPDATA "GremlinBoard" }
+$StateDir = Join-Path $DataDir "launcher"
 $StateFile = Join-Path $StateDir "instances.json"
 $LauncherStateVersion = 2
 
 New-Item -ItemType Directory -Force -Path $StateDir | Out-Null
+
+# One-time migration: if the platform launcher state directory is empty, carry
+# over any legacy repo-local launcher state so running instances aren't lost.
+$LegacyStateFile = Join-Path $RepoRoot "data\launcher\instances.json"
+if (-not (Test-Path -LiteralPath $StateFile) -and (Test-Path -LiteralPath $LegacyStateFile)) {
+    try {
+        Copy-Item -LiteralPath $LegacyStateFile -Destination $StateFile -Force
+    }
+    catch {
+        # Non-fatal: the launcher just starts with empty state if this fails.
+    }
+}
 
 function Write-LauncherStateEvent {
     param(

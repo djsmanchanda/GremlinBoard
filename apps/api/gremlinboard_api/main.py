@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
+import shutil
+import sqlite3
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from gremlinboard_api.api.routes import agents, ai, board, control, devtools, health, observability, plugins, registry, runtime, specs, system
-from gremlinboard_api.config import settings
+from gremlinboard_api.config import ROOT_DIR, settings
 from gremlinboard_api.db import SessionLocal, init_db
 from gremlinboard_api.providers.registry import ExternalProviderRegistry, ProviderRuntime
 from gremlinboard_api.registry.loader import load_registry
@@ -26,6 +30,88 @@ from gremlinboard_api.services.fixtures import default_countdown_target
 from gremlinboard_api.services.plugin_manager import PluginManagerService
 from gremlinboard_api.services.presence import PresenceManager
 from gremlinboard_api.services.system_settings import SystemSettingsService
+
+
+_migration_logger = logging.getLogger("gremlinboard_api.migration")
+
+
+def _sqlite_path_from_url(database_url: str) -> Path | None:
+    prefix = "sqlite+aiosqlite:///"
+    if not database_url.startswith(prefix):
+        return None
+    return Path(database_url[len(prefix) :])
+
+
+def _read_widget_plugin_is_core(db_path: Path) -> dict[str, bool] | None:
+    """Read {widget_id: is_core} from a gremlinboard.db, or None if unreadable."""
+
+    if not db_path.exists():
+        return None
+    try:
+        connection = sqlite3.connect(str(db_path))
+        try:
+            cursor = connection.execute("SELECT widget_id, is_core FROM widget_plugins")
+            return {row[0]: bool(row[1]) for row in cursor.fetchall()}
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return None
+
+
+def migrate_legacy_user_data() -> None:
+    """Move mutable user state from the repo into the platform data directory.
+
+    Idempotent and never destructive: the legacy database is copied (not
+    moved), and widget directories are only relocated once each — a second
+    run finds nothing left to migrate. Runs before DB init/registry load so
+    the rest of startup only ever sees the new locations.
+    """
+
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.user_widgets_dir.mkdir(parents=True, exist_ok=True)
+    # The isolated widget host imports `widgets.<id>.backend` from this root,
+    # so keep it a regular package like the repo's widgets/ directory.
+    root_marker = settings.user_widgets_dir / "__init__.py"
+    if not root_marker.exists():
+        root_marker.write_text('"""GremlinBoard user widget packages."""\n', encoding="utf-8")
+
+    dest_db_path = _sqlite_path_from_url(settings.database_url)
+    db_copied = False
+    if dest_db_path is not None:
+        legacy_db_path = ROOT_DIR / "data" / "gremlinboard.db"
+        if not dest_db_path.exists() and legacy_db_path.exists():
+            dest_db_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(legacy_db_path, dest_db_path)
+            db_copied = True
+
+    moved_widgets: list[str] = []
+    skipped_widgets: list[str] = []
+    is_core_by_widget_id = _read_widget_plugin_is_core(dest_db_path) if dest_db_path is not None else None
+    if is_core_by_widget_id is not None and settings.widgets_dir.exists():
+        for entry in sorted(settings.widgets_dir.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("__"):
+                continue
+            widget_id = entry.name
+            is_core = is_core_by_widget_id.get(widget_id)
+            if is_core is None or is_core:
+                if is_core is None:
+                    skipped_widgets.append(widget_id)
+                continue
+            destination = settings.user_widgets_dir / widget_id
+            if destination.exists():
+                skipped_widgets.append(widget_id)
+                continue
+            shutil.move(str(entry), str(destination))
+            moved_widgets.append(widget_id)
+
+    if db_copied or moved_widgets or skipped_widgets:
+        _migration_logger.info(
+            "gremlinboard user-data migration: db_copied=%s moved_widgets=%s skipped_widgets=%s -> %s",
+            db_copied,
+            moved_widgets,
+            skipped_widgets,
+            settings.data_dir,
+        )
 
 
 async def seed_default_widgets(session_factory) -> None:
@@ -133,8 +219,9 @@ async def seed_default_widgets(session_factory) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    migrate_legacy_user_data()
     await init_db()
-    registry_loader = load_registry(settings.widgets_dir)
+    registry_loader = load_registry(settings.widgets_dir, settings.user_widgets_dir)
     provider_runtime = ProviderRuntime(settings)
     provider_registry = ExternalProviderRegistry(provider_runtime)
     auth_service = AuthService(session_factory=SessionLocal)
@@ -144,7 +231,7 @@ async def lifespan(app: FastAPI):
     await provider_runtime.secrets.sync_from_repository(SessionLocal)
     plugin_manager = PluginManagerService(
         session_factory=SessionLocal,
-        widgets_dir=settings.widgets_dir,
+        widgets_dir=settings.user_widgets_dir,
         registry=registry_loader,
     )
     await plugin_manager.sync_with_filesystem()

@@ -64,51 +64,73 @@ class LoadedWidget:
 
 
 class WidgetRegistry:
-    def __init__(self, widgets_dir: Path):
+    def __init__(self, widgets_dir: Path, user_widgets_dir: Path | None = None):
         self.widgets_dir = widgets_dir
+        self.user_widgets_dir = user_widgets_dir
         self._entries: dict[str, LoadedWidget] = {}
+
+    def _roots(self) -> list[tuple[Path, bool, str]]:
+        roots: list[tuple[Path, bool, str]] = [(self.widgets_dir, True, "core")]
+        if self.user_widgets_dir is not None:
+            roots.append((self.user_widgets_dir, False, "generated"))
+        return roots
 
     def load(self) -> None:
         entries: dict[str, LoadedWidget] = {}
-        for manifest_path in sorted(self.widgets_dir.glob("*/manifest.json")):
-            widget_root, raw_manifest = self._normalize_widget_package(manifest_path.parent)
-            manifest = WidgetManifest.model_validate(raw_manifest)
-            schema_path = widget_root / raw_manifest["config_schema"]
-            backend_path = widget_root / "backend.py"
+        for root_dir, is_core, source_type in self._roots():
+            if not root_dir.exists():
+                continue
+            for manifest_path in sorted(root_dir.glob("*/manifest.json")):
+                widget_root, raw_manifest = self._normalize_widget_package(manifest_path.parent, root_dir)
+                manifest = WidgetManifest.model_validate(raw_manifest)
 
-            if not schema_path.exists():
-                raise FileNotFoundError(f"missing config schema for widget {manifest.id}")
-            if isinstance(manifest.service, PythonServiceTarget):
-                if not backend_path.exists():
-                    raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
-                backend_source = backend_path.read_text(encoding="utf-8")
-                _reject_dangerous_backend_imports(backend_source, manifest.id)
-            blueprint: dict[str, Any] | None = None
-            if isinstance(manifest.renderer, BlueprintRendererTarget):
-                blueprint = _load_widget_blueprint(widget_root, manifest_id=manifest.id)
-            elif isinstance(manifest.renderer, ModuleRendererTarget):
-                renderer_path = widget_root / "renderer.tsx"
-                if not renderer_path.exists():
-                    raise FileNotFoundError(f"missing renderer.tsx for widget {manifest.id}")
-                renderer_source = renderer_path.read_text(encoding="utf-8")
-                _reject_dangerous_renderer_imports(renderer_source, manifest.id)
-                if not _renderer_exports_symbol(renderer_source, manifest.renderer.export_name):
-                    raise ValueError(f"renderer.tsx for widget {manifest.id} must export '{manifest.renderer.export_name}'")
+                if manifest.id in entries:
+                    existing = entries[manifest.id]
+                    raise ValueError(
+                        f"widget '{manifest.id}' is defined in both {existing.root_dir} and {widget_root}; "
+                        "a user-installed widget must not shadow a core widget id"
+                        if existing.is_core
+                        else f"widget '{manifest.id}' is defined in both {existing.root_dir} and {widget_root}"
+                    )
 
-            config_schema = json.loads(schema_path.read_text(encoding="utf-8"))
-            entries[manifest.id] = LoadedWidget(
-                manifest=manifest,
-                root_dir=widget_root,
-                config_schema=config_schema,
-                blueprint=blueprint,
-            )
+                schema_path = widget_root / raw_manifest["config_schema"]
+                backend_path = widget_root / "backend.py"
+
+                if not schema_path.exists():
+                    raise FileNotFoundError(f"missing config schema for widget {manifest.id}")
+                if isinstance(manifest.service, PythonServiceTarget):
+                    if not backend_path.exists():
+                        raise FileNotFoundError(f"missing backend.py for widget {manifest.id}")
+                    backend_source = backend_path.read_text(encoding="utf-8")
+                    _reject_dangerous_backend_imports(backend_source, manifest.id)
+                blueprint: dict[str, Any] | None = None
+                if isinstance(manifest.renderer, BlueprintRendererTarget):
+                    blueprint = _load_widget_blueprint(widget_root, manifest_id=manifest.id)
+                elif isinstance(manifest.renderer, ModuleRendererTarget):
+                    renderer_path = widget_root / "renderer.tsx"
+                    if not renderer_path.exists():
+                        raise FileNotFoundError(f"missing renderer.tsx for widget {manifest.id}")
+                    renderer_source = renderer_path.read_text(encoding="utf-8")
+                    _reject_dangerous_renderer_imports(renderer_source, manifest.id)
+                    if not _renderer_exports_symbol(renderer_source, manifest.renderer.export_name):
+                        raise ValueError(f"renderer.tsx for widget {manifest.id} must export '{manifest.renderer.export_name}'")
+
+                config_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                entries[manifest.id] = LoadedWidget(
+                    manifest=manifest,
+                    root_dir=widget_root,
+                    config_schema=config_schema,
+                    blueprint=blueprint,
+                    is_core=is_core,
+                    source_type=source_type,
+                )
 
         self._entries = entries
 
-    def _normalize_widget_package(self, widget_root: Path) -> tuple[Path, dict[str, Any]]:
+    def _normalize_widget_package(self, widget_root: Path, widgets_dir: Path) -> tuple[Path, dict[str, Any]]:
         manifest_path = widget_root / "manifest.json"
         raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        validate_widget_manifest_paths(raw_manifest, widget_root=widget_root, widgets_dir=self.widgets_dir)
+        validate_widget_manifest_paths(raw_manifest, widget_root=widget_root, widgets_dir=widgets_dir)
 
         init_path = widget_root / "__init__.py"
         if not init_path.exists():
@@ -148,8 +170,8 @@ class WidgetRegistry:
         return len(self._entries)
 
 
-def load_registry(widgets_dir: Path) -> WidgetRegistry:
-    registry = WidgetRegistry(widgets_dir)
+def load_registry(widgets_dir: Path, user_widgets_dir: Path | None = None) -> WidgetRegistry:
+    registry = WidgetRegistry(widgets_dir, user_widgets_dir)
     registry.load()
     return registry
 

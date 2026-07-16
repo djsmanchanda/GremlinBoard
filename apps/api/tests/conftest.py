@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
+
 import pytest
 
-from gremlinboard_api.ai import cli_clients
+# Must run before gremlinboard_api.config is first imported (its `settings`
+# singleton resolves `data_dir` at import time): points the whole test session
+# at a throwaway data directory so default-resolution code paths never touch
+# the real platform AppData location, and tests never share state with a real
+# GremlinBoard installation on this machine.
+_TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="gremlinboard-test-data-"))
+os.environ.setdefault("GREMLINBOARD_DATA_DIR", str(_TEST_DATA_DIR))
+
+from gremlinboard_api.ai import cli_clients  # noqa: E402 (must follow the env var above)
 
 
 @pytest.fixture(autouse=True)

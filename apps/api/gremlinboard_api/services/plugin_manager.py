@@ -55,8 +55,8 @@ class PluginManagerService:
                     version=entry.manifest.version,
                     enabled=existing.enabled if existing else True,
                     installed=True,
-                    is_core=existing.is_core if existing else True,
-                    source_type=existing.source_type if existing else "core",
+                    is_core=existing.is_core if existing else entry.is_core,
+                    source_type=existing.source_type if existing else entry.source_type,
                     source_ref=existing.source_ref if existing else str(entry.root_dir),
                     last_error=None,
                 )

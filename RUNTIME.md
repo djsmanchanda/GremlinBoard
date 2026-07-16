@@ -94,7 +94,7 @@ Rules:
 - Windows tray port allocation: stable web/API use `7555`/`2555`; dev web/API use `7556`/`2556`.
 - Windows tray dev mode: `Start-GremlinBoard-Dev.bat` starts the reload-enabled API/web pair on ports `7556`/`2556`.
 - The launcher checks selected ports before starting. If a port is already used by a process the launcher does not manage, startup fails instead of silently binding to the wrong stack.
-- Managed launcher state is stored in `data/launcher/instances.json`; it is runtime state, not source. The launcher cleans stale entries and allows at most two managed stacks so repeated starts do not silently stack background CPU work.
+- Managed launcher state is stored in `instances.json` under the platform user-data directory's `launcher/` subfolder (`%LOCALAPPDATA%\GremlinBoard\launcher` by default on Windows, or `GREMLINBOARD_DATA_DIR\launcher` when that env var is set); it is runtime state, not source. The launcher cleans stale entries and allows at most two managed stacks so repeated starts do not silently stack background CPU work. On first run, a legacy `data\launcher\instances.json` in the repo is copied once into the new location.
 - Use `Stop-GremlinBoard.bat` or the tray menu's `Stop Services and Exit` action to close managed child processes.
 
 ## Lightweight Utility Direction

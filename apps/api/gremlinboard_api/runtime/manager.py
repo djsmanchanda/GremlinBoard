@@ -768,6 +768,15 @@ class RuntimeManager:
         expected_module = f"widgets.{manifest.id}.backend"
         if manifest.service.module != expected_module:
             raise TypeError(f"widget service module for {manifest.id} must be '{expected_module}'")
+        core_widgets_dir = self.registry.widgets_dir.resolve()
+        if loaded.root_dir.resolve().parent != core_widgets_dir:
+            raise RuntimeError(
+                f"widget '{manifest.id}' is not installed under {core_widgets_dir}, so it cannot run "
+                "in-process. In-process execution (GREMLINBOARD_ISOLATE_GENERATED=0) only supports widgets "
+                "that live in the repo's widgets/ directory; run with isolation enabled (the default), or "
+                "move this widget into the repo widgets/ directory, instead of merging it into that "
+                "namespace."
+            )
         widgets_parent = str(self.registry.widgets_dir.parent)
         if widgets_parent not in sys.path:
             sys.path.insert(0, widgets_parent)
@@ -787,7 +796,12 @@ class RuntimeManager:
         if not isinstance(manifest.service, PythonServiceTarget):
             raise TypeError("python process host requires a python service manifest")
         api_root = Path(__file__).resolve().parents[2]
-        widgets_parent = self.registry.widgets_dir.resolve().parent
+        # Use the per-widget root rather than the registry's global (core)
+        # widgets_dir: a generated widget can live under a completely
+        # different parent (the user widgets directory), and the process
+        # host needs the parent of *that* widget's own "widgets" folder.
+        loaded = self.registry.get(manifest.id)
+        widgets_parent = loaded.root_dir.resolve().parent.parent
         bootstrap = (
             "import runpy,sys;"
             "sys.path.insert(0,sys.argv.pop(1));"
