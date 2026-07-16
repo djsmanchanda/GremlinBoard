@@ -170,6 +170,7 @@ export interface AIProvider {
   provider_id: string;
   label: string;
   status: string;
+  backend?: string | null;
   supports_codegen: boolean;
   supports_review: boolean;
   supports_idea_to_spec: boolean;

@@ -106,8 +106,17 @@ export function SpecStudio() {
         if (jobItems[0]) {
           setCurrentJob(jobItems[0]);
         }
+        // Prefer a provider with a working AI backend (api key or agent CLI)
+        // over one that would silently fall back to offline templates.
+        const usable = (provider: (typeof providerItems)[number]) =>
+          provider.backend != null && provider.backend !== "offline";
         const activeProvider =
-          providerItems.find((provider) => provider.provider_id === selectedProvider) ?? providerItems[0] ?? null;
+          [
+            providerItems.find((provider) => provider.provider_id === selectedProvider && usable(provider)),
+            providerItems.find(usable),
+            providerItems.find((provider) => provider.provider_id === selectedProvider),
+            providerItems[0],
+          ].find(Boolean) ?? null;
         if (activeProvider) {
           setSelectedProvider(activeProvider.provider_id);
           const defaultModelId = getDefaultModelId(activeProvider);

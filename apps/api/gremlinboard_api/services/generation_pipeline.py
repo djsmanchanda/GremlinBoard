@@ -183,6 +183,7 @@ class GenerationPipelineService:
                     provider_id=provider.provider_id,
                     label=provider.label,
                     status="disabled" if not enabled else str(health.get("status", "unknown")),
+                    backend=str(health.get("backend")) if health.get("backend") else None,
                     supports_codegen=provider.supports_codegen,
                     supports_review=provider.supports_review,
                     supports_idea_to_spec=provider.supports_idea_to_spec,

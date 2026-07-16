@@ -239,7 +239,7 @@ function ReviewSection(props: ConversationProps) {
           <InlineNotice
             tone="warning"
             title="Generated in offline template mode — no AI was used"
-            body={`No API key is configured for the ${job.provider_id} provider, so this widget came from the deterministic template fallback, not a model. Add a credential in the System panel (provider "anthropic" for Claude, "openai" for Codex), then Regenerate for real AI generation.`}
+            body={`The ${job.provider_id === "claude" ? "Claude" : "Codex"} provider found neither a logged-in agent CLI nor an API key, so this widget came from the deterministic template fallback. Either install and log in to the ${job.provider_id === "claude" ? "Claude Code CLI (claude)" : "Codex CLI (codex)"} — no API key needed — or add a credential in the System panel (provider "${job.provider_id === "claude" ? "anthropic" : "openai"}"), then Regenerate.`}
           />
         </div>
       ) : null}

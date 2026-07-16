@@ -772,6 +772,7 @@ class AIProviderRead(BaseModel):
     provider_id: str
     label: str
     status: str
+    backend: str | None = None
     supports_codegen: bool
     supports_review: bool
     supports_idea_to_spec: bool

@@ -44,6 +44,13 @@ export function ProviderControl({
           {providers.map((provider) => (
             <option key={provider.provider_id} value={provider.provider_id}>
               {provider.label}
+              {provider.backend === "cli"
+                ? " — local CLI"
+                : provider.backend === "live"
+                  ? " — API key"
+                  : provider.backend === "offline"
+                    ? " — offline (no CLI or key)"
+                    : ""}
             </option>
           ))}
         </select>
