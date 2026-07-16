@@ -1,0 +1,19 @@
+{
+  "name": "gremlinboard",
+  "version": "0.1.0",
+  "description": "Run the full GremlinBoard stack (API + web) locally with a single command.",
+  "license": "UNLICENSED",
+  "bin": {
+    "gremlinboard": "bin/gremlinboard.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "web/",
+    "wheels/",
+    "widgets/",
+    "build-info.json"
+  ]
+}
