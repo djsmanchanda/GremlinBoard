@@ -19,13 +19,17 @@ __pycache__/
 apps/web/.next/
 apps/web/node_modules/
 apps/api/.venv/
-data/runtime/
-data/launcher/
+# Local runtime state (DBs, launcher state/logs, test scratch) — never source.
+data/
+# Generated/user-installed widget packages (moving to the user data dir; until
+# then, ignore them so installs don't dirty the repo).
+/widgets/hackernews_top5/
 *.egg-info/
 __pycache__/
 .pytest_cache/
 node_modules/
 .next/
 *.log
+handoff.md
 .codex/
 /apps/web/test-results
