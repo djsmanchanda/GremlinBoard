@@ -282,7 +282,12 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
             )
 
         feedback_text = "add a refresh button, marker XYZ777"
-        refined_spec_payload = dict(original_spec) | {"name": "Feedback Target Refreshed"}
+        # The model also (incorrectly) changes the id here: refinement updates the
+        # widget in place, so the pipeline must pin the id back to the original.
+        refined_spec_payload = dict(original_spec) | {
+            "id": "feedback_target_renamed",
+            "name": "Feedback Target Refreshed",
+        }
 
         capturing_client = _CapturingClient(
             json_responses=[
@@ -311,6 +316,11 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
         assert feedback.metadata["refinement"]["source"] == "provider"
         assert feedback.metadata["refinement"]["generation_mode"] == "live"
         assert feedback.metadata["refined_spec"]["name"] == "Feedback Target Refreshed"
+        # The model's attempted id change must be pinned back to the original so
+        # the regeneration updates the existing widget instead of installing a
+        # duplicate under a new id.
+        assert feedback.metadata["refined_spec"]["id"] == "feedback_target"
+        assert feedback.job.widget_id == "feedback_target"
         assert capturing_client.json_calls[0]["user_prompt"].count(feedback_text) >= 1
 
         refined_job = await wait_for_generation(generation_service, feedback.job.id)

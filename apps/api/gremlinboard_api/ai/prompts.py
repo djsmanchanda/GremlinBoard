@@ -332,8 +332,10 @@ something like that, still update whatever spec-level signal is relevant (e.g.
 `output_schema` roles that expose the data the interaction needs, `renderer_type`, or
 `description` noting the requested interaction) so the intent carries forward into the
 blueprint and backend stages. Never silently drop part of the feedback's intent just
-because the spec schema has no field that maps to it directly. Return strict JSON only,
-matching the spec output schema, with no surrounding text.
+because the spec schema has no field that maps to it directly. Keep `id` exactly as it
+is — this widget is updated in place, and a changed id would install a duplicate
+instead of an update (rename via `name` only). Return strict JSON only, matching the
+spec output schema, with no surrounding text.
 """.strip()
 
 

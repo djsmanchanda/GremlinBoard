@@ -23,9 +23,10 @@ import type {
 
 const REQUEST_TIMEOUT_MS = 15000;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, options?: RequestInit & { timeoutMs?: number }): Promise<T> {
+  const { timeoutMs, ...init } = options ?? {};
   const controller = new AbortController();
-  const timeout = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs ?? REQUEST_TIMEOUT_MS);
   const headers = new Headers(init?.headers);
   if (init?.body != null && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
@@ -199,9 +200,12 @@ export function fetchEasyGenerationJob(jobId: string) {
 }
 
 export function submitGenerationFeedback(jobId: string, payload: GenerationFeedbackRequest) {
+  // Refinement runs a synchronous model call server-side (single-turn agent
+  // CLI or API), which routinely exceeds the default 15s request timeout.
   return request<GenerationFeedbackResponse>(`/ai/generation/jobs/${jobId}/feedback`, {
     method: "POST",
     body: JSON.stringify(payload),
+    timeoutMs: 180000,
   });
 }
 

@@ -349,6 +349,11 @@ class GenerationPipelineService:
                 feedback=payload.feedback,
                 model_id=payload.model_id,
             )
+            # Refinement updates the SAME widget in place: pin the id no matter
+            # what the model (or heuristic) returned, or a rename would install
+            # a duplicate widget instead of an update.
+            if refined_spec.id != previous_spec.id:
+                refined_spec = refined_spec.model_copy(update={"id": previous_spec.id})
             changed_fields = _changed_spec_fields(previous_spec, refined_spec)
             tags = _derive_feedback_tags(changed_fields=changed_fields, feedback=payload.feedback)
             category = _primary_feedback_category(tags)

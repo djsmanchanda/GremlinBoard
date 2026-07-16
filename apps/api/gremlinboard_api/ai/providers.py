@@ -214,27 +214,17 @@ class AIProvider(ABC):
         schema = _prompt_call("spec_output_schema")
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
-        research_kwargs = _research_kwargs(backend, allow_web_research=True)
-        try:
-            raw = await client.complete_json(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                json_schema=schema,
-                model=selected_model,
-                reasoning_effort=reasoning_effort,
-                **research_kwargs,
-            )
-        except AIClientError:
-            if not research_kwargs.get("allow_web_research"):
-                raise
-            raw = await client.complete_json(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                json_schema=schema,
-                model=selected_model,
-                reasoning_effort=reasoning_effort,
-                **_research_kwargs(backend, allow_web_research=False),
-            )
+        # No web research here: refinement runs synchronously in the feedback
+        # request and the spec already carries a researched data source, so a
+        # single-turn revision keeps latency inside client timeouts.
+        raw = await client.complete_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            json_schema=schema,
+            model=selected_model,
+            reasoning_effort=reasoning_effort,
+            **_research_kwargs(backend, allow_web_research=False),
+        )
         refined = await self._validate_spec_with_repair(
             raw,
             client=client,
