@@ -182,12 +182,85 @@ class AIProvider(ABC):
             },
         )
 
+    async def refine_spec(
+        self,
+        *,
+        feedback: str,
+        widget_spec: dict[str, Any] | WidgetSpecDraft,
+        blueprint: dict[str, Any] | None = None,
+        model_id: str | None = None,
+        reasoning_effort: str | None = "medium",
+    ) -> dict[str, Any]:
+        """Ask the live/cli model to revise a spec given operator feedback.
+
+        Mirrors `draft_spec`'s live/cli/offline shape exactly: offline mode raises
+        `NotImplementedError` so callers (`_refine_spec_with_provider` in the generation
+        pipeline) fall back to the deterministic keyword heuristic, matching the
+        offline convention already used by `generate_blueprint`/`generate_backend`.
+        """
+
+        backend, client = self._resolve_backend()
+        if backend == "offline":
+            raise NotImplementedError("offline spec refinement is handled by the generation pipeline fallback")
+        spec = WidgetSpecDraft.model_validate(widget_spec)
+        selected_model = self._resolve_model(model_id)
+        system_prompt = _prompt_call("spec_system_prompt")
+        user_prompt = _prompt_call(
+            "refine_spec_user_prompt",
+            spec=spec.model_dump(mode="json"),
+            blueprint=blueprint or {},
+            feedback=feedback,
+        )
+        schema = _prompt_call("spec_output_schema")
+        tracker = _UsageTracker()
+        _attach_usage_tracker(client, tracker)
+        research_kwargs = _research_kwargs(backend, allow_web_research=True)
+        try:
+            raw = await client.complete_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_schema=schema,
+                model=selected_model,
+                reasoning_effort=reasoning_effort,
+                **research_kwargs,
+            )
+        except AIClientError:
+            if not research_kwargs.get("allow_web_research"):
+                raise
+            raw = await client.complete_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                json_schema=schema,
+                model=selected_model,
+                reasoning_effort=reasoning_effort,
+                **_research_kwargs(backend, allow_web_research=False),
+            )
+        refined = await self._validate_spec_with_repair(
+            raw,
+            client=client,
+            model_id=selected_model,
+            system_prompt=system_prompt,
+            schema=schema,
+            reasoning_effort=reasoning_effort,
+            research_kwargs=_research_kwargs(backend, allow_web_research=False),
+        )
+        payload = refined.model_dump(mode="json")
+        return _SpecResult(
+            payload,
+            {
+                "generation_mode": backend,
+                "model_id": selected_model,
+                "usage": tracker.as_dict(),
+            },
+        )
+
     async def generate_blueprint(
         self,
         *,
         widget_spec: dict[str, Any] | WidgetSpecDraft,
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
+        extra_guidance: str | None = None,
     ) -> dict[str, Any]:
         backend, client = self._resolve_backend()
         if backend == "offline":
@@ -196,7 +269,10 @@ class AIProvider(ABC):
         selected_model = self._resolve_model(model_id)
         schema = _blueprint_schema()
         system_prompt = _prompt_call("blueprint_system_prompt")
-        user_prompt = _prompt_call("blueprint_user_prompt", spec=spec.model_dump(mode="json"))
+        blueprint_prompt_kwargs: dict[str, Any] = {"spec": spec.model_dump(mode="json")}
+        if extra_guidance:
+            blueprint_prompt_kwargs["extra_guidance"] = extra_guidance
+        user_prompt = _prompt_call("blueprint_user_prompt", **blueprint_prompt_kwargs)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         raw = await client.complete_json(
@@ -228,6 +304,7 @@ class AIProvider(ABC):
         blueprint: dict[str, Any],
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
+        extra_guidance: str | None = None,
     ) -> BackendGenerationResult:
         backend, client = self._resolve_backend()
         if backend == "offline":
@@ -235,7 +312,10 @@ class AIProvider(ABC):
         spec = WidgetSpecDraft.model_validate(widget_spec)
         selected_model = self._resolve_model(model_id)
         system_prompt = _prompt_call("backend_system_prompt")
-        user_prompt = _prompt_call("backend_user_prompt", spec=spec.model_dump(mode="json"), blueprint=blueprint)
+        backend_prompt_kwargs: dict[str, Any] = {"spec": spec.model_dump(mode="json"), "blueprint": blueprint}
+        if extra_guidance:
+            backend_prompt_kwargs["extra_guidance"] = extra_guidance
+        user_prompt = _prompt_call("backend_user_prompt", **backend_prompt_kwargs)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
         text = await client.complete_text(

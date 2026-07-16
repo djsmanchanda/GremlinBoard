@@ -160,6 +160,179 @@ async def wait_for_generation(
         await asyncio.sleep(0.05)
 
 
+class _CapturingClient:
+    """Live-client double that records every complete_json/complete_text call kwargs.
+
+    Used to prove (a) that `submit_feedback` calls `provider.refine_spec` for a
+    live/cli-capable provider instead of silently falling through to the offline
+    keyword heuristic (the exact bug this packet fixes: `refine_spec` did not exist on
+    `AIProvider` at all, so `getattr(provider, "refine_spec", None)` was always `None`
+    and no test caught it), and (b) that the regenerated blueprint/backend prompts
+    actually receive the raw operator feedback text.
+    """
+
+    def __init__(self, *, json_responses: list[dict[str, Any]], text_responses: list[str]) -> None:
+        self.json_responses = list(json_responses)
+        self.text_responses = list(text_responses)
+        self.json_calls: list[dict[str, Any]] = []
+        self.text_calls: list[dict[str, Any]] = []
+        self.on_usage = None
+
+    async def complete_json(self, **kwargs: Any) -> dict[str, Any]:
+        self.json_calls.append(kwargs)
+        return self.json_responses.pop(0)
+
+    async def complete_text(self, **kwargs: Any) -> str:
+        self.text_calls.append(kwargs)
+        return self.text_responses.pop(0)
+
+
+class _RefineSpyProvider(CodexProvider):
+    """Wraps the real `refine_spec` to count invocations without changing behavior."""
+
+    def __init__(self, *, client: Any) -> None:
+        super().__init__(client=client)
+        self.refine_spec_calls = 0
+
+    async def refine_spec(self, **kwargs: Any) -> dict[str, Any]:
+        self.refine_spec_calls += 1
+        return await super().refine_spec(**kwargs)
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_into_regeneration() -> None:
+    root = Path("data") / f"feedback-refine-test-{uuid4().hex}"
+    database_path = root / "generation.db"
+    widgets_dir = root / "widgets"
+    root.mkdir(parents=True, exist_ok=True)
+    widgets_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database_path.as_posix()}", future=True)
+    try:
+        session_factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+
+        registry = load_registry(widgets_dir)
+        auth_service = AuthService(session_factory=session_factory)
+        await auth_service.ensure_default_user()
+        settings_service = SystemSettingsService(session_factory=session_factory)
+        await settings_service.ensure_defaults(user_id=settings.default_user_id)
+        plugin_manager = PluginManagerService(
+            session_factory=session_factory,
+            widgets_dir=widgets_dir,
+            registry=registry,
+        )
+        generation_service = GenerationPipelineService(
+            session_factory=session_factory,
+            plugin_manager=plugin_manager,
+            settings_service=settings_service,
+        )
+
+        original_spec = {
+            "id": "feedback_target",
+            "name": "Feedback Target",
+            "category": "custom",
+            "description": "Operational status snapshot",
+            "min_size": "2x2",
+            "preferred_size": "4x2",
+            "refresh_policy": {"mode": "interval", "interval_seconds": 300},
+            "source_type": "generated",
+            "permissions": ["network"],
+            "output_schema": {"summary": "string", "status": "string"},
+            "renderer_type": "card",
+            "lifecycle_policy": {"expires": False, "stateful": True},
+        }
+        original_blueprint = {
+            "blueprint_version": "1",
+            "widget_id": "feedback_target",
+            "layouts": {"medium": {"type": "text", "literal": "Ops", "variant": "title"}},
+        }
+
+        async with session_factory() as session:
+            repository = GenerationRepository(session)
+            source_job = await repository.create_job(
+                widget_id="feedback_target",
+                provider_id="codex",
+                requested_provider_id="codex",
+                stage_id=None,
+                idea=None,
+                artifact_version=1,
+                selected_version="0.1.0",
+                status=GenerationJobStatus.COMPLETED,
+                current_step="completed",
+                progress=100,
+                install_blocked=True,
+            )
+            await repository.add_artifact(
+                job_id=source_job.id,
+                widget_id=source_job.widget_id,
+                artifact_version=source_job.artifact_version,
+                stage="spec",
+                artifact_type="normalized_spec",
+                payload={"spec": original_spec},
+            )
+            await repository.add_artifact(
+                job_id=source_job.id,
+                widget_id=source_job.widget_id,
+                artifact_version=source_job.artifact_version,
+                stage="codegen",
+                artifact_type="package",
+                payload={"package": {"blueprint": original_blueprint}},
+            )
+
+        feedback_text = "add a refresh button, marker XYZ777"
+        refined_spec_payload = dict(original_spec) | {"name": "Feedback Target Refreshed"}
+
+        capturing_client = _CapturingClient(
+            json_responses=[
+                refined_spec_payload,  # refine_spec (submit_feedback)
+                {
+                    "blueprint_version": "1",
+                    "widget_id": "feedback_target",
+                    "layouts": {"medium": {"type": "text", "literal": "Ops", "variant": "title"}},
+                },  # generate_blueprint
+                {"summary": "ok", "issues": [], "requires_human_review": True},  # review_package
+            ],
+            text_responses=[_FAKE_BACKEND_SOURCE.replace("OpsStatusService", "FeedbackTargetService")],
+        )
+        spy_provider = _RefineSpyProvider(client=capturing_client)
+        generation_service.providers["codex"] = spy_provider
+        await generation_service.start()
+
+        feedback = await generation_service.submit_feedback(
+            job_id=source_job.id,
+            payload=GenerationJobFeedbackRequest(feedback=feedback_text, provider_id="codex"),
+        )
+
+        # (a) The bug this packet fixes: refine_spec must actually be invoked, not
+        # silently skipped in favor of the offline keyword heuristic.
+        assert spy_provider.refine_spec_calls == 1
+        assert feedback.metadata["refinement"]["source"] == "provider"
+        assert feedback.metadata["refinement"]["generation_mode"] == "live"
+        assert feedback.metadata["refined_spec"]["name"] == "Feedback Target Refreshed"
+        assert capturing_client.json_calls[0]["user_prompt"].count(feedback_text) >= 1
+
+        refined_job = await wait_for_generation(generation_service, feedback.job.id)
+        assert refined_job.status == "completed"
+
+        # (b) The blueprint/backend regeneration for this same job must see the raw
+        # feedback text, not just the (possibly barely-changed) refined spec.
+        blueprint_call = capturing_client.json_calls[1]
+        review_call = capturing_client.json_calls[2]
+        backend_call = capturing_client.text_calls[0]
+        assert feedback_text in blueprint_call["user_prompt"]
+        assert feedback_text in backend_call["user_prompt"]
+        # Review does not need the raw feedback text per the spec.
+        assert feedback_text not in review_call["user_prompt"]
+
+        await generation_service.shutdown()
+    finally:
+        await engine.dispose()
+        if root.exists():
+            shutil.rmtree(root, ignore_errors=True)
+
+
 @pytest.mark.asyncio
 async def test_ai_provider_fallback_catalog_exposes_current_model_metadata() -> None:
     codex_options, codex_source, codex_status = await CodexProvider().list_model_options(credentials={})

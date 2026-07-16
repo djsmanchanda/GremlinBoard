@@ -75,6 +75,11 @@ class QueuedGenerationInput:
     idea_usage: dict[str, Any] | None = None
     # Raw idea text. Set (with spec left None) when spec drafting is deferred to the worker.
     idea: str | None = None
+    # Raw operator feedback text, set only when this job was queued from a feedback
+    # refinement (see `submit_feedback`). Threaded into the worker so the blueprint/
+    # backend stages regenerate with knowledge of what the operator actually asked for,
+    # not just the (possibly barely-changed) refined spec.
+    regeneration_hint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -221,7 +226,12 @@ class GenerationPipelineService:
         async with self.session_factory() as session:
             return await self._serialize_job(session, job_id)
 
-    async def create_job(self, payload: GenerationJobCreateRequest) -> GenerationJobRead:
+    async def create_job(
+        self,
+        payload: GenerationJobCreateRequest,
+        *,
+        regeneration_hint: str | None = None,
+    ) -> GenerationJobRead:
         await self._ensure_worker_started()
         provider = await self._select_provider(payload.provider_id, payload.fallback_provider_ids)
         source = await self._resolve_spec_source(payload=payload)
@@ -259,6 +269,7 @@ class GenerationPipelineService:
                     idea_prompt=None,
                     idea_usage=None,
                     idea=source.idea,
+                    regeneration_hint=regeneration_hint,
                 )
                 job.queued_input_json = _serialize_queued_input(queued_input)
                 job.model_id = _resolve_provider_model(provider, payload.model_id)
@@ -384,7 +395,12 @@ class GenerationPipelineService:
                 model_id=payload.model_id,
                 fallback_provider_ids=payload.fallback_provider_ids,
                 stage_id=stage.id,
-            )
+            ),
+            # Thread the raw feedback text through to the worker so the blueprint/backend
+            # regeneration for this same job actually sees what the operator asked for,
+            # not just the refined spec (which may only barely differ, e.g. a UI-only ask
+            # the spec schema can't fully represent).
+            regeneration_hint=payload.feedback,
         )
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
@@ -440,6 +456,7 @@ class GenerationPipelineService:
                         idea=queued_input.idea,
                         idea_prompt=queued_input.idea_prompt,
                         idea_usage=queued_input.idea_usage,
+                        regeneration_hint=queued_input.regeneration_hint,
                     )
                     logger.info("generation worker completed job %s", job_id)
                 except asyncio.CancelledError:
@@ -657,6 +674,7 @@ class GenerationPipelineService:
         idea: str | None = None,
         idea_prompt: str | None = None,
         idea_usage: dict[str, Any] | None = None,
+        regeneration_hint: str | None = None,
     ) -> GenerationJobRead:
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
@@ -779,7 +797,11 @@ class GenerationPipelineService:
             fallback_error: str | None = None
             codegen_usage: dict[str, int] | None = None
             try:
-                live_blueprint = await provider.generate_blueprint(widget_spec=spec_payload, model_id=model_id)
+                live_blueprint = await provider.generate_blueprint(
+                    widget_spec=spec_payload,
+                    model_id=model_id,
+                    extra_guidance=regeneration_hint,
+                )
                 blueprint_meta = _extract_generation_metadata(live_blueprint)
                 live_blueprint = _strip_generation_metadata(live_blueprint)
                 validate_blueprint(live_blueprint)
@@ -787,6 +809,7 @@ class GenerationPipelineService:
                     widget_spec=spec_payload,
                     blueprint=live_blueprint,
                     model_id=model_id,
+                    extra_guidance=regeneration_hint,
                 )
                 live_backend = backend_result.source
                 package["blueprint"] = live_blueprint
@@ -1186,6 +1209,7 @@ def _serialize_queued_input(value: QueuedGenerationInput) -> str:
             "idea_prompt": value.idea_prompt,
             "idea_usage": value.idea_usage,
             "idea": value.idea,
+            "regeneration_hint": value.regeneration_hint,
         }
     )
 
@@ -1201,6 +1225,7 @@ def _deserialize_queued_input(value: str) -> QueuedGenerationInput:
         idea_prompt=payload.get("idea_prompt"),
         idea_usage=payload.get("idea_usage"),
         idea=payload.get("idea"),
+        regeneration_hint=payload.get("regeneration_hint"),
     )
 
 

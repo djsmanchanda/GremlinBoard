@@ -10,8 +10,9 @@ function signatures without updating that packet too.
 
 Public API:
     spec_system_prompt() / spec_user_prompt(*, idea) / spec_output_schema()
-    blueprint_system_prompt() / blueprint_user_prompt(*, spec)
-    backend_system_prompt() / backend_user_prompt(*, spec, blueprint)
+    refine_spec_user_prompt(*, spec, blueprint, feedback)
+    blueprint_system_prompt() / blueprint_user_prompt(*, spec, extra_guidance=None)
+    backend_system_prompt() / backend_user_prompt(*, spec, blueprint, extra_guidance=None)
     review_system_prompt() / review_user_prompt(*, spec, package) / review_output_schema()
     repair_user_prompt(*, stage, errors)
 
@@ -314,6 +315,38 @@ def spec_output_schema() -> dict[str, Any]:
     }
 
 
+REFINE_SPEC_USER_PROMPT_TEMPLATE = """
+Current widget spec:
+{spec_json}
+
+Current blueprint (may be empty if this widget has not reached blueprint stage yet):
+{blueprint_json}
+
+Operator feedback for this revision:
+{feedback}
+
+Revise the spec to reflect the INTENT of this feedback, not just literal spec-field
+edits. Remember the spec schema cannot describe UI interactivity, buttons, click
+behavior, or other renderer-level affordances directly — when feedback asks for
+something like that, still update whatever spec-level signal is relevant (e.g.
+`output_schema` roles that expose the data the interaction needs, `renderer_type`, or
+`description` noting the requested interaction) so the intent carries forward into the
+blueprint and backend stages. Never silently drop part of the feedback's intent just
+because the spec schema has no field that maps to it directly. Return strict JSON only,
+matching the spec output schema, with no surrounding text.
+""".strip()
+
+
+def refine_spec_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any], feedback: str) -> str:
+    """User prompt for the spec-refinement stage; embeds current spec, blueprint, and raw feedback."""
+
+    return REFINE_SPEC_USER_PROMPT_TEMPLATE.format(
+        spec_json=json.dumps(spec, indent=2, sort_keys=True),
+        blueprint_json=json.dumps(blueprint or {}, indent=2, sort_keys=True),
+        feedback=feedback.strip(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # 2. Blueprint prompts
 # ---------------------------------------------------------------------------
@@ -599,15 +632,32 @@ Return strict JSON only, matching the blueprint schema, with no surrounding text
 """.strip()
 
 
-def blueprint_user_prompt(*, spec: dict[str, Any]) -> str:
-    """User prompt for the blueprint-design stage; embeds the approved spec."""
+def _regeneration_guidance_block(feedback: str, *, stage: str) -> str:
+    """Extra guidance block appended when a stage is regenerating in response to feedback."""
+
+    return (
+        f"Operator feedback for this revision: {feedback.strip()}. Apply this to the "
+        f"{stage} design, not just the spec."
+    )
+
+
+def blueprint_user_prompt(*, spec: dict[str, Any], extra_guidance: str | None = None) -> str:
+    """User prompt for the blueprint-design stage; embeds the approved spec.
+
+    ``extra_guidance``, when set, is the raw operator feedback text that triggered this
+    regeneration (threaded from a feedback-refinement job); it is appended so the
+    blueprint stage sees what changed, not just the (possibly barely-changed) spec.
+    """
 
     output_schema = spec.get("output_schema", {})
-    return BLUEPRINT_USER_PROMPT_TEMPLATE.format(
+    prompt = BLUEPRINT_USER_PROMPT_TEMPLATE.format(
         spec_json=json.dumps(spec, indent=2, sort_keys=True),
         widget_id=spec.get("id", ""),
         output_schema_json=json.dumps(output_schema, indent=2, sort_keys=True),
     )
+    if extra_guidance:
+        prompt = f"{prompt}\n\n{_regeneration_guidance_block(extra_guidance, stage='blueprint')}"
+    return prompt
 
 
 # ---------------------------------------------------------------------------
@@ -883,8 +933,13 @@ def _collect_blueprint_binding_paths(blueprint: dict[str, Any]) -> list[str]:
     return sorted(paths)
 
 
-def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any]) -> str:
-    """User prompt for the backend-generation stage; embeds spec, blueprint, and bindings."""
+def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any], extra_guidance: str | None = None) -> str:
+    """User prompt for the backend-generation stage; embeds spec, blueprint, and bindings.
+
+    ``extra_guidance``, when set, is the raw operator feedback text that triggered this
+    regeneration (threaded from a feedback-refinement job); it is appended so the
+    backend stage sees what changed, not just the (possibly barely-changed) spec.
+    """
 
     # Must match the manifest's derivation in specs/pipeline.py exactly, or the
     # registry rejects the package on class-name mismatch.
@@ -893,12 +948,15 @@ def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any]) -> s
     service_class_name = f"{sanitize_identifier(str(spec.get('name') or ''), fallback='GeneratedWidget')}Service"
     binding_paths = _collect_blueprint_binding_paths(blueprint)
     binding_paths_text = "\n".join(f"- {path}" for path in binding_paths) or "- (none found)"
-    return BACKEND_USER_PROMPT_TEMPLATE.format(
+    prompt = BACKEND_USER_PROMPT_TEMPLATE.format(
         spec_json=json.dumps(spec, indent=2, sort_keys=True),
         blueprint_json=json.dumps(blueprint, indent=2, sort_keys=True),
         binding_paths=binding_paths_text,
         service_class_name=service_class_name,
     )
+    if extra_guidance:
+        prompt = f"{prompt}\n\n{_regeneration_guidance_block(extra_guidance, stage='backend')}"
+    return prompt
 
 
 # ---------------------------------------------------------------------------

@@ -84,6 +84,12 @@ def install_prompt_functions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(prompts, "review_user_prompt", lambda *, spec, package: f"review user: {spec['id']}", raising=False)
     monkeypatch.setattr(prompts, "review_output_schema", lambda: {"type": "object"}, raising=False)
     monkeypatch.setattr(prompts, "repair_user_prompt", lambda *, stage, errors: f"repair {stage}: {errors}", raising=False)
+    monkeypatch.setattr(
+        prompts,
+        "refine_spec_user_prompt",
+        lambda *, spec, blueprint, feedback: f"refine user: {spec['id']} :: {feedback}",
+        raising=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -156,6 +162,71 @@ async def test_generate_backend_rejects_non_compiling_code_after_repair(monkeypa
     assert exc_info.value.code == "invalid_backend"
     assert len(fake_client.text_calls) == 2
     assert fake_client.text_calls[1]["user_prompt"].startswith("repair backend:")
+
+
+@pytest.mark.asyncio
+async def test_refine_spec_live_returns_validated_spec_reflecting_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    refined_payload = valid_spec_payload() | {"name": "Ops Status Refreshed"}
+    fake_client = FakeClient(json_responses=[refined_payload])
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.refine_spec(
+        feedback="add a refresh button",
+        widget_spec=valid_spec_payload(),
+        blueprint={},
+        model_id="gpt-test",
+    )
+
+    assert result["generation_mode"] == "live"
+    assert result["model_id"] == "gpt-test"
+    assert result["name"] == "Ops Status Refreshed"
+    assert WidgetSpecDraft.model_validate(result).name == "Ops Status Refreshed"
+    assert "add a refresh button" in fake_client.json_calls[0]["user_prompt"]
+
+
+@pytest.mark.asyncio
+async def test_refine_spec_cli_mode_works_identically(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    _force_auto_backend(monkeypatch)
+    monkeypatch.setattr(cli_clients, "find_cli", lambda name, explicit_path=None: f"/usr/bin/{name}")
+    refined_payload = valid_spec_payload() | {"name": "Ops Status CLI Refined"}
+    fake_cli_client = FakeCliClient(json_responses=[refined_payload])
+    monkeypatch.setattr(CodexProvider, "_create_cli_client", lambda self, binary: fake_cli_client)
+    provider = CodexProvider()
+
+    result = await provider.refine_spec(
+        feedback="add a next-5 button",
+        widget_spec=valid_spec_payload(),
+        blueprint={},
+    )
+
+    assert result["generation_mode"] == "cli"
+    assert result["name"] == "Ops Status CLI Refined"
+
+
+@pytest.mark.asyncio
+async def test_refine_spec_offline_raises_not_implemented() -> None:
+    provider = CodexProvider()
+
+    with pytest.raises(NotImplementedError):
+        await provider.refine_spec(feedback="add a refresh button", widget_spec=valid_spec_payload(), blueprint={})
+
+
+@pytest.mark.asyncio
+async def test_refine_spec_repairs_first_invalid_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    invalid = valid_spec_payload()
+    del invalid["id"]
+    fake_client = FakeClient(json_responses=[invalid, valid_spec_payload()])
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.refine_spec(feedback="add a refresh button", widget_spec=valid_spec_payload(), blueprint={})
+
+    assert result["generation_mode"] == "live"
+    assert result["id"] == "ops_status"
+    assert len(fake_client.json_calls) == 2
+    assert fake_client.json_calls[1]["user_prompt"].startswith("repair spec:")
 
 
 @pytest.mark.asyncio

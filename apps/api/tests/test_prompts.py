@@ -48,6 +48,13 @@ def test_repair_prompt_renders_non_empty() -> None:
     assert text.strip()
 
 
+def test_refine_spec_user_prompt_renders_non_empty() -> None:
+    spec = _sample_spec()
+    blueprint = prompts.BLUEPRINT_EXAMPLE_SERVICE_MONITOR
+    rendered = prompts.refine_spec_user_prompt(spec=spec, blueprint=blueprint, feedback="add a refresh button")
+    assert rendered.strip()
+
+
 # ---------------------------------------------------------------------------
 # User prompts embed their inputs.
 # ---------------------------------------------------------------------------
@@ -94,6 +101,36 @@ def test_review_user_prompt_embeds_spec_and_package() -> None:
     package["manifest"]["id"] = "unique_review_marker_999"
     rendered = prompts.review_user_prompt(spec=spec, package=package)
     assert "unique_review_marker_999" in rendered
+
+
+def test_refine_spec_user_prompt_embeds_spec_blueprint_and_feedback() -> None:
+    spec = _sample_spec()
+    spec["id"] = "unique_refine_marker_555"
+    blueprint = prompts.BLUEPRINT_EXAMPLE_SERVICE_MONITOR
+    feedback = "distinct feedback marker XYZ999: add a refresh button"
+    rendered = prompts.refine_spec_user_prompt(spec=spec, blueprint=blueprint, feedback=feedback)
+    assert "unique_refine_marker_555" in rendered
+    assert blueprint["widget_id"] in rendered
+    assert "distinct feedback marker XYZ999" in rendered
+
+
+def test_blueprint_user_prompt_embeds_extra_guidance_when_present() -> None:
+    spec = _sample_spec()
+    rendered_without = prompts.blueprint_user_prompt(spec=spec)
+    rendered_with = prompts.blueprint_user_prompt(spec=spec, extra_guidance="distinct blueprint guidance marker QQQ111")
+    assert "distinct blueprint guidance marker QQQ111" not in rendered_without
+    assert "distinct blueprint guidance marker QQQ111" in rendered_with
+
+
+def test_backend_user_prompt_embeds_extra_guidance_when_present() -> None:
+    spec = _sample_spec()
+    blueprint = prompts.BLUEPRINT_EXAMPLE_SERVICE_MONITOR
+    rendered_without = prompts.backend_user_prompt(spec=spec, blueprint=blueprint)
+    rendered_with = prompts.backend_user_prompt(
+        spec=spec, blueprint=blueprint, extra_guidance="distinct backend guidance marker RRR222"
+    )
+    assert "distinct backend guidance marker RRR222" not in rendered_without
+    assert "distinct backend guidance marker RRR222" in rendered_with
 
 
 def test_repair_user_prompt_embeds_stage_and_errors() -> None:
