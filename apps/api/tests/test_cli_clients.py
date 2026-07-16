@@ -19,22 +19,32 @@ from gremlinboard_api.ai.cli_clients import (
 
 
 def _write_stub(tmp_path: Path, name: str, script_body: str) -> str:
-    """Write a python stub script plus a .cmd shim, return the absolute .cmd path.
+    """Write a python stub script plus an executable shim, return the shim's absolute path.
 
-    All paths embedded in the shim are made absolute because the subprocess's
-    cwd differs from the test's cwd.
+    Windows gets a .cmd shim; POSIX gets a chmod +x shell script (CI runs on
+    Linux, where .cmd files are not executable). All paths embedded in the shim
+    are made absolute because the subprocess's cwd differs from the test's cwd.
     """
 
     stub_py = tmp_path / f"{name}_stub.py"
     stub_py.write_text(textwrap.dedent(script_body), encoding="utf-8")
-
-    stub_cmd = tmp_path / f"{name}_stub.cmd"
     python_exe = Path(sys.executable).resolve()
-    stub_cmd.write_text(
-        f'@echo off\r\n"{python_exe}" "{stub_py.resolve()}" %*\r\n',
+
+    if os.name == "nt":
+        stub_cmd = tmp_path / f"{name}_stub.cmd"
+        stub_cmd.write_text(
+            f'@echo off\r\n"{python_exe}" "{stub_py.resolve()}" %*\r\n',
+            encoding="utf-8",
+        )
+        return str(stub_cmd.resolve())
+
+    stub_sh = tmp_path / f"{name}_stub.sh"
+    stub_sh.write_text(
+        f'#!/bin/sh\nexec "{python_exe}" "{stub_py.resolve()}" "$@"\n',
         encoding="utf-8",
     )
-    return str(stub_cmd.resolve())
+    stub_sh.chmod(0o755)
+    return str(stub_sh.resolve())
 
 
 # ---------------------------------------------------------------------------
