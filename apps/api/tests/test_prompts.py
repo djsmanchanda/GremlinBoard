@@ -122,6 +122,30 @@ def test_blueprint_user_prompt_embeds_extra_guidance_when_present() -> None:
     assert "distinct blueprint guidance marker QQQ111" in rendered_with
 
 
+def test_blueprint_user_prompt_template_none_matches_omitted_argument() -> None:
+    spec = _sample_spec()
+
+    assert prompts.blueprint_user_prompt(spec=spec, template=None) == prompts.blueprint_user_prompt(spec=spec)
+
+
+def test_blueprint_user_prompt_embeds_template_json() -> None:
+    spec = _sample_spec()
+    template = {
+        "id": "distinct_template_id_123",
+        "description": "A distinct template description.",
+        "blueprint": {
+            "blueprint_version": "1",
+            "widget_id": "template_marker_widget",
+            "layouts": {"medium": {"type": "stat", "label": "Marker", "value_path": "metrics.marker"}},
+        },
+    }
+
+    rendered = prompts.blueprint_user_prompt(spec=spec, template=template)
+
+    assert "distinct_template_id_123" in rendered
+    assert json.dumps(template["blueprint"], indent=2, sort_keys=True) in rendered
+
+
 def test_backend_user_prompt_embeds_extra_guidance_when_present() -> None:
     spec = _sample_spec()
     blueprint = prompts.BLUEPRINT_EXAMPLE_SERVICE_MONITOR

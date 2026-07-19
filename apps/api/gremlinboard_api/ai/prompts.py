@@ -11,7 +11,7 @@ function signatures without updating that packet too.
 Public API:
     spec_system_prompt() / spec_user_prompt(*, idea) / spec_output_schema()
     refine_spec_user_prompt(*, spec, blueprint, feedback)
-    blueprint_system_prompt() / blueprint_user_prompt(*, spec, extra_guidance=None)
+    blueprint_system_prompt() / blueprint_user_prompt(*, spec, extra_guidance=None, template=None)
     backend_system_prompt() / backend_user_prompt(*, spec, blueprint, extra_guidance=None)
     review_system_prompt() / review_user_prompt(*, spec, package) / review_output_schema()
     repair_user_prompt(*, stage, errors)
@@ -654,12 +654,37 @@ def _regeneration_guidance_block(feedback: str, *, stage: str) -> str:
     )
 
 
-def blueprint_user_prompt(*, spec: dict[str, Any], extra_guidance: str | None = None) -> str:
+def template_adapt_guidance(*, template: dict[str, Any]) -> str:
+    """Render instructions for adapting a pre-validated blueprint template."""
+
+    return (
+        "A pre-validated starting template was selected for this widget "
+        f"(`{template['id']}`: {template['description']}). Adapt its structure to this "
+        "spec: rebind every dot-path to real fields implied by this spec's "
+        "`output_schema` hints, adjust labels/copy, and keep or drop optional "
+        "sub-sections as this spec's data actually supports - but preserve the "
+        "template's overall primitive choices and layout shape unless they are "
+        "clearly wrong for this data. Do not just copy the template's dot-paths "
+        "verbatim if they do not correspond to anything in this spec.\n\n"
+        "```json\n"
+        f"{json.dumps(template['blueprint'], indent=2, sort_keys=True)}\n"
+        "```"
+    )
+
+
+def blueprint_user_prompt(
+    *,
+    spec: dict[str, Any],
+    extra_guidance: str | None = None,
+    template: dict[str, Any] | None = None,
+) -> str:
     """User prompt for the blueprint-design stage; embeds the approved spec.
 
     ``extra_guidance``, when set, is the raw operator feedback text that triggered this
     regeneration (threaded from a feedback-refinement job); it is appended so the
     blueprint stage sees what changed, not just the (possibly barely-changed) spec.
+    ``template``, when set, supplies a pre-validated blueprint shape for the model to
+    adapt after applying any regeneration guidance.
     """
 
     output_schema = spec.get("output_schema", {})
@@ -670,6 +695,8 @@ def blueprint_user_prompt(*, spec: dict[str, Any], extra_guidance: str | None = 
     )
     if extra_guidance:
         prompt = f"{prompt}\n\n{_regeneration_guidance_block(extra_guidance, stage='blueprint')}"
+    if template is not None:
+        prompt = f"{prompt}\n\n{template_adapt_guidance(template=template)}"
     return prompt
 
 

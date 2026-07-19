@@ -72,7 +72,21 @@ def install_prompt_functions(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(prompts, "spec_user_prompt", lambda *, idea: f"spec user: {idea}", raising=False)
     monkeypatch.setattr(prompts, "spec_output_schema", lambda: {"type": "object"}, raising=False)
     monkeypatch.setattr(prompts, "blueprint_system_prompt", lambda: "blueprint system", raising=False)
-    monkeypatch.setattr(prompts, "blueprint_user_prompt", lambda *, spec: f"blueprint user: {spec['id']}", raising=False)
+
+    def blueprint_user_prompt(
+        *,
+        spec: dict[str, Any],
+        extra_guidance: str | None = None,
+        template: dict[str, Any] | None = None,
+    ) -> str:
+        parts = [f"blueprint user: {spec['id']}"]
+        if extra_guidance:
+            parts.append(extra_guidance)
+        if template is not None:
+            parts.append(f"template: {template['id']}")
+        return " :: ".join(parts)
+
+    monkeypatch.setattr(prompts, "blueprint_user_prompt", blueprint_user_prompt, raising=False)
     monkeypatch.setattr(prompts, "backend_system_prompt", lambda: "backend system", raising=False)
     monkeypatch.setattr(
         prompts,
@@ -148,6 +162,26 @@ async def test_generate_blueprint_validates_schema_and_patches_widget_id(monkeyp
     assert result["generation_mode"] == "live"
     assert result["layouts"]["medium"]["type"] == "text"
     assert fake_client.json_calls[0]["json_schema"]["$id"].endswith("widget-blueprint.schema.json")
+
+
+@pytest.mark.asyncio
+async def test_generate_blueprint_threads_template_into_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    fake_client = FakeClient(json_responses=[valid_blueprint_payload()])
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+    template = {
+        "id": "feed_list",
+        "description": "A linked feed.",
+        "blueprint": valid_blueprint_payload(widget_id="template_feed_list"),
+    }
+
+    await provider.generate_blueprint(
+        widget_spec=valid_spec_payload(),
+        model_id="gpt-test",
+        template=template,
+    )
+
+    assert fake_client.json_calls[0]["user_prompt"].endswith("template: feed_list")
 
 
 @pytest.mark.asyncio

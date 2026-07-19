@@ -20,6 +20,7 @@ from gremlinboard_api.ai.providers import (
     _slugify,
     provider_from_id,
 )
+from gremlinboard_api.ai.templates import select_template
 from gremlinboard_api.models.tables import StagedWidgetSpecRecord
 from gremlinboard_api.repositories.board import BoardRepository
 from gremlinboard_api.repositories.generation import (
@@ -802,10 +803,32 @@ class GenerationPipelineService:
             fallback_error: str | None = None
             codegen_usage: dict[str, int] | None = None
             try:
+                selected_template = select_template(spec_payload)
+                template_payload = (
+                    {
+                        "id": selected_template.id,
+                        "description": selected_template.description,
+                        "blueprint": selected_template.blueprint,
+                    }
+                    if selected_template is not None
+                    else None
+                )
+                await repository.add_log(
+                    job_id=job.id,
+                    level="info",
+                    step="blueprint",
+                    message=(
+                        f"Blueprint template selected: {selected_template.id}"
+                        if selected_template is not None
+                        else "No matching blueprint template; designing from scratch"
+                    ),
+                    context={"template_id": selected_template.id if selected_template is not None else None},
+                )
                 live_blueprint = await provider.generate_blueprint(
                     widget_spec=spec_payload,
                     model_id=model_id,
                     extra_guidance=regeneration_hint,
+                    template=template_payload,
                 )
                 blueprint_meta = _extract_generation_metadata(live_blueprint)
                 live_blueprint = _strip_generation_metadata(live_blueprint)

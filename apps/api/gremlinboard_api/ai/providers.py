@@ -251,6 +251,7 @@ class AIProvider(ABC):
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
         extra_guidance: str | None = None,
+        template: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         backend, client = self._resolve_backend()
         if backend == "offline":
@@ -262,6 +263,8 @@ class AIProvider(ABC):
         blueprint_prompt_kwargs: dict[str, Any] = {"spec": spec.model_dump(mode="json")}
         if extra_guidance:
             blueprint_prompt_kwargs["extra_guidance"] = extra_guidance
+        if template is not None:
+            blueprint_prompt_kwargs["template"] = template
         user_prompt = _prompt_call("blueprint_user_prompt", **blueprint_prompt_kwargs)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
