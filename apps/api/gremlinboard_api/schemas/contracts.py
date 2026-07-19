@@ -684,6 +684,21 @@ class RuntimeLogRead(BaseModel):
     created_at: datetime
 
 
+class WidgetConfigFieldDraft(BaseModel):
+    """A config input that the scaffold must expose in ``config.schema.json``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    type: Literal["string", "integer", "number", "boolean"]
+    title: str | None = None
+    description: str | None = None
+    default: str | int | float | bool | None = None
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    required: bool = False
+
+
 class WidgetSpecDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -699,6 +714,7 @@ class WidgetSpecDraft(BaseModel):
     output_schema: dict[str, Any]
     renderer_type: str
     lifecycle_policy: dict[str, Any]
+    config_fields: list[WidgetConfigFieldDraft] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod

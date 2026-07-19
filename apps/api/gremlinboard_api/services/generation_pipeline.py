@@ -81,6 +81,7 @@ class QueuedGenerationInput:
     # backend stages regenerate with knowledge of what the operator actually asked for,
     # not just the (possibly barely-changed) refined spec.
     regeneration_hint: str | None = None
+    baseline_package: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -232,6 +233,7 @@ class GenerationPipelineService:
         payload: GenerationJobCreateRequest,
         *,
         regeneration_hint: str | None = None,
+        baseline_package: dict[str, Any] | None = None,
     ) -> GenerationJobRead:
         await self._ensure_worker_started()
         provider = await self._select_provider(payload.provider_id, payload.fallback_provider_ids)
@@ -271,6 +273,7 @@ class GenerationPipelineService:
                     idea_usage=None,
                     idea=source.idea,
                     regeneration_hint=regeneration_hint,
+                    baseline_package=baseline_package,
                 )
                 job.queued_input_json = _serialize_queued_input(queued_input)
                 job.model_id = _resolve_provider_model(provider, payload.model_id)
@@ -341,12 +344,25 @@ class GenerationPipelineService:
                 stage="codegen",
                 artifact_type="package",
             )
+            package_payload = (
+                decode_artifact_payload(package_artifact).get("package")
+                if package_artifact is not None
+                else None
+            )
+            baseline_package = package_payload if isinstance(package_payload, dict) else None
             current_blueprint = _artifact_blueprint(package_artifact)
+            current_config_schema = (
+                baseline_package.get("config_schema")
+                if isinstance(baseline_package, dict)
+                and isinstance(baseline_package.get("config_schema"), dict)
+                else None
+            )
             provider = await self._select_provider(payload.provider_id or source_job.provider_id, payload.fallback_provider_ids)
             refined_spec, refinement_details = await self._refine_spec_with_provider(
                 provider=provider,
                 spec=previous_spec,
                 blueprint=current_blueprint,
+                config_schema=current_config_schema,
                 feedback=payload.feedback,
                 model_id=payload.model_id,
             )
@@ -407,6 +423,7 @@ class GenerationPipelineService:
             # not just the refined spec (which may only barely differ, e.g. a UI-only ask
             # the spec schema can't fully represent).
             regeneration_hint=payload.feedback,
+            baseline_package=baseline_package,
         )
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
@@ -463,6 +480,7 @@ class GenerationPipelineService:
                         idea_prompt=queued_input.idea_prompt,
                         idea_usage=queued_input.idea_usage,
                         regeneration_hint=queued_input.regeneration_hint,
+                        baseline_package=queued_input.baseline_package,
                     )
                     logger.info("generation worker completed job %s", job_id)
                 except asyncio.CancelledError:
@@ -681,6 +699,7 @@ class GenerationPipelineService:
         idea_prompt: str | None = None,
         idea_usage: dict[str, Any] | None = None,
         regeneration_hint: str | None = None,
+        baseline_package: dict[str, Any] | None = None,
     ) -> GenerationJobRead:
         async with self.session_factory() as session:
             repository = GenerationRepository(session)
@@ -795,6 +814,22 @@ class GenerationPipelineService:
 
             package = dict(scaffold["package"])
             files = [dict(file) for file in scaffold["files"]]
+            baseline_config_schema = (
+                baseline_package.get("config_schema")
+                if isinstance(baseline_package, dict)
+                and isinstance(baseline_package.get("config_schema"), dict)
+                else None
+            )
+            if baseline_config_schema is not None:
+                package["config_schema"] = _merge_config_schema(
+                    baseline=baseline_config_schema,
+                    candidate=package["config_schema"],
+                )
+                _replace_file_content(
+                    files,
+                    "config.schema.json",
+                    json.dumps(package["config_schema"], indent=2) + "\n",
+                )
             provider_codegen = await provider.prepare_codegen(
                 widget_spec=spec_payload,
                 scaffold_files=scaffold["preview"]["files"],
@@ -838,6 +873,13 @@ class GenerationPipelineService:
                     blueprint=live_blueprint,
                     model_id=model_id,
                     extra_guidance=regeneration_hint,
+                    config_schema=package["config_schema"],
+                    previous_backend_source=(
+                        str(baseline_package.get("backend_source"))
+                        if isinstance(baseline_package, dict)
+                        and isinstance(baseline_package.get("backend_source"), str)
+                        else None
+                    ),
                 )
                 live_backend = backend_result.source
                 package["blueprint"] = live_blueprint
@@ -860,6 +902,16 @@ class GenerationPipelineService:
                 codegen_usage = None
                 package = dict(scaffold["package"])
                 files = [dict(file) for file in scaffold["files"]]
+                if baseline_config_schema is not None:
+                    package["config_schema"] = _merge_config_schema(
+                        baseline=baseline_config_schema,
+                        candidate=package["config_schema"],
+                    )
+                    _replace_file_content(
+                        files,
+                        "config.schema.json",
+                        json.dumps(package["config_schema"], indent=2) + "\n",
+                    )
                 provider_codegen = dict(provider_codegen) | {
                     "generation_mode": "offline",
                     "model_id": selected_model,
@@ -1024,6 +1076,7 @@ class GenerationPipelineService:
         provider: AIProvider,
         spec: WidgetSpecDraft,
         blueprint: dict[str, Any] | None,
+        config_schema: dict[str, Any] | None,
         feedback: str,
         model_id: str | None,
     ) -> tuple[WidgetSpecDraft, dict[str, Any]]:
@@ -1035,6 +1088,7 @@ class GenerationPipelineService:
                     feedback=feedback,
                     widget_spec=spec.model_dump(mode="json"),
                     blueprint=blueprint or {},
+                    config_schema=config_schema or {},
                     model_id=model_id,
                 )
                 refined = WidgetSpecDraft.model_validate(_strip_generation_metadata(dict(result)))
@@ -1238,6 +1292,7 @@ def _serialize_queued_input(value: QueuedGenerationInput) -> str:
             "idea_usage": value.idea_usage,
             "idea": value.idea,
             "regeneration_hint": value.regeneration_hint,
+            "baseline_package": value.baseline_package,
         }
     )
 
@@ -1254,6 +1309,7 @@ def _deserialize_queued_input(value: str) -> QueuedGenerationInput:
         idea_usage=payload.get("idea_usage"),
         idea=payload.get("idea"),
         regeneration_hint=payload.get("regeneration_hint"),
+        baseline_package=payload.get("baseline_package"),
     )
 
 
@@ -1286,6 +1342,29 @@ def _combine_usage(*usages: dict[str, Any] | None) -> dict[str, int] | None:
         combined["output_tokens"] += int(usage.get("output_tokens") or 0)
         combined["calls"] += int(usage.get("calls") or 0)
     return combined if found else None
+
+
+def _merge_config_schema(*, baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """Preserve existing config inputs while applying scaffolded additions/overrides."""
+
+    merged = dict(baseline)
+    merged.update({key: value for key, value in candidate.items() if key not in {"properties", "required"}})
+    baseline_properties = baseline.get("properties")
+    candidate_properties = candidate.get("properties")
+    properties = dict(baseline_properties) if isinstance(baseline_properties, dict) else {}
+    if isinstance(candidate_properties, dict):
+        properties.update(candidate_properties)
+    merged["properties"] = properties
+
+    required: list[str] = []
+    for source in (baseline.get("required"), candidate.get("required")):
+        if not isinstance(source, list):
+            continue
+        for name in source:
+            if isinstance(name, str) and name not in required:
+                required.append(name)
+    merged["required"] = required
+    return merged
 
 
 def _replace_file_content(files: list[dict[str, Any]], suffix: str, content: str) -> None:

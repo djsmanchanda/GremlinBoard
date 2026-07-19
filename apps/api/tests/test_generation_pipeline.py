@@ -200,7 +200,16 @@ class _RefineSpyProvider(CodexProvider):
 
 
 @pytest.mark.asyncio
-async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_into_regeneration() -> None:
+async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_into_regeneration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_dry_run_backend(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"ok": True, "state": {}}
+
+    monkeypatch.setattr(
+        "gremlinboard_api.services.generation_pipeline.dry_run_backend",
+        fake_dry_run_backend,
+    )
     root = Path("data") / f"feedback-refine-test-{uuid4().hex}"
     database_path = root / "generation.db"
     widgets_dir = root / "widgets"
@@ -278,7 +287,21 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
                 artifact_version=source_job.artifact_version,
                 stage="codegen",
                 artifact_type="package",
-                payload={"package": {"blueprint": original_blueprint}},
+                payload={
+                    "package": {
+                        "blueprint": original_blueprint,
+                        "config_schema": {
+                            "title": "Feedback Target Config",
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 5}
+                            },
+                            "required": [],
+                        },
+                        "backend_source": "import asyncio\n\nBASELINE_BACKEND_MARKER = True\n",
+                    }
+                },
             )
 
         feedback_text = "add a refresh button, marker XYZ777"
@@ -287,6 +310,10 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
         refined_spec_payload = dict(original_spec) | {
             "id": "feedback_target_renamed",
             "name": "Feedback Target Refreshed",
+            "config_fields": [
+                {"name": "offset", "type": "integer", "minimum": 0, "default": 0, "required": False},
+                {"name": "page_size", "type": "integer", "minimum": 1, "default": 5, "required": False},
+            ],
         }
 
         capturing_client = _CapturingClient(
@@ -325,6 +352,11 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
 
         refined_job = await wait_for_generation(generation_service, feedback.job.id)
         assert refined_job.status == "completed"
+        async with session_factory() as session:
+            persisted_job = await GenerationRepository(session).get_job(refined_job.id)
+            assert persisted_job is not None
+            assert persisted_job.queued_input_json is not None
+            assert "BASELINE_BACKEND_MARKER" in persisted_job.queued_input_json
 
         # (b) The blueprint/backend regeneration for this same job must see the raw
         # feedback text, not just the (possibly barely-changed) refined spec.
@@ -333,6 +365,21 @@ async def test_submit_feedback_calls_provider_refine_spec_and_threads_feedback_i
         backend_call = capturing_client.text_calls[0]
         assert feedback_text in blueprint_call["user_prompt"]
         assert feedback_text in backend_call["user_prompt"]
+        assert '"limit"' in capturing_client.json_calls[0]["user_prompt"]
+        assert '"offset"' in backend_call["user_prompt"]
+        assert "BASELINE_BACKEND_MARKER" in backend_call["user_prompt"]
+
+        package_artifact = next(
+            artifact
+            for artifact in refined_job.artifacts
+            if artifact.stage == "codegen" and artifact.artifact_type == "package"
+        )
+        assert package_artifact.payload is not None
+        config_properties = package_artifact.payload["package"]["config_schema"]["properties"]
+        assert config_properties["limit"]["default"] == 5
+        assert config_properties["offset"] == {"type": "integer", "default": 0, "minimum": 0}
+        assert config_properties["page_size"] == {"type": "integer", "default": 5, "minimum": 1}
+
         # Review does not need the raw feedback text per the spec.
         assert feedback_text not in review_call["user_prompt"]
 

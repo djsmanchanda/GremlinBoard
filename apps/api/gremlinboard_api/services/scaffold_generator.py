@@ -98,12 +98,22 @@ class WidgetScaffoldGenerator:
                 "maximum": 20,
                 "default": 5,
             }
+        required: list[str] = []
+        for field in spec.config_fields:
+            field_schema: dict[str, Any] = {"type": field.type}
+            for key in ("title", "description", "default", "minimum", "maximum"):
+                value = getattr(field, key)
+                if value is not None:
+                    field_schema[key] = value
+            properties[field.name] = field_schema
+            if field.required:
+                required.append(field.name)
         return {
             "title": f"{spec.name} Config",
             "type": "object",
             "additionalProperties": False,
             "properties": properties,
-            "required": [],
+            "required": required,
         }
 
     def _build_backend_source(self, spec: WidgetSpecDraft) -> str:

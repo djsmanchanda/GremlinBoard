@@ -207,6 +207,12 @@ shared idea of what matters most in the data.
 blueprint stage: one of "card" (stat/key-value focused), "list" (a feed of items), or
 "table" (rows/columns). Pick the one that matches the primary content shape.
 
+`config_fields` declares operator-editable inputs beyond the scaffold's standard
+title/query/limit fields. Each entry has `name`, `type`, optional title/description,
+default/minimum/maximum values, and a `required` boolean. Backend behavior that reads a
+config key MUST declare that key here so `additionalProperties: false` does not reject
+it. Use an empty list when no additional configuration is needed.
+
 `lifecycle_policy` is a free-form object with at least a `stateful` boolean (does the
 widget carry forward state between refreshes that matters, e.g. a running clock or
 tally) and an `expires` boolean (does this widget's usefulness end, e.g. a countdown to
@@ -261,6 +267,7 @@ def spec_output_schema() -> dict[str, Any]:
             "output_schema",
             "renderer_type",
             "lifecycle_policy",
+            "config_fields",
         ],
         "properties": {
             "id": {
@@ -311,6 +318,25 @@ def spec_output_schema() -> dict[str, Any]:
                     "default_ttl_seconds": {"type": "integer", "minimum": 1},
                 },
             },
+            "config_fields": {
+                "type": "array",
+                "description": "Additional operator-editable config inputs consumed by the backend or blueprint actions.",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["name", "type", "required"],
+                    "properties": {
+                        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+                        "type": {"type": "string", "enum": ["string", "integer", "number", "boolean"]},
+                        "title": {"type": ["string", "null"]},
+                        "description": {"type": ["string", "null"]},
+                        "default": {"type": ["string", "integer", "number", "boolean", "null"]},
+                        "minimum": {"type": ["integer", "number", "null"]},
+                        "maximum": {"type": ["integer", "number", "null"]},
+                        "required": {"type": "boolean"},
+                    },
+                },
+            },
         },
     }
 
@@ -322,6 +348,9 @@ Current widget spec:
 Current blueprint (may be empty if this widget has not reached blueprint stage yet):
 {blueprint_json}
 
+Current config schema (may be empty for a new widget):
+{config_schema_json}
+
 Operator feedback for this revision:
 {feedback}
 
@@ -331,20 +360,28 @@ behavior, or other renderer-level affordances directly — when feedback asks fo
 something like that, still update whatever spec-level signal is relevant (e.g.
 `output_schema` roles that expose the data the interaction needs, `renderer_type`, or
 `description` noting the requested interaction) so the intent carries forward into the
-blueprint and backend stages. Never silently drop part of the feedback's intent just
-because the spec schema has no field that maps to it directly. Keep `id` exactly as it
+blueprint and backend stages. When feedback adds or changes a config key, represent it
+in `config_fields`; this is the source used to patch `config.schema.json`. Never
+silently drop part of the feedback's intent. Keep `id` exactly as it
 is — this widget is updated in place, and a changed id would install a duplicate
 instead of an update (rename via `name` only). Return strict JSON only, matching the
 spec output schema, with no surrounding text.
 """.strip()
 
 
-def refine_spec_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any], feedback: str) -> str:
-    """User prompt for the spec-refinement stage; embeds current spec, blueprint, and raw feedback."""
+def refine_spec_user_prompt(
+    *,
+    spec: dict[str, Any],
+    blueprint: dict[str, Any],
+    feedback: str,
+    config_schema: dict[str, Any] | None = None,
+) -> str:
+    """Embed the current generated contract and raw feedback for spec refinement."""
 
     return REFINE_SPEC_USER_PROMPT_TEMPLATE.format(
         spec_json=json.dumps(spec, indent=2, sort_keys=True),
         blueprint_json=json.dumps(blueprint or {}, indent=2, sort_keys=True),
+        config_schema_json=json.dumps(config_schema or {}, indent=2, sort_keys=True),
         feedback=feedback.strip(),
     )
 
@@ -831,6 +868,10 @@ Efficiency rules (from RUNTIME.md) — non-negotiable:
   blueprint primitive), not the backend.
 - Use cache TTLs on any network call; do not re-fetch upstream data more often than the
   chosen `refresh_policy.interval_seconds`.
+- Cache identity MUST include every config value that changes the upstream request
+  (page/offset, page size, query, filters, source, and similar). When one of those
+  values changes, fetch/cache the new request; never relabel results cached for the old
+  config as though they belong to the new one.
 - Degrade gracefully: on upstream failure, prefer serving stale cached data (marked
   `stale: true` in the returned state's `meta`) over raising or returning nothing. Only
   report `health.status = "critical"`-equivalent behavior (an exception/failed refresh)
@@ -917,6 +958,9 @@ Approved widget spec:
 Approved blueprint:
 {blueprint_json}
 
+Approved config schema (the backend MUST only read keys declared here):
+{config_schema_json}
+
 Binding paths collected from every layout tier in this blueprint (each MUST resolve
 against your `get_state()` output, per the binding coverage hard rule):
 {binding_paths}
@@ -925,6 +969,19 @@ Write `backend.py` for this widget now. The service class MUST be named exactly
 `{service_class_name}` — the manifest already declares this class name and the
 registry rejects the package if it does not match. Return only the fenced Python
 code block.
+""".strip()
+
+
+BACKEND_REFINEMENT_BASELINE_TEMPLATE = """
+Existing backend.py from the package being refined:
+```python
+{previous_backend_source}
+```
+
+This is an incremental refinement. Preserve working imports, caching, lifecycle
+behavior, and unrelated code. Apply the approved spec/blueprint/config changes and the
+operator feedback with the smallest coherent edit. Return the full corrected file,
+but do not redesign it from scratch.
 """.strip()
 
 
@@ -973,13 +1030,15 @@ def _collect_blueprint_binding_paths(blueprint: dict[str, Any]) -> list[str]:
     return sorted(paths)
 
 
-def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any], extra_guidance: str | None = None) -> str:
-    """User prompt for the backend-generation stage; embeds spec, blueprint, and bindings.
-
-    ``extra_guidance``, when set, is the raw operator feedback text that triggered this
-    regeneration (threaded from a feedback-refinement job); it is appended so the
-    backend stage sees what changed, not just the (possibly barely-changed) spec.
-    """
+def backend_user_prompt(
+    *,
+    spec: dict[str, Any],
+    blueprint: dict[str, Any],
+    extra_guidance: str | None = None,
+    config_schema: dict[str, Any] | None = None,
+    previous_backend_source: str | None = None,
+) -> str:
+    """Embed the approved package contract and optional prior backend baseline."""
 
     # Must match the manifest's derivation in specs/pipeline.py exactly, or the
     # registry rejects the package on class-name mismatch.
@@ -991,9 +1050,15 @@ def backend_user_prompt(*, spec: dict[str, Any], blueprint: dict[str, Any], extr
     prompt = BACKEND_USER_PROMPT_TEMPLATE.format(
         spec_json=json.dumps(spec, indent=2, sort_keys=True),
         blueprint_json=json.dumps(blueprint, indent=2, sort_keys=True),
+        config_schema_json=json.dumps(config_schema or {}, indent=2, sort_keys=True),
         binding_paths=binding_paths_text,
         service_class_name=service_class_name,
     )
+    if previous_backend_source:
+        baseline = BACKEND_REFINEMENT_BASELINE_TEMPLATE.format(
+            previous_backend_source=previous_backend_source.rstrip()
+        )
+        prompt = f"{prompt}\n\n{baseline}"
     if extra_guidance:
         prompt = f"{prompt}\n\n{_regeneration_guidance_block(extra_guidance, stage='backend')}"
     return prompt

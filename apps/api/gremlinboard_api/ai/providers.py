@@ -188,6 +188,7 @@ class AIProvider(ABC):
         feedback: str,
         widget_spec: dict[str, Any] | WidgetSpecDraft,
         blueprint: dict[str, Any] | None = None,
+        config_schema: dict[str, Any] | None = None,
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
     ) -> dict[str, Any]:
@@ -205,12 +206,14 @@ class AIProvider(ABC):
         spec = WidgetSpecDraft.model_validate(widget_spec)
         selected_model = self._resolve_model(model_id)
         system_prompt = _prompt_call("spec_system_prompt")
-        user_prompt = _prompt_call(
-            "refine_spec_user_prompt",
-            spec=spec.model_dump(mode="json"),
-            blueprint=blueprint or {},
-            feedback=feedback,
-        )
+        refine_prompt_kwargs: dict[str, Any] = {
+            "spec": spec.model_dump(mode="json"),
+            "blueprint": blueprint or {},
+            "feedback": feedback,
+        }
+        if config_schema is not None:
+            refine_prompt_kwargs["config_schema"] = config_schema
+        user_prompt = _prompt_call("refine_spec_user_prompt", **refine_prompt_kwargs)
         schema = _prompt_call("spec_output_schema")
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
@@ -298,6 +301,8 @@ class AIProvider(ABC):
         model_id: str | None = None,
         reasoning_effort: str | None = "medium",
         extra_guidance: str | None = None,
+        config_schema: dict[str, Any] | None = None,
+        previous_backend_source: str | None = None,
     ) -> BackendGenerationResult:
         backend, client = self._resolve_backend()
         if backend == "offline":
@@ -308,6 +313,10 @@ class AIProvider(ABC):
         backend_prompt_kwargs: dict[str, Any] = {"spec": spec.model_dump(mode="json"), "blueprint": blueprint}
         if extra_guidance:
             backend_prompt_kwargs["extra_guidance"] = extra_guidance
+        if config_schema is not None:
+            backend_prompt_kwargs["config_schema"] = config_schema
+        if previous_backend_source:
+            backend_prompt_kwargs["previous_backend_source"] = previous_backend_source
         user_prompt = _prompt_call("backend_user_prompt", **backend_prompt_kwargs)
         tracker = _UsageTracker()
         _attach_usage_tracker(client, tracker)
@@ -577,26 +586,30 @@ class AIProvider(ABC):
         reasoning_effort: str | None,
     ) -> str:
         source = _strip_single_python_fence(text)
-        try:
-            ast.parse(source)
+        errors = _backend_source_errors(source)
+        if not errors:
             return source
-        except SyntaxError as first_error:
-            repaired = await client.complete_text(
-                system_prompt=system_prompt,
-                user_prompt=_prompt_call("repair_user_prompt", stage="backend", errors=str(first_error)),
-                model=model_id,
-                reasoning_effort=reasoning_effort,
-            )
-            source = _strip_single_python_fence(repaired)
-            try:
-                ast.parse(source)
-                return source
-            except SyntaxError as second_error:
-                raise AIClientError(
-                    "invalid_backend",
-                    "LLM returned non-compiling Python after one repair round.",
-                    {"errors": str(second_error)},
-                ) from second_error
+
+        repair_prompt = _prompt_call("repair_user_prompt", stage="backend", errors=errors)
+        repair_prompt = (
+            f"{repair_prompt}\n\nInvalid backend.py to correct:\n"
+            f"```python\n{source}\n```"
+        )
+        repaired = await client.complete_text(
+            system_prompt=system_prompt,
+            user_prompt=repair_prompt,
+            model=model_id,
+            reasoning_effort=reasoning_effort,
+        )
+        source = _strip_single_python_fence(repaired)
+        repaired_errors = _backend_source_errors(source)
+        if not repaired_errors:
+            return source
+        raise AIClientError(
+            "invalid_backend",
+            "LLM returned an invalid backend after one repair round.",
+            {"errors": repaired_errors},
+        )
 
 
 class CodexProvider(AIProvider):
@@ -849,10 +862,55 @@ def _patch_blueprint_widget_id(data: dict[str, Any], widget_id: str) -> dict[str
     return patched
 
 
+_BACKEND_MODULE_ROOTS = {
+    "asyncio",
+    "collections",
+    "dataclasses",
+    "datetime",
+    "httpx",
+    "json",
+    "math",
+    "re",
+    "time",
+    "typing",
+    "urllib",
+}
+
+
 def _strip_single_python_fence(text: str) -> str:
     stripped = text.strip()
     match = re.fullmatch(r"```(?:python)?\s*(.*?)\s*```", stripped, flags=re.DOTALL | re.IGNORECASE)
     return match.group(1).strip() if match else stripped
+
+
+def _backend_source_errors(source: str) -> list[str]:
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        return [str(exc)]
+
+    bound_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            bound_names.update(alias.asname or alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            bound_names.update(alias.asname or alias.name for alias in node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound_names.add(node.id)
+        elif isinstance(node, ast.arg):
+            bound_names.add(node.arg)
+
+    referenced_roots = {
+        node.value.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in _BACKEND_MODULE_ROOTS
+    }
+    return [
+        f"module '{name}' is used through a qualified reference but is not imported"
+        for name in sorted(referenced_roots - bound_names)
+    ]
 
 
 def _validation_errors(exc: ValidationError) -> str:

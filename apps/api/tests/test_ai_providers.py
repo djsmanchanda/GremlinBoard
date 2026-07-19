@@ -199,6 +199,25 @@ async def test_generate_backend_rejects_non_compiling_code_after_repair(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_generate_backend_repairs_missing_qualified_module_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    install_prompt_functions(monkeypatch)
+    invalid_source = "async def fetch_all():\n    return await asyncio.gather()\n"
+    repaired_source = "import asyncio\n\nasync def fetch_all():\n    return await asyncio.gather()\n"
+    fake_client = FakeClient(text_responses=[invalid_source, repaired_source])
+    provider = CodexProvider(credentials={"openai": "test-key"}, client=fake_client)
+
+    result = await provider.generate_backend(
+        widget_spec=valid_spec_payload(),
+        blueprint=valid_blueprint_payload(),
+    )
+
+    assert result.source == repaired_source.strip()
+    assert len(fake_client.text_calls) == 2
+    assert "module 'asyncio'" in fake_client.text_calls[1]["user_prompt"]
+    assert invalid_source.strip() in fake_client.text_calls[1]["user_prompt"]
+
+
+@pytest.mark.asyncio
 async def test_refine_spec_live_returns_validated_spec_reflecting_feedback(monkeypatch: pytest.MonkeyPatch) -> None:
     install_prompt_functions(monkeypatch)
     refined_payload = valid_spec_payload() | {"name": "Ops Status Refreshed"}

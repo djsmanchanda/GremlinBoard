@@ -157,6 +157,38 @@ def test_backend_user_prompt_embeds_extra_guidance_when_present() -> None:
     assert "distinct backend guidance marker RRR222" in rendered_with
 
 
+def test_refinement_prompts_embed_config_schema_and_existing_backend() -> None:
+    spec = _sample_spec()
+    blueprint = prompts.BLUEPRINT_EXAMPLE_FEED_LIST
+    config_schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {"offset": {"type": "integer", "minimum": 0, "default": 0}},
+        "required": [],
+    }
+    previous_backend = "import asyncio\n\nBASELINE_CACHE_MARKER = True\n"
+
+    refine_rendered = prompts.refine_spec_user_prompt(
+        spec=spec,
+        blueprint=blueprint,
+        feedback="add page controls",
+        config_schema=config_schema,
+    )
+    backend_rendered = prompts.backend_user_prompt(
+        spec=spec,
+        blueprint=blueprint,
+        extra_guidance="add page controls",
+        config_schema=config_schema,
+        previous_backend_source=previous_backend,
+    )
+
+    assert '"offset"' in refine_rendered
+    assert '"offset"' in backend_rendered
+    assert "BASELINE_CACHE_MARKER" in backend_rendered
+    assert "incremental refinement" in backend_rendered
+    assert "add page controls" in backend_rendered
+
+
 def test_repair_user_prompt_embeds_stage_and_errors() -> None:
     rendered = prompts.repair_user_prompt(
         stage="blueprint",
