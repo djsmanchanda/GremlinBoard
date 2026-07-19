@@ -27,6 +27,10 @@ test.describe("blueprint widget", () => {
     await expect(page.getByText("api rollout", { exact: true })).toBeVisible();
     await expect(page.getByText("web rollout", { exact: true })).toBeVisible();
     await expect(page.getByText("worker rollout", { exact: true })).toHaveCount(0);
+    const headlineLink = page.getByRole("link", { name: /api rollout/ });
+    await expect(headlineLink).toHaveAttribute("href", "https://example.com/deployments/api");
+    await expect(headlineLink).toHaveAttribute("target", "_blank");
+    await expect(headlineLink).toHaveAttribute("rel", "noopener noreferrer");
 
     // Progress primitive renders its label and percentage.
     await expect(page.getByText("Rollout", { exact: true })).toBeVisible();
@@ -37,6 +41,21 @@ test.describe("blueprint widget", () => {
 
     // The renderer-unavailable fallback must not appear for blueprint widgets.
     await expect(page.getByText("Renderer unavailable")).toHaveCount(0);
+
+    const refreshRequestPromise = page.waitForRequest(
+      (request) => request.method() === "POST" && request.url().endsWith("/api/board/widgets/widget-deploy-monitor/refresh"),
+    );
+    await page.getByRole("button", { name: "Refresh deployments" }).click();
+    await refreshRequestPromise;
+
+    const configRequestPromise = page.waitForRequest(
+      (request) => request.method() === "PATCH" && request.url().endsWith("/api/board/widgets/widget-deploy-monitor"),
+    );
+    await page.getByRole("button", { name: "Load next 5" }).click();
+    const configRequest = await configRequestPromise;
+    expect(configRequest.postDataJSON()).toEqual({
+      config: { filter: "active", limit: 5, offset: 5 },
+    });
 
     expect(card).toBeDefined();
     expect(badHttpResponses.all(), badHttpResponses.summary()).toEqual([]);
@@ -131,9 +150,24 @@ const deployMonitorBlueprint = {
             primary_path: "title",
             secondary_path: "env",
             meta_path: "duration",
+            href_path: "url",
             status_path: "status",
             status_map: { ok: "ok", warn: "warn", failed: "critical" },
           },
+        },
+        {
+          type: "row",
+          gap: "sm",
+          children: [
+            { type: "action_button", label: "Refresh deployments", action: "refresh", style: "secondary" },
+            {
+              type: "action_button",
+              label: "Load next 5",
+              action: "config_patch",
+              config_patch: { offset: 5 },
+              style: "primary",
+            },
+          ],
         },
       ],
     },
@@ -167,13 +201,19 @@ const mockBoard = {
       title: "Deploy Monitor",
       size: "2x2",
       position_index: 0,
-      config: {},
+      config: { filter: "active", limit: 5, offset: 0 },
       state: {
         output: { score: 87, health: "healthy", progress: 64 },
         items: [
-          { title: "api rollout", env: "prod", duration: "4m12s", status: "ok" },
-          { title: "web rollout", env: "prod", duration: "2m03s", status: "warn" },
-          { title: "worker rollout", env: "prod", duration: "7m44s", status: "failed" },
+          {
+            title: "api rollout",
+            env: "prod",
+            duration: "4m12s",
+            status: "ok",
+            url: "https://example.com/deployments/api",
+          },
+          { title: "web rollout", env: "prod", duration: "2m03s", status: "warn", url: "" },
+          { title: "worker rollout", env: "prod", duration: "7m44s", status: "failed", url: null },
         ],
       },
       lifecycle_state: "running",

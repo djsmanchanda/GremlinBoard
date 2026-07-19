@@ -83,6 +83,7 @@ export interface ListItem {
   primary_path: string;
   secondary_path?: string;
   meta_path?: string;
+  href_path?: string;
   status_path?: string;
   status_map?: BlueprintStatusMap;
 }
@@ -145,6 +146,24 @@ export interface EmptyStateNode extends BlueprintNodeBase {
   show_if_empty_path: string;
 }
 
+interface ActionButtonNodeBase extends BlueprintNodeBase {
+  type: "action_button";
+  label: string;
+  style?: "primary" | "secondary";
+}
+
+export interface RefreshActionButtonNode extends ActionButtonNodeBase {
+  action: "refresh";
+  config_patch?: never;
+}
+
+export interface ConfigPatchActionButtonNode extends ActionButtonNodeBase {
+  action: "config_patch";
+  config_patch: Record<string, unknown> | null;
+}
+
+export type ActionButtonNode = RefreshActionButtonNode | ConfigPatchActionButtonNode;
+
 export type LayoutNode = StackNode | RowNode | GridNode | ScrollNode;
 export type PrimitiveNode =
   | StatNode
@@ -156,7 +175,8 @@ export type PrimitiveNode =
   | ProgressNode
   | SparklineNode
   | TimerNode
-  | EmptyStateNode;
+  | EmptyStateNode
+  | ActionButtonNode;
 export type BlueprintNode = LayoutNode | PrimitiveNode;
 
 export interface BlueprintLayouts {
@@ -180,6 +200,40 @@ const LAYOUT_TYPES = new Set(["stack", "row", "grid", "scroll"]);
 
 export function isLayoutNode(node: BlueprintNode): node is LayoutNode {
   return LAYOUT_TYPES.has(node.type);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function hasValidActionButtons(node: unknown): boolean {
+  if (!node || typeof node !== "object" || Array.isArray(node)) {
+    return true;
+  }
+
+  const candidate = node as Record<string, unknown>;
+  if (candidate.type === "action_button") {
+    const hasConfigPatch = Object.prototype.hasOwnProperty.call(candidate, "config_patch");
+    const hasValidStyle =
+      candidate.style === undefined || candidate.style === "primary" || candidate.style === "secondary";
+    if (typeof candidate.label !== "string" || !hasValidStyle) {
+      return false;
+    }
+    if (candidate.action === "refresh") {
+      return !hasConfigPatch;
+    }
+    if (candidate.action === "config_patch") {
+      return hasConfigPatch && (candidate.config_patch === null || isPlainObject(candidate.config_patch));
+    }
+    return false;
+  }
+
+  const children = candidate.children;
+  return !Array.isArray(children) || children.every((child) => hasValidActionButtons(child));
 }
 
 /**
@@ -345,6 +399,9 @@ export function parseBlueprint(raw: unknown): Blueprint | null {
   }
   const medium = (layouts as Record<string, unknown>).medium;
   if (!medium || typeof medium !== "object") {
+    return null;
+  }
+  if (!Object.values(layouts).every((layout) => layout === undefined || hasValidActionButtons(layout))) {
     return null;
   }
   return candidate as unknown as Blueprint;

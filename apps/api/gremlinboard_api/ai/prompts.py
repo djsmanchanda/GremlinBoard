@@ -369,8 +369,12 @@ Primitive nodes (leaves):
 - `badge_row`: {{type, items:[{{label_path OR literal, status_path?, status_map?}}]}}.
   Compact status chips in a row.
 - `list`: {{type, items_path, limit?, item:{{primary_path, secondary_path?, meta_path?,
-  status_path?, status_map?}}}}. `items_path` points at an array; the item paths are
-  relative to each array element. This is the feed/headline primitive.
+  href_path?, status_path?, status_map?}}}}. `items_path` points at an array; the item
+  paths are relative to each array element. `href_path` resolves to a URL string and
+  opens the item in a new tab. This is the feed/headline primitive.
+- `action_button`: {{type, label, action("refresh"|"config_patch"), config_patch?,
+  style?("primary"|"secondary")}}. `refresh` requires no config patch; `config_patch`
+  requires a non-empty object merged into the widget's own config (for pagination).
 - `table`: {{type, items_path, limit?, columns:[{{header, value_path, align?}}]}}. Use at
   wide/large tiers when rows+columns communicate better than a list.
 - `key_value`: {{type, entries:[{{label, value_path}}] OR entries_path}}. Small label/value
@@ -539,6 +543,7 @@ BLUEPRINT_EXAMPLE_FEED_LIST: dict[str, Any] = {
                         "primary_path": "title",
                         "secondary_path": "source",
                         "meta_path": "published_at",
+                        "href_path": "url",
                         "status_path": "status",
                         "status_map": {"new": "ok", "stale": "neutral"},
                     },
@@ -547,6 +552,12 @@ BLUEPRINT_EXAMPLE_FEED_LIST: dict[str, Any] = {
                     "type": "empty_state",
                     "message": "No stories yet",
                     "show_if_empty_path": "items",
+                },
+                {
+                    "type": "action_button",
+                    "label": "Refresh",
+                    "action": "refresh",
+                    "style": "secondary",
                 },
             ],
         },

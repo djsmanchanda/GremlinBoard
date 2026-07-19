@@ -63,6 +63,7 @@ def sample_blueprint() -> dict[str, Any]:
                             "primary_path": "title",
                             "secondary_path": "detail",
                             "meta_path": "age",
+                            "href_path": "url",
                             "status_path": "severity",
                             "status_map": {"critical": "critical", "warning": "warn"},
                         },
@@ -139,6 +140,72 @@ def test_valid_full_featured_blueprint_parses() -> None:
     assert blueprint.layouts.medium.type == "grid"
 
 
+def test_list_item_href_path_validates() -> None:
+    blueprint = validate_blueprint(sample_blueprint())
+    list_node = blueprint.layouts.medium.children[3]
+
+    assert list_node.type == "list"
+    assert list_node.item.href_path == "url"
+
+
+def test_action_button_refresh_validates_with_null_config_patch() -> None:
+    data = sample_blueprint()
+    data["layouts"]["medium"] = {
+        "type": "action_button",
+        "label": "Refresh",
+        "action": "refresh",
+        "config_patch": None,
+        "style": "primary",
+    }
+
+    button = validate_blueprint(data).layouts.medium
+
+    assert button.type == "action_button"
+    assert button.config_patch is None
+
+
+def test_action_button_config_patch_validates_with_non_empty_patch() -> None:
+    data = sample_blueprint()
+    data["layouts"]["medium"] = {
+        "type": "action_button",
+        "label": "Next 5",
+        "action": "config_patch",
+        "config_patch": {"offset": 5},
+        "style": "secondary",
+    }
+
+    button = validate_blueprint(data).layouts.medium
+
+    assert button.type == "action_button"
+    assert button.config_patch == {"offset": 5}
+
+
+def test_action_button_config_patch_rejects_missing_patch() -> None:
+    data = sample_blueprint()
+    data["layouts"]["medium"] = {
+        "type": "action_button",
+        "label": "Next 5",
+        "action": "config_patch",
+        "config_patch": None,
+    }
+
+    with pytest.raises(ValueError, match="non-empty config_patch"):
+        validate_blueprint(data)
+
+
+def test_action_button_refresh_rejects_config_patch() -> None:
+    data = sample_blueprint()
+    data["layouts"]["medium"] = {
+        "type": "action_button",
+        "label": "Refresh",
+        "action": "refresh",
+        "config_patch": {"offset": 0},
+    }
+
+    with pytest.raises(ValueError, match="config_patch must be None"):
+        validate_blueprint(data)
+
+
 def test_unknown_node_type_rejected() -> None:
     data = sample_blueprint()
     data["layouts"]["medium"]["children"][0]["type"] = "chart"
@@ -203,6 +270,7 @@ def test_collect_binding_paths_returns_every_referenced_dot_path() -> None:
         "output.summary",
         "severity",
         "title",
+        "url",
     }
 
 

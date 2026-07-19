@@ -171,6 +171,7 @@
         "primary_path": {"$ref": "#/$defs/dotPath"},
         "secondary_path": {"$ref": "#/$defs/dotPath"},
         "meta_path": {"$ref": "#/$defs/dotPath"},
+        "href_path": {"$ref": "#/$defs/dotPath"},
         "status_path": {"$ref": "#/$defs/dotPath"},
         "status_map": {"$ref": "#/$defs/statusMap"}
       },
@@ -270,6 +271,32 @@
       },
       "additionalProperties": false
     },
+    "actionButtonNode": {
+      "type": "object",
+      "required": ["type", "label", "action"],
+      "properties": {
+        "type": {"const": "action_button"},
+        "show_if": {"$ref": "#/$defs/showIf"},
+        "label": {"type": "string", "minLength": 1},
+        "action": {"enum": ["refresh", "config_patch"]},
+        "config_patch": {"type": ["object", "null"]},
+        "style": {"enum": ["primary", "secondary"]}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"action": {"const": "config_patch"}},
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["config_patch"],
+            "properties": {"config_patch": {"type": "object", "minProperties": 1}}
+          },
+          "else": {"properties": {"config_patch": {"type": "null"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
     "node": {
       "oneOf": [
         {"$ref": "#/$defs/stackNode"},
@@ -285,7 +312,8 @@
         {"$ref": "#/$defs/progressNode"},
         {"$ref": "#/$defs/sparklineNode"},
         {"$ref": "#/$defs/timerNode"},
-        {"$ref": "#/$defs/emptyStateNode"}
+        {"$ref": "#/$defs/emptyStateNode"},
+        {"$ref": "#/$defs/actionButtonNode"}
       ]
     }
   }

@@ -98,6 +98,7 @@ class ListItem(BlueprintModel):
     primary_path: DotPath
     secondary_path: DotPath | None = None
     meta_path: DotPath | None = None
+    href_path: DotPath | None = None
     status_path: DotPath | None = None
     status_map: dict[str, StatusColor] | None = None
 
@@ -172,6 +173,22 @@ class EmptyStateNode(NodeBase):
     show_if_empty_path: DotPath
 
 
+class ActionButtonNode(NodeBase):
+    type: Literal["action_button"]
+    label: str = Field(min_length=1)
+    action: Literal["refresh", "config_patch"]
+    config_patch: dict[str, Any] | None = None
+    style: Literal["primary", "secondary"] | None = None
+
+    @model_validator(mode="after")
+    def validate_config_patch(self) -> ActionButtonNode:
+        if self.action == "config_patch" and not self.config_patch:
+            raise ValueError("config_patch action requires a non-empty config_patch")
+        if self.action == "refresh" and self.config_patch is not None:
+            raise ValueError("config_patch must be None for refresh action")
+        return self
+
+
 BlueprintNode = Annotated[
     StackNode
     | RowNode
@@ -186,7 +203,8 @@ BlueprintNode = Annotated[
     | ProgressNode
     | SparklineNode
     | TimerNode
-    | EmptyStateNode,
+    | EmptyStateNode
+    | ActionButtonNode,
     Field(discriminator="type"),
 ]
 
@@ -249,6 +267,7 @@ def collect_binding_paths(blueprint: Blueprint) -> set[str]:
             add(node.item.primary_path)
             add(node.item.secondary_path)
             add(node.item.meta_path)
+            add(node.item.href_path)
             add(node.item.status_path)
         elif isinstance(node, TableNode):
             add(node.items_path)
@@ -298,6 +317,7 @@ for model in (
     SparklineNode,
     TimerNode,
     EmptyStateNode,
+    ActionButtonNode,
     BlueprintLayouts,
     Blueprint,
 ):

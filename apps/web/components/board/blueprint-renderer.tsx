@@ -11,8 +11,9 @@ import {
   type BlueprintNode,
   type LayoutNode,
 } from "@/lib/blueprint";
-import type { WidgetRendererProps } from "@/lib/types";
+import type { JsonObject, WidgetRendererProps } from "@/lib/types";
 import {
+  ActionButtonPrimitive,
   BadgeRowPrimitive,
   EmptyStatePrimitive,
   KeyValuePrimitive,
@@ -27,7 +28,8 @@ import {
 
 /**
  * Universal blueprint renderer (P2.2). Renders any valid `view.blueprint.json`
- * document against `widget.state` using design-system-native primitives.
+ * document against `widget.state` using design-system-native display and
+ * action-button primitives.
  * De-carded aesthetic: dividers and spacing instead of nested bordered boxes.
  */
 
@@ -47,11 +49,34 @@ function gapClass(gap: BlueprintGap | undefined, compact: boolean): string {
   return GAP_CLASS[gap ?? (compact ? "sm" : "md")] ?? GAP_CLASS.md;
 }
 
-function LayoutContainer({ node, state, compact }: { node: LayoutNode; state: unknown; compact: boolean }) {
+interface BlueprintNodeViewProps {
+  node: BlueprintNode;
+  state: unknown;
+  compact: boolean;
+  widgetId: string;
+  currentConfig: JsonObject;
+  onUpdateConfig?: (config: JsonObject) => void | Promise<void>;
+}
+
+function LayoutContainer({
+  node,
+  state,
+  compact,
+  widgetId,
+  currentConfig,
+  onUpdateConfig,
+}: Omit<BlueprintNodeViewProps, "node"> & { node: LayoutNode }) {
   const children = Array.isArray(node.children) ? node.children : [];
   const rendered = children.map((child, index) => (
     <Fragment key={index}>
-      <BlueprintNodeView node={child} state={state} compact={compact} />
+      <BlueprintNodeView
+        node={child}
+        state={state}
+        compact={compact}
+        widgetId={widgetId}
+        currentConfig={currentConfig}
+        onUpdateConfig={onUpdateConfig}
+      />
     </Fragment>
   ));
 
@@ -72,7 +97,14 @@ function LayoutContainer({ node, state, compact }: { node: LayoutNode; state: un
   }
 }
 
-function BlueprintNodeView({ node, state, compact }: { node: BlueprintNode; state: unknown; compact: boolean }) {
+function BlueprintNodeView({
+  node,
+  state,
+  compact,
+  widgetId,
+  currentConfig,
+  onUpdateConfig,
+}: BlueprintNodeViewProps) {
   if (!node || typeof node !== "object" || typeof node.type !== "string") {
     return null;
   }
@@ -80,7 +112,16 @@ function BlueprintNodeView({ node, state, compact }: { node: BlueprintNode; stat
     return null;
   }
   if (isLayoutNode(node)) {
-    return <LayoutContainer node={node} state={state} compact={compact} />;
+    return (
+      <LayoutContainer
+        node={node}
+        state={state}
+        compact={compact}
+        widgetId={widgetId}
+        currentConfig={currentConfig}
+        onUpdateConfig={onUpdateConfig}
+      />
+    );
   }
 
   switch (node.type) {
@@ -104,6 +145,17 @@ function BlueprintNodeView({ node, state, compact }: { node: BlueprintNode; stat
       return <TimerPrimitive node={node} state={state} compact={compact} />;
     case "empty_state":
       return <EmptyStatePrimitive node={node} state={state} compact={compact} />;
+    case "action_button":
+      return (
+        <ActionButtonPrimitive
+          node={node}
+          state={state}
+          compact={compact}
+          widgetId={widgetId}
+          currentConfig={currentConfig}
+          onUpdateConfig={onUpdateConfig}
+        />
+      );
     default:
       // Unknown primitive from a newer contract version: skip, never crash.
       return null;
@@ -118,7 +170,7 @@ function BlueprintFallback({ message }: { message: string }) {
   );
 }
 
-export function BlueprintRenderer({ widget }: WidgetRendererProps) {
+export function BlueprintRenderer({ widget, onUpdateConfig }: WidgetRendererProps) {
   const blueprint = parseBlueprint(widget.blueprint ?? null);
   if (!blueprint) {
     return <BlueprintFallback message="Widget view unavailable: invalid blueprint." />;
@@ -133,7 +185,14 @@ export function BlueprintRenderer({ widget }: WidgetRendererProps) {
 
   return (
     <div className={`flex h-full min-h-0 flex-col overflow-hidden ${compact ? "gap-1" : "gap-2"}`}>
-      <BlueprintNodeView node={layout.node} state={widget.state} compact={compact} />
+      <BlueprintNodeView
+        node={layout.node}
+        state={widget.state}
+        compact={compact}
+        widgetId={widget.id}
+        currentConfig={widget.config}
+        onUpdateConfig={onUpdateConfig}
+      />
     </div>
   );
 }

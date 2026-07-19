@@ -2,11 +2,13 @@
 
 import { useEffect, useState, type ReactElement } from "react";
 
+import { refreshWidget } from "@/lib/api";
 import {
   EM_DASH,
   evaluateShowIf,
   resolvePath,
   resolveStatusColor,
+  type ActionButtonNode,
   type BadgeRowNode,
   type BlueprintStatusColor,
   type EmptyStateNode,
@@ -19,6 +21,7 @@ import {
   type TextNode,
   type TimerNode,
 } from "@/lib/blueprint";
+import type { JsonObject } from "@/lib/types";
 
 /**
  * Design-system-native leaf primitives for the universal blueprint renderer.
@@ -169,9 +172,11 @@ export function ListPrimitive({ node, state, compact }: PrimitiveProps<ListNode>
         const primary = resolvePath(entry, node.item.primary_path);
         const secondary = node.item.secondary_path ? resolvePath(entry, node.item.secondary_path) : undefined;
         const meta = node.item.meta_path ? resolvePath(entry, node.item.meta_path) : undefined;
+        const href = node.item.href_path ? resolvePath(entry, node.item.href_path) : undefined;
         const status = resolveStatusColor(entry, node.item.status_path, node.item.status_map);
-        return (
-          <div key={index} className={`flex items-center gap-2 ${compact ? "py-1.5" : "py-2"} first:pt-0`}>
+        const rowClass = `flex items-center gap-2 ${compact ? "py-1.5" : "py-2"} first:pt-0`;
+        const row = (
+          <>
             {status ? <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[status]}`} aria-hidden /> : null}
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-medium text-slate-100">{displayValue(primary)}</p>
@@ -182,6 +187,21 @@ export function ListPrimitive({ node, state, compact }: PrimitiveProps<ListNode>
             {meta !== undefined && meta !== null && meta !== "" ? (
               <span className="shrink-0 text-[10px] tabular-nums text-slate-400">{displayValue(meta)}</span>
             ) : null}
+          </>
+        );
+        return typeof href === "string" && href.trim().length > 0 ? (
+          <a
+            key={index}
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`${rowClass} transition hover:bg-white/[0.03] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/60`}
+          >
+            {row}
+          </a>
+        ) : (
+          <div key={index} className={rowClass}>
+            {row}
           </div>
         );
       })}
@@ -189,6 +209,56 @@ export function ListPrimitive({ node, state, compact }: PrimitiveProps<ListNode>
   );
 }
 
+interface ActionButtonPrimitiveProps extends PrimitiveProps<ActionButtonNode> {
+  widgetId: string;
+  currentConfig: JsonObject;
+  onUpdateConfig?: (config: JsonObject) => void | Promise<void>;
+}
+
+export function ActionButtonPrimitive({
+  node,
+  compact,
+  widgetId,
+  currentConfig,
+  onUpdateConfig,
+}: ActionButtonPrimitiveProps) {
+  const [pending, setPending] = useState(false);
+  const primary = node.style !== "secondary";
+  const disabled = pending || (node.action === "config_patch" && !onUpdateConfig);
+  const weightClass = primary
+    ? "border-accent/30 bg-accent/10 text-accent hover:bg-accent/16"
+    : "border-edge bg-surface-inset text-slate-300 hover:bg-surface-raised hover:text-slate-100";
+
+  async function handleClick() {
+    if (disabled) {
+      return;
+    }
+
+    setPending(true);
+    try {
+      if (node.action === "refresh") {
+        await refreshWidget(widgetId);
+      } else if (onUpdateConfig) {
+        await onUpdateConfig({ ...currentConfig, ...node.config_patch } as JsonObject);
+      }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handleClick().catch(() => undefined)}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center rounded-control border font-medium uppercase tracking-[0.12em] transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        compact ? "px-2 py-1 text-[10px]" : "px-2.5 py-1.5 text-[10px]"
+      } ${weightClass}`}
+    >
+      {pending ? `${node.label}...` : node.label}
+    </button>
+  );
+}
 const ALIGN_CLASS: Record<"left" | "center" | "right", string> = {
   left: "text-left",
   center: "text-center",
